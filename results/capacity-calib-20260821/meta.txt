@@ -1,0 +1,9 @@
+freeze_commit=21253a8
+cooling=fan
+target=king
+ladder=2208 1608 1200 1008 816 600
+reps=2
+nodes=3
+conc=36
+conns_per_node=2
+policy=round-robin

@@ -1,0 +1,20 @@
+=== S3.7 (rps, freeze ede2d76, 5라운드) ===
+  r1  rpsoff       conn=2  rps=00   tcp=2  -> 137.3,85.02,117.89,135.61,182.40,22.24,0.023,0.0000
+  r1  rpson        conn=2  rps=fe   tcp=2  -> 135.7,86.38,120.22,139.44,198.68,22.69,0.025,0.0000
+  r2  rpson        conn=2  rps=fe   tcp=2  -> 135.3,86.45,120.67,140.51,184.84,22.50,0.024,0.0000
+  r2  rpsoff       conn=2  rps=00   tcp=2  -> 136.4,85.68,119.41,139.91,197.56,22.38,0.024,0.0000
+  r3  rpsoff       conn=2  rps=00   tcp=2  -> 136.0,85.84,120.40,138.36,211.82,22.44,0.024,0.0000
+  r3  rpson        conn=2  rps=fe   tcp=2  -> 135.4,86.61,118.63,137.14,188.95,22.75,0.025,0.0000
+  r4  rpson        conn=2  rps=fe   tcp=2  -> 136.2,86.11,119.14,138.88,214.29,22.25,0.024,0.0000
+  r4  rpsoff       conn=2  rps=00   tcp=2  -> 137.5,85.23,117.75,135.30,194.52,22.15,0.024,0.0000
+  r5  rpsoff       conn=2  rps=00   tcp=2  -> 136.8,85.21,120.13,139.41,197.67,22.35,0.024,0.0000
+  r5  rpson        conn=2  rps=fe   tcp=2  -> 135.6,86.22,120.03,140.60,174.71,22.59,0.025,0.0000
+--- 원상복구 ---
+  npuforge-k       running
+  npuforge-q       running
+  npuforge-j       DOWN
+  rps_cpus: 00
+
+유효한 run 이 없다.
+cond,round,conns,rps,tcp_conns,throughput,p50_ms,p95_ms,p99_ms,max_ms,net_to_node_ms,node_queue_ms,error_rate
+결과: results/connection-sweep-20260820/

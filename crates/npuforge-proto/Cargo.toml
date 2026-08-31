@@ -1,0 +1,16 @@
+[package]
+name = "npuforge-proto"
+description = "NPUForge gRPC 서비스 정의 및 생성 코드"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+npuforge-common.workspace = true
+tonic = "0.12"
+prost = "0.13"
+
+[build-dependencies]
+tonic-build = "0.12"

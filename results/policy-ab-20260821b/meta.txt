@@ -1,0 +1,7 @@
+freeze_commit=ece4eba
+cooling=fanless
+rounds=4
+preheat_min=12
+nodes=3
+conc=36
+conns_per_node=2

@@ -1,0 +1,20 @@
+[package]
+name = "npuforge-common"
+description = "NPUForge 공통 타입, 오류 코드, 설정 구조체, 백엔드 인터페이스"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+bytes = { version = "1", features = ["serde"] }
+async-trait = "0.1"
+toml = "0.9"
+humantime-serde = "1"
+
+[dev-dependencies]
+serde_json = "1"

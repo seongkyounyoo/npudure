@@ -1,0 +1,52 @@
+# NPUForge Node 설정 예시 (RK3576 실장비용)
+#
+# 스키마 정의: docs/01-TECHSPEC.md §16.2
+# 세 노드 간 차이는 [node] 섹션의 id / advertise_address 두 값으로 제한한다.
+# 나머지 설정, 바이너리, 모델, 런타임 버전은 모두 같아야 한다.
+
+[node]
+id = "king"
+scheduler_address = "http://10.20.0.10:50051"
+listen = "0.0.0.0:51001"
+# 스케줄러가 실제로 접속할 주소. 0.0.0.0 은 사용할 수 없다.
+advertise_address = "10.20.0.21:51001"
+
+[worker]
+# 실측으로 확정한 값이다. 4 대비 +27%, 8에서 아직 꺾이지 않았다.
+# docs/environment-matrix.md §3.1, docs/discuss.md §4 참조.
+#
+# 백엔드가 이 수만큼 RKNN 컨텍스트를 만들어 하나씩 점유한다.
+# 컨텍스트를 공유하면 API 오류 없이 100% 틀린 결과가 나온다.
+worker_count = 8
+max_queue_depth = 32
+queue_timeout_ms = 3000
+
+# 출력을 float32 로 역양자화해 반환할지 여부.
+#
+# false 가 기본이며 이유는 네트워크다. 노드는 후처리를 하지 않고 원시
+# 텐서를 반환하므로 true 면 출력이 입력의 3.96배가 된다. 3노드 포화 시
+# 스케줄러 RX 가 18.4 Gbps 로 10G 로도 부족하다.
+#   want_float = true   출력 4,872,000 byte  → 3노드 RX 18.38 Gbps
+#   want_float = false  출력 1,218,000 byte  → 3노드 RX  4.60 Gbps
+# docs/02-HARDWARE-SETUP.md §3.3.2
+#
+# false 로 받은 데이터는 양자화된 정수다. 응답 blob 이 텐서마다 scale 과
+# zero_point 를 실어 보내므로 받는 쪽이 역양자화한다.
+want_float = false
+
+[backend]
+type = "rknn"
+runtime_library = "/usr/lib/librknnrt.so"
+
+[models]
+directory = "/opt/npuforge/models"
+preload = ["yolov8n"]
+warmup_runs = 3
+
+[telemetry]
+json_log = true
+log_level = "info"
+# ⚠️ 아직 구현되지 않았다 (M2). 켜도 메트릭 엔드포인트가 뜨지 않는다.
+prometheus = false
+heartbeat_interval_ms = 1000
+temperature_path = "/sys/class/thermal/thermal_zone0/temp"

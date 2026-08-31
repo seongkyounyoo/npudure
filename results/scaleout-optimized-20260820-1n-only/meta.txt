@@ -1,0 +1,4 @@
+freeze_commit=0af696d
+conns_per_node=2
+duration=60
+reps=3

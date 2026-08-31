@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: fmt / clippy / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # protoc 는 러너 이미지에 들어 있지 않다. README 전제 조건과 같은 방법으로
+      # 설치한다 — 문서가 시키는 절차가 CI 에서도 실제로 통하는지 함께 확인된다.
+      - name: protoc 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      # npuforge-rknn 의 rknn feature는 기본으로 꺼져 있으므로
+      # librknnrt.so 없이도 전체 워크스페이스가 검사된다.
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --all-targets
+
+      - name: cargo doc
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  cross-build-arm64:
+    name: aarch64 크로스 빌드
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      # protoc 는 빌드 호스트에서 도는 코드 생성기다. 크로스 빌드에서도
+      # 타깃이 아니라 호스트(x86_64) 쪽 도구로 필요하다.
+      - name: 크로스 툴체인 · protoc 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross protobuf-compiler
+
+      # 노드 바이너리가 ARM64로 빌드되는지 확인한다.
+      # RKNN 링크는 실장비 SDK가 필요하므로 CI에서는 feature를 켜지 않는다.
+      # docs/environment-matrix.md §3 확정 후 self-hosted runner로 분리한다.
+      - name: 노드 바이너리 크로스 빌드 (rknn off)
+        run: cargo build --release --target aarch64-unknown-linux-gnu -p npuforge-node
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
+  security:
+    name: 의존성 감사
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo-deny 설치
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check licenses bans advisories sources

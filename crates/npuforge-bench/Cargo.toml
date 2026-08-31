@@ -1,0 +1,30 @@
+[package]
+name = "npuforge-bench"
+description = "NPUForge 벤치마크 CLI. 부하 발생, 지연 분포 집계, run 유효성 판정"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "npuforge_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "npuforge-bench"
+path = "src/main.rs"
+
+[dependencies]
+npuforge-common.workspace = true
+npuforge-proto.workspace = true
+bytes = "1"
+tonic = "0.12"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "test-util"] }

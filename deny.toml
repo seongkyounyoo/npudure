@@ -1,0 +1,30 @@
+# cargo-deny 설정.
+#
+# 오픈소스 공개 시 제3자 라이선스를 목록화해야 한다.
+# docs/03-DEVELOPMENT-REQUIREMENTS.md §5.1 참조.
+
+[licenses]
+# NPUForge 자체는 Apache-2.0이다. 의존성은 이와 호환되는 것만 허용한다.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[advisories]
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

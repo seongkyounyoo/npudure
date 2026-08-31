@@ -1,0 +1,36 @@
+# Mock 3노드 로컬 클러스터 - 노드 1 (기준 속도)
+#
+# 실제 NanoPi 없이 스케줄링, 장애 감지, 복구를 검증하기 위한 설정이다.
+# 세 노드의 speed_factor를 다르게 두어 Round Robin과 ECT의 차이가
+# 로컬에서도 드러나게 한다.
+
+[node]
+id = "mock-01"
+scheduler_address = "http://127.0.0.1:50051"
+listen = "127.0.0.1:51001"
+advertise_address = "127.0.0.1:51001"
+
+[worker]
+# Mock 은 의도적으로 1 이다. 큐가 쌓여야 스케줄링 정책의 차이와
+# 재시도 경로가 로컬에서 드러난다. 실장비 값은 8 이다
+# (configs/node.example.toml).
+worker_count = 1
+max_queue_depth = 32
+queue_timeout_ms = 3000
+
+[backend]
+type = "mock"
+base_latency_ms = 20
+jitter_ms = 5
+error_rate = 0.0
+speed_factor = 1.0
+
+[models]
+directory = "./examples/models"
+preload = ["yolov8n"]
+warmup_runs = 3
+
+[telemetry]
+json_log = false
+log_level = "info"
+heartbeat_interval_ms = 1000

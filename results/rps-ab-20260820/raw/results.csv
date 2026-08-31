@@ -1,0 +1,7 @@
+cond,round,rps_cpus,throughput,cpu0_soft
+off,1,00,115.6,50.45
+on,1,fe,116.5,42.42
+on,2,fe,114.8,41.86
+off,2,00,115.3,50.86
+off,3,00,116.7,51.33
+on,3,fe,115.5,41.98

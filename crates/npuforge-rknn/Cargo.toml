@@ -1,0 +1,38 @@
+[package]
+name = "npuforge-rknn"
+description = "RKNN Runtime FFI 및 안전한 Rust 래퍼. unsafe 코드는 이 크레이트로 제한한다"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# librknnrt.so가 없는 환경에서 실수로 발행되지 않도록 한다.
+publish = false
+
+[features]
+# 기본값은 꺼져 있다.
+#
+# 이 크레이트는 workspace 멤버지만 개발 PC(Windows/x86)에서도
+# `cargo build --workspace`가 통과해야 한다. RKNN 링크는 명시적으로
+# 이 feature를 켰을 때만 일어난다.
+#
+#   cargo build -p npuforge-node --features rknn --target aarch64-unknown-linux-gnu
+default = []
+rknn = []
+
+[dependencies]
+npuforge-common.workspace = true
+async-trait = "0.1"
+thiserror = "2"
+tokio = { version = "1", features = ["sync", "rt"] }
+bytes = "1"
+tracing = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+cc = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

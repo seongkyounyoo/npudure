@@ -1,0 +1,294 @@
+// NPUForge gRPC 프로토콜.
+//
+// docs/01-TECHSPEC.md §7 을 따른다.
+//
+// 호환성 규칙:
+//   필드를 삭제하지 않는다. 사용하지 않게 되면 reserved 로 표시한다.
+//   필드 번호를 재사용하지 않는다.
+//   오류 코드는 문자열(NPF-xxxx)로 전달해 프로토콜 변경 없이 확장한다.
+
+syntax = "proto3";
+
+package npuforge.v1;
+
+// ---------------------------------------------------------------------------
+// 공통
+// ---------------------------------------------------------------------------
+
+// 입력 데이터 형식. npuforge_common::protocol::InputFormat 과 대응한다.
+enum InputFormat {
+  INPUT_FORMAT_UNSPECIFIED = 0;
+  INPUT_FORMAT_JPEG = 1;
+  INPUT_FORMAT_PNG = 2;
+  INPUT_FORMAT_RGB8 = 3;
+  INPUT_FORMAT_BGR8 = 4;
+}
+
+// 노드 상태. npuforge_common::protocol::NodeState 와 대응한다.
+enum NodeState {
+  NODE_STATE_UNSPECIFIED = 0;
+  NODE_STATE_REGISTERING = 1;
+  NODE_STATE_HEALTHY = 2;
+  NODE_STATE_BUSY = 3;
+  NODE_STATE_DEGRADED = 4;
+  NODE_STATE_UNREACHABLE = 5;
+  NODE_STATE_RECOVERING = 6;
+  NODE_STATE_DRAINING = 7;
+  NODE_STATE_DISABLED = 8;
+}
+
+enum ModelState {
+  MODEL_STATE_UNSPECIFIED = 0;
+  MODEL_STATE_UNLOADED = 1;
+  MODEL_STATE_LOADING = 2;
+  MODEL_STATE_READY = 3;
+  MODEL_STATE_FAILED = 4;
+  MODEL_STATE_DRAINING = 5;
+}
+
+// 단계별 소요시간. 모든 값은 마이크로초.
+//
+// 각 장치는 자신이 측정한 duration 만 채운다.
+// 서로 다른 장치의 절대 시각을 비교하지 않는다.
+// docs/02-HARDWARE-SETUP.md §10.1 참조.
+message Timing {
+  // 스케줄러가 측정
+  uint64 scheduler_queue_us = 1;
+  uint64 scheduler_route_us = 2;
+  uint64 network_to_node_us = 3;
+
+  // 노드가 측정해 응답에 실어 보낸다
+  uint64 node_queue_us = 4;
+  uint64 decode_us = 5;
+  uint64 preprocess_us = 6;
+  uint64 npu_input_us = 7;
+  uint64 inference_us = 8;
+  uint64 postprocess_us = 9;
+
+  // 스케줄러가 측정
+  uint64 network_to_client_us = 10;
+  uint64 end_to_end_us = 11;
+}
+
+message ModelDescriptor {
+  string id = 1;
+  string version = 2;
+  ModelState state = 3;
+  // 세 노드가 같은 모델을 로딩했는지 확인하는 기준
+  string sha256 = 4;
+}
+
+message NodeDescriptor {
+  string node_id = 1;
+  string hostname = 2;
+  // 스케줄러가 접속할 주소. 노드 설정의 advertise_address
+  string address = 3;
+  string device_type = 4;
+  string npu_type = 5;
+  uint32 npu_core_count = 6;
+  uint64 memory_bytes = 7;
+  // 세 노드가 같아야 한다
+  string agent_version = 8;
+  string runtime_version = 9;
+  repeated ModelDescriptor models = 10;
+}
+
+// 노드가 하트비트로 보고하는 동적 상태
+message NodeHealth {
+  uint32 queue_depth = 1;
+  uint32 in_flight = 2;
+  // 최근 윈도우 오류율 0.0 ~ 1.0
+  double error_rate = 3;
+
+  // 센서가 없거나 읽지 못하면 has_* 를 false 로 둔다
+  bool has_temperature = 4;
+  double temperature_c = 5;
+  bool has_cpu_percent = 6;
+  double cpu_percent = 7;
+  bool has_memory_percent = 8;
+  double memory_percent = 9;
+  bool has_npu_percent = 10;
+  double npu_percent = 11;
+
+  // 전원 입력 전압. 강하는 리셋의 선행 지표다.
+  // docs/environment-matrix.md §8.2 참조.
+  bool has_input_voltage = 12;
+  double input_voltage_v = 13;
+
+  // 부팅 식별자. run 도중 값이 바뀌면 노드가 재시작한 것이며
+  // 해당 구간의 측정은 무효로 처리한다.
+  string boot_id = 14;
+}
+
+// ---------------------------------------------------------------------------
+// 외부 추론 API (클라이언트 -> 스케줄러)
+// ---------------------------------------------------------------------------
+
+message InferRequest {
+  // 비우면 스케줄러가 생성한다
+  string request_id = 1;
+  string model_id = 2;
+  bytes payload = 3;
+  InputFormat input_format = 4;
+  // 0 normal, 10 high, -10 low
+  int32 priority = 5;
+  // 0 이면 deadline 없음
+  uint64 deadline_unix_ms = 6;
+  map<string, string> metadata = 7;
+}
+
+message InferResponse {
+  string request_id = 1;
+  // 실제로 처리한 노드
+  string node_id = 2;
+  bytes result = 3;
+  string result_format = 4;
+  Timing timing = 5;
+
+  // NPF-0000 이면 성공
+  string error_code = 6;
+  string error_message = 7;
+  // 스케줄러가 재시도한 횟수
+  uint32 attempts = 8;
+}
+
+// ---------------------------------------------------------------------------
+// 노드 등록 API (노드 -> 스케줄러)
+// ---------------------------------------------------------------------------
+
+message RegisterNodeRequest {
+  NodeDescriptor descriptor = 1;
+  // 설정된 경우에만 검증한다
+  string token = 2;
+}
+
+message RegisterNodeResponse {
+  bool accepted = 1;
+  string error_code = 2;
+  string error_message = 3;
+  // 스케줄러가 원하는 하트비트 주기
+  uint32 heartbeat_interval_ms = 4;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  NodeHealth health = 2;
+}
+
+message HeartbeatResponse {
+  bool accepted = 1;
+  // 스케줄러가 판단한 현재 상태. 노드는 이를 로그에만 사용한다
+  NodeState state = 2;
+  // true 면 노드가 재등록해야 한다 (스케줄러 재시작 등)
+  bool must_reregister = 3;
+}
+
+// 노드 목록 조회. 읽기 전용이다.
+//
+// 벤치마크 도구가 run 전후로 노드 상태를 훑는 데 쓴다. 하트비트로
+// 대신하면 스케줄러가 그것을 실제 관측값으로 기록해 노드 상태를
+// 덮어쓴다 — 측정 직전에 상태를 오염시키게 된다.
+message ListNodesRequest {}
+
+message NodeStatus {
+  NodeDescriptor descriptor = 1;
+  NodeState state = 2;
+  NodeHealth health = 3;
+  // 스케줄러가 관측한 재부팅 횟수. run 유효성 판정에 쓴다.
+  uint32 reboot_count = 4;
+  // 이동평균. 스케줄러의 ECT 계산 입력이기도 하다.
+  bool has_ewma_inference_ms = 5;
+  double ewma_inference_ms = 6;
+  bool has_ewma_network_ms = 7;
+  double ewma_network_ms = 8;
+}
+
+message ListNodesResponse {
+  repeated NodeStatus nodes = 1;
+  // 스케줄러가 사용 중인 정책. 결과 파일에 기록한다.
+  string policy = 2;
+}
+
+message DeregisterNodeRequest {
+  string node_id = 1;
+  string reason = 2;
+}
+
+message DeregisterNodeResponse {
+  bool accepted = 1;
+}
+
+// ---------------------------------------------------------------------------
+// 노드 추론 API (스케줄러 -> 노드)
+// ---------------------------------------------------------------------------
+
+message NodeInferRequest {
+  string request_id = 1;
+  string model_id = 2;
+  bytes payload = 3;
+  InputFormat input_format = 4;
+  // 노드가 로컬 큐 타임아웃 판단에 사용한다
+  uint64 queue_timeout_ms = 5;
+}
+
+message NodeInferResponse {
+  string request_id = 1;
+  bytes result = 2;
+  string result_format = 3;
+  // 노드 구간만 채운다
+  Timing timing = 4;
+  string error_code = 5;
+  string error_message = 6;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  NodeHealth health = 1;
+  // 노드가 스스로 판단한 상태. 스케줄러가 최종 결정한다
+  bool ready = 2;
+}
+
+message ListModelsRequest {}
+
+message ListModelsResponse {
+  repeated ModelDescriptor models = 1;
+}
+
+message WarmupRequest {
+  string model_id = 1;
+  uint32 runs = 2;
+}
+
+message WarmupResponse {
+  bool completed = 1;
+  uint32 runs_done = 2;
+  string error_code = 3;
+  string error_message = 4;
+}
+
+// ---------------------------------------------------------------------------
+// 서비스
+// ---------------------------------------------------------------------------
+
+// 스케줄러가 제공한다. 클라이언트와 노드가 모두 호출한다.
+service SchedulerService {
+  // 클라이언트 -> 스케줄러
+  rpc Infer(InferRequest) returns (InferResponse);
+
+  // 노드 -> 스케줄러
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc DeregisterNode(DeregisterNodeRequest) returns (DeregisterNodeResponse);
+
+  // 운영·벤치마크용 읽기 전용 조회
+  rpc ListNodes(ListNodesRequest) returns (ListNodesResponse);
+}
+
+// 각 노드가 제공한다. 스케줄러만 호출한다.
+service NodeService {
+  rpc Infer(NodeInferRequest) returns (NodeInferResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc ListModels(ListModelsRequest) returns (ListModelsResponse);
+  rpc Warmup(WarmupRequest) returns (WarmupResponse);
+}

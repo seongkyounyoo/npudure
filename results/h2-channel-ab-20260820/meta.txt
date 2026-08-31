@@ -1,0 +1,6 @@
+freeze_commit=11cec9b
+concurrency=32
+duration=60
+rounds=5
+win_stream=8388608
+win_conn=67108864

@@ -1,0 +1,6 @@
+freeze_commit=01f29a2
+concurrency=32
+duration=60
+rounds=3
+rps_on=fe
+rps_off=00

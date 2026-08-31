@@ -1,0 +1,62 @@
+/target/
+**/*.rs.bk
+
+# 벤치마크 원본 결과는 릴리스 시 선별해 커밋한다.
+# 개발 중 생성되는 결과는 추적하지 않는다.
+/benchmarks/results/*
+!/benchmarks/results/.gitkeep
+
+# 모델과 데이터 세트는 저장소에 포함하지 않는다.
+# 재배포 조건은 docs/03-DEVELOPMENT-REQUIREMENTS.md §5.1 참조.
+/datasets/
+# 이미지는 재배포하지 않지만 선택 목록(manifest)은 재현성 기록이므로 남긴다.
+!/datasets/
+!/datasets/*/
+!/datasets/*/manifest.json
+/datasets/*/*.jpg
+/datasets/*/*.png
+/datasets/.*
+*.rknn
+*.onnx
+*.pt
+
+# RKNN SDK 바이너리는 저장소에 포함하지 않는다.
+# 사용자가 공식 경로에서 직접 설치한다.
+librknnrt.so
+/crates/npuforge-rknn/include/*.h
+!/crates/npuforge-rknn/include/.gitkeep
+
+# 대시보드
+/dashboard/node_modules/
+/dashboard/dist/
+
+# 로컬 설정
+/configs/local.*.toml
+.env
+
+# 편집기
+.vscode/
+.idea/
+*.swp
+
+# 정확도 검증 원시 덤프. 24MB 이고 재생성 가능하다.
+# 결론과 재현 절차는 results/accuracy/README.md 에 남긴다.
+results/accuracy/*.bin
+
+# 에디터·도구 로컬 설정. 명령 히스토리가 들어가므로 커밋하지 않는다.
+.claude/
+
+# 벤치 작업용 워크북(사용자 관리, 저장소 제외)
+results/NPUForge_Benchmark_Result_Workbook.md
+
+# 사진 원본은 추적하지 않는다.
+#   배경에 제3자 정보와 사내 게시물이 찍혀 있고, 커밋하면 히스토리에서
+#   되돌릴 수 없다. master 가 비공개라는 것과 별개 문제다 —
+#   "비밀을 없애는 것" 과 "비밀을 만들지 않는 것" 은 다르다.
+#   검수·크롭을 마친 것만 results/photos-public/ 으로 발행한다.
+results/photos/*
+!results/photos/README.md
+
+# audit-secrets.py 가 찾을 값 목록. 값 자체이므로 커밋하지 않는다.
+# 없으면 스크립트가 실패로 종료한다 — 0건 통과가 더 위험하다.
+release/audit-patterns.txt

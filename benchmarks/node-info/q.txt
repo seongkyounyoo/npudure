@@ -1,0 +1,66 @@
+# --- identity ---
+hostname=NanoPi-R76S
+model=FriendlyElec NanoPi R76S
+compatible=friendlyelec,nanopi-r76s rockchip,rk3576 
+serial=<redacted>
+# --- os / kernel ---
+os=Ubuntu 24.04.4 LTS
+kernel=6.1.141
+arch=aarch64
+glibc=2.39
+cpu_governor=ondemand
+uptime_s=60753
+# --- cpu ---
+cpu_model=UNKNOWN
+cpu_count=8
+cpu_max_khz=2016000
+cpufreq_policy0_max_khz=2016000
+cpufreq_policy0_cur_khz=1008000
+cpufreq_policy4_max_khz=2208000
+cpufreq_policy4_cur_khz=1008000
+# --- memory / storage ---
+mem_total_kb=3997784
+mem_available_kb=3119336
+blk_mmcblk2_size_512b=122142720
+blk_mmcblk2boot0_size_512b=8192
+blk_mmcblk2boot1_size_512b=8192
+rootfs_avail=50G
+# --- network ---
+net_eth0_mac=<redacted>
+net_eth0_speed=-1
+net_eth0_operstate=down
+net_eth0_mtu=1500
+net_eth0_ipv4=UNKNOWN
+net_eth1_mac=<redacted>
+net_eth1_speed=1000
+net_eth1_operstate=up
+net_eth1_mtu=1500
+net_eth1_ipv4=192.168.123.16/24
+# --- npu ---
+rknpu_version=UNKNOWN
+rknpu_load=UNKNOWN
+rknpu_driver_dmesg=UNKNOWN
+rknpu_devnode=UNKNOWN
+librknnrt_path=/usr/lib/librknnrt.so
+librknnrt_sha256=73993ed4b440460825f21611731564503cc1d5a0c123746477da6cd574f34885
+librknnrt_version=librknnrt version: 2.3.0 (c949ad889d@2024-11-07T11:35:33)
+rknn_header=/usr/include/rknn_api.h
+# --- thermal ---
+thermal_thermal_zone0_type=soc-thermal
+thermal_thermal_zone0_temp_c=46.2
+thermal_thermal_zone1_type=bigcore-thermal
+thermal_thermal_zone1_temp_c=45.3
+thermal_thermal_zone2_type=little-core-thermal
+thermal_thermal_zone2_temp_c=45.3
+thermal_thermal_zone3_type=ddr-thermal
+thermal_thermal_zone3_temp_c=45.3
+thermal_thermal_zone4_type=npu-thermal
+thermal_thermal_zone4_temp_c=45.3
+thermal_thermal_zone5_type=gpu-thermal
+thermal_thermal_zone5_temp_c=45.3
+# --- toolchain ---
+gcc=gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+rustc=UNKNOWN
+python3=Python 3.12.3
+# --- ssh host key (복제 이미지 확인용) ---
+ssh_host_ed25519_fp=<redacted>

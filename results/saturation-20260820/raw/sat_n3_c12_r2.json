@@ -1,0 +1,257 @@
+{
+  "format_version": 1,
+  "run_id": "yolov8n-c12-n3",
+  "started_at": "unix:1787209375",
+  "conditions": {
+    "scheduler_address": "http://127.0.0.1:50051",
+    "model_id": "yolov8n",
+    "concurrency": 12,
+    "duration_s": 30.0,
+    "requests": null,
+    "payload_bytes": 1228800,
+    "input_format": "rgb8",
+    "payload_seed": 42,
+    "bench_version": "0.1.0",
+    "scheduler_policy": "round-robin",
+    "node_count": 3
+  },
+  "summary": {
+    "total_requests": 7640,
+    "succeeded": 7640,
+    "failed": 0,
+    "error_rate": 0.0,
+    "duration_s": 30.032772927,
+    "throughput": 254.38876451969253,
+    "latency": {
+      "count": 7640,
+      "min": 31105,
+      "p50": 43735,
+      "p90": 61674,
+      "p95": 67407,
+      "p99": 77827,
+      "max": 126345,
+      "mean": 46690
+    },
+    "node_inference": {
+      "count": 7640,
+      "min": 13850,
+      "p50": 17774,
+      "p90": 22758,
+      "p95": 24951,
+      "p99": 30081,
+      "max": 41369,
+      "mean": 18389
+    },
+    "per_node": [
+      {
+        "node_id": "jack",
+        "count": 2547,
+        "share": 0.3333769633507853,
+        "latency": {
+          "count": 2547,
+          "min": 31964,
+          "p50": 42942,
+          "p90": 60132,
+          "p95": 65444,
+          "p99": 74433,
+          "max": 93335,
+          "mean": 45944
+        }
+      },
+      {
+        "node_id": "king",
+        "count": 2546,
+        "share": 0.3332460732984293,
+        "latency": {
+          "count": 2546,
+          "min": 32593,
+          "p50": 45151,
+          "p90": 64679,
+          "p95": 70174,
+          "p99": 80913,
+          "max": 105607,
+          "mean": 48346
+        }
+      },
+      {
+        "node_id": "queen",
+        "count": 2547,
+        "share": 0.3333769633507853,
+        "latency": {
+          "count": 2547,
+          "min": 31105,
+          "p50": 43109,
+          "p90": 59624,
+          "p95": 64805,
+          "p99": 75925,
+          "max": 126345,
+          "mean": 45780
+        }
+      }
+    ],
+    "errors_by_code": [],
+    "retried": 0,
+    "stage_breakdown": {
+      "scheduler_queue": {
+        "count": 7640,
+        "min": 0,
+        "p50": 0,
+        "p90": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "scheduler_route": {
+        "count": 7640,
+        "min": 1,
+        "p50": 3,
+        "p90": 4,
+        "p95": 5,
+        "p99": 13,
+        "max": 69,
+        "mean": 3
+      },
+      "network_to_node": {
+        "count": 7640,
+        "min": 5285,
+        "p50": 8922,
+        "p90": 16216,
+        "p95": 18540,
+        "p99": 22733,
+        "max": 46495,
+        "mean": 10258
+      },
+      "node_queue": {
+        "count": 7640,
+        "min": 0,
+        "p50": 16,
+        "p90": 34,
+        "p95": 45,
+        "p99": 93,
+        "max": 3447,
+        "mean": 25
+      },
+      "decode": {
+        "count": 7640,
+        "min": 0,
+        "p50": 0,
+        "p90": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "preprocess": {
+        "count": 7640,
+        "min": 0,
+        "p50": 0,
+        "p90": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "npu_input": {
+        "count": 7640,
+        "min": 0,
+        "p50": 0,
+        "p90": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "inference": {
+        "count": 7640,
+        "min": 13850,
+        "p50": 17774,
+        "p90": 22758,
+        "p95": 24951,
+        "p99": 30081,
+        "max": 41369,
+        "mean": 18389
+      },
+      "postprocess": {
+        "count": 7640,
+        "min": 0,
+        "p50": 0,
+        "p90": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "network_to_client": {
+        "count": 7640,
+        "min": 5285,
+        "p50": 8922,
+        "p90": 16216,
+        "p95": 18540,
+        "p99": 22733,
+        "max": 46495,
+        "mean": 10258
+      },
+      "end_to_end": {
+        "count": 7640,
+        "min": 25662,
+        "p50": 36434,
+        "p90": 54384,
+        "p95": 59804,
+        "p99": 70302,
+        "max": 118138,
+        "mean": 39459
+      }
+    }
+  },
+  "verdict": {
+    "valid": true,
+    "reasons": []
+  },
+  "nodes_before": [
+    {
+      "node_id": "jack",
+      "boot_id": "83d2981f-2874-479c-bb9a-1db394e96b34",
+      "temperature_c": 36.076,
+      "input_voltage_v": 5.317
+    },
+    {
+      "node_id": "king",
+      "boot_id": "55e42343-731d-4343-9b1e-9bc5cbedf173",
+      "temperature_c": 40.692,
+      "input_voltage_v": 5.235
+    },
+    {
+      "node_id": "queen",
+      "boot_id": "146c1f47-0b0a-4567-9aa6-bdc8782f9152",
+      "temperature_c": 39.769,
+      "input_voltage_v": 5.225
+    }
+  ],
+  "nodes_after": [
+    {
+      "node_id": "jack",
+      "boot_id": "83d2981f-2874-479c-bb9a-1db394e96b34",
+      "temperature_c": 48.076,
+      "input_voltage_v": 5.23
+    },
+    {
+      "node_id": "king",
+      "boot_id": "55e42343-731d-4343-9b1e-9bc5cbedf173",
+      "temperature_c": 48.999,
+      "input_voltage_v": 5.196
+    },
+    {
+      "node_id": "queen",
+      "boot_id": "146c1f47-0b0a-4567-9aa6-bdc8782f9152",
+      "temperature_c": 48.076,
+      "input_voltage_v": 5.249
+    }
+  ],
+  "warmup_discarded": 60,
+  "caveats": [
+    "닫힌 모델(closed loop) 부하다. coordinated omission 이 있어 지연이 낙관적으로 나온다. 절대 지연이 아니라 구성 간 비교에 쓸 것.",
+    "지연 백분위는 nearest-rank 다. 보간하지 않는다.",
+    "예열 요청은 집계에서 제외했다."
+  ]
+}

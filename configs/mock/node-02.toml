@@ -1,0 +1,36 @@
+# Mock 3노드 로컬 클러스터 - 노드 2 (느린 노드)
+#
+# Round Robin이 이 노드에도 1/3을 보내 전체 처리량을 떨어뜨리는 반면,
+# Least Queue와 ECT는 부하를 줄여야 한다. S3 정책 비교의 로컬 재현판이다.
+
+[node]
+id = "mock-02"
+scheduler_address = "http://127.0.0.1:50051"
+listen = "127.0.0.1:51002"
+advertise_address = "127.0.0.1:51002"
+
+[worker]
+# Mock 은 의도적으로 1 이다. 큐가 쌓여야 스케줄링 정책의 차이와
+# 재시도 경로가 로컬에서 드러난다. 실장비 값은 8 이다
+# (configs/node.example.toml).
+worker_count = 1
+max_queue_depth = 32
+queue_timeout_ms = 3000
+
+[backend]
+type = "mock"
+base_latency_ms = 20
+jitter_ms = 5
+error_rate = 0.0
+# 기준 노드의 절반 속도
+speed_factor = 0.5
+
+[models]
+directory = "./examples/models"
+preload = ["yolov8n"]
+warmup_runs = 3
+
+[telemetry]
+json_log = false
+log_level = "info"
+heartbeat_interval_ms = 1000

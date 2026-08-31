@@ -1,0 +1,7 @@
+freeze_commit=5ff948f
+cooling=fan
+rounds=4
+preheat_min=6
+nodes=3
+conc=36
+conns_per_node=2

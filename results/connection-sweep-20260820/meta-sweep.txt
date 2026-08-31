@@ -1,0 +1,6 @@
+freeze_commit=4e64bf4
+mode=sweep
+concurrency=32
+duration=60
+rounds=5
+conns=1 2 4 8 16

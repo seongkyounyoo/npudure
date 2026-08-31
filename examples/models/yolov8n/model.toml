@@ -1,0 +1,20 @@
+# Mock 클러스터용 모델 정의.
+#
+# Mock 백엔드는 모델 파일을 읽지 않으므로 여기의 sha256 은 검증되지 않는다.
+# 실장비 배포에서는 이 값이 실제 .rknn 파일의 해시와 일치해야 하며,
+# 노드는 로딩 전에 검증한다. `crates/npuforge-node/src/models.rs` 참조.
+#
+# 입력 크기는 YOLOv8n 의 실제 값과 같게 두었다. 네트워크 대역폭 산정
+# (640×640×3 = 1.17 MiB/장) 이 이 값에 기반한다.
+# `docs/01-TECHSPEC.md` §3.2 참조.
+
+id = "yolov8n"
+version = "1.0.0"
+backend = "mock"
+model_file = "yolov8n.rknn"
+input_width = 640
+input_height = 640
+input_channels = 3
+input_format = "rgb8"
+output_format = "yolo-detections"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"

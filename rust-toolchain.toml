@@ -1,0 +1,8 @@
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = ["aarch64-unknown-linux-gnu"]
+profile = "minimal"
+
+# MSRV는 실장비 검증 후 고정한다. docs/environment-matrix.md §5 참조.
+# 고정 시 channel을 구체 버전(예: "1.95.0")으로 변경한다.

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NPUForge gRPC Baseline — 30-run Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --surface:#fcfcfb; --panel:#ffffff; --ink:#0b0b0b; --ink2:#52514e; --grid:#e6e6e3;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  }
+  [data-theme="dark"]{
+    --surface:#1a1a19; --panel:#232322; --ink:#ffffff; --ink2:#c3c2b7; --grid:#3a3a37;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--surface);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:24px}
+  header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:4px}
+  h1{font-size:20px;margin:0}
+  .sub{color:var(--ink2);font-size:12.5px}
+  .meta{color:var(--ink2);font-size:12px;margin:2px 0 20px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px}
+  .card{background:var(--panel);border:1px solid var(--grid);border-radius:10px;padding:16px}
+  .card h2{font-size:14px;margin:0 0 2px}
+  .card .cap{color:var(--ink2);font-size:11.5px;margin:0 0 10px}
+  .tiles{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+  .tile{background:var(--panel);border:1px solid var(--grid);border-radius:10px;padding:12px 16px;min-width:130px}
+  .tile .k{color:var(--ink2);font-size:11.5px}
+  .tile .v{font-size:22px;font-weight:700;margin-top:2px}
+  .tile .v small{font-size:13px;font-weight:400;color:var(--ink2)}
+  button{background:var(--panel);color:var(--ink);border:1px solid var(--grid);
+    border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12.5px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:6px}
+  th,td{border:1px solid var(--grid);padding:5px 9px;text-align:right}
+  th:first-child,td:first-child{text-align:left}
+  details{margin-top:20px}
+  summary{cursor:pointer;color:var(--ink2);font-size:12.5px}
+  canvas{max-height:280px}
+</style>
+</head>
+<body>
+<header>
+  <h1>NPUForge — gRPC Baseline (30-run)</h1>
+  <span class="sub">YOLOv8n INT8 · gRPC · Active Cooling · governor=performance · round-robin</span>
+  <button id="theme" style="margin-left:auto">◑ theme</button>
+</header>
+<p class="meta">동결 commit <code>254d560</code> · 1/2/3노드 각 10회, 60초, 조건 순서 rotate · 오류 0% · balance 0.00 %p</p>
+
+<div class="tiles" id="tiles"></div>
+
+<div class="grid">
+  <div class="card"><h2>Throughput vs Node count</h2><p class="cap">measured (±SD) vs ideal linear</p><canvas id="c1"></canvas></div>
+  <div class="card"><h2>Scaling efficiency</h2><p class="cap">1-node c8 기준, 100% = 완전 선형</p><canvas id="c2"></canvas></div>
+  <div class="card"><h2>Latency percentiles</h2><p class="cap">round-trip, closed-loop (구성 간 비교용)</p><canvas id="c4"></canvas></div>
+  <div class="card"><h2>TimingBreakdown (p50)</h2><p class="cap">payload transfer = 94% of non-inference overhead</p><canvas id="c7"></canvas></div>
+</div>
+
+<details>
+  <summary>데이터 표 (접근성)</summary>
+  <table id="tbl"><thead><tr><th>Nodes</th><th>Throughput ±SD</th><th>Speedup</th><th>Eff%</th><th>p50 ms</th><th>p95 ms</th><th>p99 ms</th></tr></thead><tbody></tbody></table>
+</details>
+
+<script>
+const A = {"1": {"tp": 112.9, "sd": 0.47, "p50": 68.0, "p95": 100.8, "p99": 116.3, "stage": {"network_to_node": 17.72, "inference": 24.7, "network_to_client": 17.72, "end_to_end": 61.54}},
+           "2": {"tp": 229.0, "sd": 0.89, "p50": 67.0, "p95": 100.1, "p99": 118.6, "stage": {"network_to_node": 17.36, "inference": 23.01, "network_to_client": 17.36, "end_to_end": 59.56}},
+           "3": {"tp": 338.4, "sd": 1.08, "p50": 67.6, "p95": 102.7, "p99": 123.9, "stage": {"network_to_node": 17.11, "inference": 22.49, "network_to_client": 17.11, "end_to_end": 58.83}}};
+const N=[1,2,3], base=A["1"].tp;
+const css=k=>getComputedStyle(document.body).getPropertyValue(k).trim();
+Chart.defaults.font.family="-apple-system,Segoe UI,Roboto,sans-serif";
+
+// stat tiles
+document.getElementById('tiles').innerHTML = [
+  ['3-node throughput', A["3"].tp.toFixed(1)+' <small>± '+A["3"].sd+' inf/s</small>'],
+  ['Speedup (3N)', (A["3"].tp/base).toFixed(2)+'×'],
+  ['Scaling efficiency', (A["3"].tp/(base*3)*100).toFixed(0)+'%'],
+  ['Error rate', '0.00%'],
+  ['Node overhead', '30.1% <small>(local 161.5)</small>'],
+].map(([k,v])=>`<div class="tile"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+
+// table
+document.querySelector('#tbl tbody').innerHTML = N.map(n=>{
+  const a=A[n]; const sp=(a.tp/base).toFixed(2), eff=(a.tp/(base*n)*100).toFixed(0);
+  return `<tr><td>${n}N</td><td>${a.tp} ± ${a.sd}</td><td>${sp}×</td><td>${eff}%</td><td>${a.p50}</td><td>${a.p95}</td><td>${a.p99}</td></tr>`;
+}).join('');
+
+let charts=[];
+function draw(){
+  charts.forEach(c=>c.destroy()); charts=[];
+  const ink=css('--ink'),ink2=css('--ink2'),grid=css('--grid');
+  const S=[css('--s1'),css('--s2'),css('--s3'),css('--s4')];
+  const base_opts=(yl)=>({responsive:true,interaction:{mode:'index',intersect:false},
+    plugins:{legend:{labels:{color:ink,boxWidth:12,boxHeight:12}}},
+    scales:{x:{ticks:{color:ink2},grid:{display:false}},
+            y:{title:{display:!!yl,text:yl,color:ink2},ticks:{color:ink2},grid:{color:grid},beginAtZero:true}}});
+
+  charts.push(new Chart(c1,{type:'line',data:{labels:N.map(n=>n+'N'),datasets:[
+    {label:'Measured',data:N.map(n=>A[n].tp),borderColor:S[0],backgroundColor:S[0],borderWidth:2.5,pointRadius:5,tension:0},
+    {label:'Ideal (linear)',data:N.map(n=>base*n),borderColor:ink2,borderDash:[6,5],borderWidth:1.5,pointRadius:0}
+  ]},options:base_opts('inf/s')}));
+
+  charts.push(new Chart(c2,{type:'bar',data:{labels:N.map(n=>n+'N'),datasets:[
+    {label:'efficiency %',data:N.map(n=>A[n].tp/(base*n)*100),backgroundColor:S[0],borderRadius:4}
+  ]},options:{...base_opts('%'),scales:{...base_opts('%').scales,y:{...base_opts('%').scales.y,max:120}}}}));
+
+  charts.push(new Chart(c4,{type:'bar',data:{labels:N.map(n=>n+'N'),datasets:[
+    {label:'p50',data:N.map(n=>A[n].p50),backgroundColor:S[0],borderRadius:3},
+    {label:'p95',data:N.map(n=>A[n].p95),backgroundColor:S[1],borderRadius:3},
+    {label:'p99',data:N.map(n=>A[n].p99),backgroundColor:S[2],borderRadius:3}
+  ]},options:base_opts('ms')}));
+
+  const seg=[['network→node (input)','network_to_node',S[1]],['inference (NPU)','inference',S[0]],
+             ['network→client (output)','network_to_client',S[3]]];
+  charts.push(new Chart(c7,{type:'bar',data:{labels:['1N','2N','3N'],datasets:seg.map(([lab,key,c])=>
+    ({label:lab,data:N.map(n=>A[n].stage[key]),backgroundColor:c,stack:'s',borderRadius:0,
+      borderColor:css('--panel'),borderWidth:2}))
+  },options:{...base_opts('ms (p50)'),scales:{x:{stacked:true,ticks:{color:ink2},grid:{display:false}},
+    y:{stacked:true,ticks:{color:ink2},grid:{color:grid},beginAtZero:true}}}}));
+}
+draw();
+document.getElementById('theme').onclick=()=>{
+  document.documentElement.dataset.theme = document.documentElement.dataset.theme==='dark'?'light':'dark';
+  document.body.dataset.theme = document.documentElement.dataset.theme;
+  draw();
+};
+document.body.dataset.theme='light';
+</script>
+</body>
+</html>

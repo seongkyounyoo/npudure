@@ -1,0 +1,12 @@
+# eth0 topology (S3.5 프로파일링 시점)
+msi_irqs=121 122 123 124 125 126 127 128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143 144 145 146 147 148 149 150 151 
+rx_queues=1
+rps_cpus=00
+xps_cpus=00
+driver=r8125
+gro=0
+rx-checksumming: on
+tx-checksumming: on
+scatter-gather: on
+tcp-segmentation-offload: on
+generic-receive-offload: on

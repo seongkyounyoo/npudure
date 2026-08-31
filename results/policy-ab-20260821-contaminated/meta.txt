@@ -1,0 +1,9 @@
+freeze_commit=21253a8
+cooling=fanless (중단 후 팬 ON 으로 전환됨 — r2 이후 무효)
+rounds=4 (계획) / 중단됨
+preheat_min=25
+reheat_runs=5
+nodes=3
+conc=36
+conns_per_node=2
+status=INVALID — concurrent harness collision

@@ -1,0 +1,8 @@
+freeze_commit=62855bd
+cooling=fan
+nodes=1 (king)
+conc=12
+conns_per_node=2
+load_dur=80
+prof_dur=45
+strace_dur=10

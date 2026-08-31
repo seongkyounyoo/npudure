@@ -1,0 +1,5 @@
+freeze_commit=4a1c190
+candidates=2 4
+concurrencies=8 12 16 20 24
+duration=60
+reps=3

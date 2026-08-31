@@ -1,0 +1,78 @@
+# --- identity ---
+hostname=jack
+model=FriendlyElec NanoPi R76S
+compatible=friendlyelec,nanopi-r76s rockchip,rk3576 
+serial=<redacted>
+# --- firmware / bootloader ---
+fwver=ddr-v1.13-e10b4dfeaf,spl-v1.09,bl31-v1.24,bl32-v1.10,uboot-c5c053fa55-07/10/2026
+fw_ddr=ddr-v1.13
+fw_spl=spl-v1.09
+fw_bl31=bl31-v1.24
+fw_bl32=bl32-v1.10
+fw_uboot=uboot-c5c053fa55-07/10/2026
+pmic_init=rk806 1-0023: ON: 0x40 OFF:0x0
+# --- os / kernel ---
+os=Ubuntu 24.04.4 LTS
+kernel=6.1.141
+arch=aarch64
+glibc=2.39
+cpu_governor=ondemand
+uptime_s=730
+# --- cpu ---
+cpu_model=UNKNOWN
+cpu_count=8
+cpu_max_khz=2016000
+cpufreq_policy0_max_khz=2016000
+cpufreq_policy0_cur_khz=1416000
+cpufreq_policy4_max_khz=2208000
+cpufreq_policy4_cur_khz=1416000
+# --- memory / storage ---
+mem_total_kb=3997784
+mem_available_kb=3267724
+blk_mmcblk2_size_512b=122142720
+blk_mmcblk2boot0_size_512b=8192
+blk_mmcblk2boot1_size_512b=8192
+rootfs_avail=50G
+# --- network ---
+net_eth0_mac=<redacted>
+net_eth0_speed=-1
+net_eth0_operstate=down
+net_eth0_mtu=1500
+net_eth0_ipv4=UNKNOWN
+net_eth1_mac=<redacted>
+net_eth1_speed=1000
+net_eth1_operstate=up
+net_eth1_mtu=1500
+net_eth1_ipv4=192.168.123.33/24
+# --- npu ---
+rknpu_version=UNKNOWN
+rknpu_load=UNKNOWN
+rknpu_driver_dmesg=UNKNOWN
+rknpu_devnode=UNKNOWN
+librknnrt_path=/usr/lib/librknnrt.so
+librknnrt_sha256=73993ed4b440460825f21611731564503cc1d5a0c123746477da6cd574f34885
+librknnrt_version=librknnrt version: 2.3.0 (c949ad889d@2024-11-07T11:35:33)
+rknn_header=/usr/include/rknn_api.h
+# --- power input ---
+psu_simple-vin_type=Mains
+psu_simple-vin_online=1
+psu_simple-vin_voltage_v=5.273
+# --- thermal ---
+thermal_thermal_zone0_type=soc-thermal
+thermal_thermal_zone0_temp_c=47.2
+thermal_thermal_zone1_type=bigcore-thermal
+thermal_thermal_zone1_temp_c=46.2
+thermal_thermal_zone2_type=little-core-thermal
+thermal_thermal_zone2_temp_c=46.2
+thermal_thermal_zone3_type=ddr-thermal
+thermal_thermal_zone3_temp_c=45.3
+thermal_thermal_zone4_type=npu-thermal
+thermal_thermal_zone4_temp_c=45.3
+thermal_thermal_zone5_type=gpu-thermal
+thermal_thermal_zone5_temp_c=46.2
+# --- toolchain ---
+gcc=gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+rustc=UNKNOWN
+python3=Python 3.12.3
+# --- ssh host key (복제 이미지 확인용) ---
+ssh_host_ed25519_fp=<redacted>

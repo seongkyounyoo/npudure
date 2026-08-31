@@ -1,0 +1,14 @@
+[Unit]
+Description=NPUForge benchmark CPU governor
+Documentation=file:///docs/board-worklog.md
+# cpufreq 드라이버가 sysfs 를 노출한 뒤에 실행한다.
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# policy 그룹이 둘이다 (A53 cpu0-3, A72 cpu4-7). 둘 다 설정한다.
+ExecStart=/bin/sh -c 'for p in /sys/devices/system/cpu/cpufreq/policy*; do echo @GOVERNOR@ > "$p/scaling_governor"; done'
+
+[Install]
+WantedBy=multi-user.target

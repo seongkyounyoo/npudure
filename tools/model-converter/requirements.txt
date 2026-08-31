@@ -1,0 +1,8 @@
+# rknn-toolkit2 자체는 Dockerfile 에서 버전을 고정해 설치한다.
+# 여기에는 변환 스크립트가 직접 사용하는 것만 둔다.
+#
+# rknn-toolkit2 가 numpy / onnx / torch 등을 의존성으로 끌어오므로
+# 버전을 여기서 다시 고정하면 충돌할 수 있다. 명시하지 않는다.
+
+opencv-python-headless==4.10.0.84
+pillow==10.4.0

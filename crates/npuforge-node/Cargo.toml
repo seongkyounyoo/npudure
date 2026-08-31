@@ -1,0 +1,39 @@
+[package]
+name = "npuforge-node"
+description = "NPUForge 노드 에이전트. 각 NPU 장치에서 실행되어 추론 요청을 처리한다"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[features]
+# 기본값은 Mock 전용이다. 실장비 배포용 바이너리는 명시적으로 켠다.
+#
+#   cargo build-node    (= --features rknn --target aarch64-unknown-linux-gnu)
+default = []
+rknn = ["npuforge-rknn/rknn"]
+
+[lib]
+name = "npuforge_node"
+path = "src/lib.rs"
+
+[[bin]]
+name = "npuforge-node"
+path = "src/main.rs"
+
+[dependencies]
+npuforge-common.workspace = true
+npuforge-mock-backend.workspace = true
+npuforge-proto.workspace = true
+npuforge-rknn.workspace = true
+bytes = "1"
+tonic = "0.12"
+parking_lot = "0.12"
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "test-util"] }

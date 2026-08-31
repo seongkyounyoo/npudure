@@ -1,0 +1,6 @@
+freeze_commit=ede2d76
+mode=rps
+concurrency=12
+duration=60
+rounds=5
+conns=1 2 4 8 16

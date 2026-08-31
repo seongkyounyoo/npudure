@@ -1,0 +1,23 @@
+NPUForge
+Copyright 2026 NPUForge Contributors
+
+This product includes software developed as part of the NPUForge project.
+
+--------------------------------------------------------------------------------
+제3자 구성요소에 대하여
+
+이 저장소는 다음을 포함하지 않는다. 사용자가 공식 경로에서 직접 설치해야 한다.
+
+  - RKNN Runtime (librknnrt.so)
+  - RKNN Toolkit2
+  - RKNN SDK 헤더 및 바이너리
+
+이들은 Rockchip이 배포하며 각자의 라이선스 조건을 따른다.
+NPUForge는 이 구성요소들을 재배포하지 않고, 빌드 시점에 사용자가 지정한
+경로에서 참조할 뿐이다. docs/03-DEVELOPMENT-REQUIREMENTS.md §5.1 참조.
+
+모델 파일(*.rknn, *.onnx)과 벤치마크 데이터 세트 역시 저장소에 포함하지 않는다.
+각 원본의 라이선스와 재배포 조건을 확인해야 한다.
+
+Rust 의존성의 라이선스 목록은 `cargo deny check licenses` 로 확인할 수 있으며,
+허용 목록은 deny.toml 에 정의되어 있다.

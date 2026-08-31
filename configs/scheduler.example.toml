@@ -1,0 +1,58 @@
+# NPUForge Scheduler 설정 예시
+#
+# 스키마 정의: docs/01-TECHSPEC.md §16.1
+# 이 파일은 crates/npuforge-common 의 테스트로 파싱이 검증된다.
+
+[server]
+grpc_listen = "0.0.0.0:50051"
+http_listen = "0.0.0.0:8080"
+metrics_listen = "0.0.0.0:9090"
+max_payload_bytes = 10485760
+
+[scheduler]
+# round-robin | least-queue | ect
+policy = "ect"
+request_timeout_ms = 5000
+# request_timeout_ms 보다 작아야 재시도 여유가 남는다.
+node_rpc_timeout_ms = 3000
+# 실시간 추론 특성상 긴 exponential backoff는 사용하지 않는다.
+max_retries = 1
+retry_backoff_min_ms = 10
+retry_backoff_max_ms = 100
+
+[transport]
+# 노드당 gRPC 커넥션 수. **노드당** 값이다 (1N→2, 2N→4, 3N→6 total).
+#
+# 기본값을 1 → 2 로 올린 근거 (S3.6~S3.8):
+#   1N  115.2 → 135.5 inf/s  (+17.6%), p95 도 함께 개선
+#   2N  232.0 → 263.3        (+13.5%)
+#   3N  341.8 → 387.2        (+13.3%)
+# 4 개 이상은 추가 이득이 거의 없고 tail 만 나빠진다(S3.7a).
+# 각 구성의 운영점(peak 98%)은 노드당 concurrency 12 였다.
+node_connections = 2
+
+# HTTP/2 flow control window (byte). 생략하면 h2 기본값 65,535.
+#
+# **키우지 않는다.** 8MB/64MB 로 확대했더니 처리량이 −36.3% 였다(S3.6).
+# 기본 64KB 가 사실상 backpressure 로 기능하고 있었다. 다만 64KB→64MB 는
+# 1000배 차이의 극단 비교라 중간값(256KB~4MB)은 미측정이다.
+# h2_stream_window_bytes = 8388608
+# h2_connection_window_bytes = 67108864
+
+[health]
+heartbeat_interval_ms = 2000
+health_timeout_ms = 1000
+failure_threshold = 3
+recovery_threshold = 3
+
+[thresholds]
+busy_queue_depth = 8
+degraded_error_rate = 0.10
+degraded_temperature_c = 80.0
+disable_temperature_c = 90.0
+
+[telemetry]
+json_log = true
+log_level = "info"
+# ⚠️ 아직 구현되지 않았다 (M2). 켜도 메트릭 엔드포인트가 뜨지 않는다.
+prometheus = false

@@ -1,0 +1,38 @@
+# Mock 3노드 로컬 클러스터 - 노드 3 (간헐적 실패)
+#
+# 재시도 경로와 Degraded 전이를 검증하기 위한 노드다.
+# error_rate가 degraded_error_rate(0.10)를 넘으므로 헬스체크에서
+# Degraded로 분류되어야 한다.
+
+[node]
+id = "mock-03"
+scheduler_address = "http://127.0.0.1:50051"
+listen = "127.0.0.1:51003"
+advertise_address = "127.0.0.1:51003"
+
+[worker]
+# Mock 은 의도적으로 1 이다. 큐가 쌓여야 스케줄링 정책의 차이와
+# 재시도 경로가 로컬에서 드러난다. 실장비 값은 8 이다
+# (configs/node.example.toml).
+worker_count = 1
+max_queue_depth = 32
+queue_timeout_ms = 3000
+
+[backend]
+type = "mock"
+base_latency_ms = 20
+jitter_ms = 5
+error_rate = 0.15
+speed_factor = 1.0
+# 100건마다 한 번 응답하지 않는다. 스케줄러 타임아웃 경로 검증용.
+hang_every_n = 100
+
+[models]
+directory = "./examples/models"
+preload = ["yolov8n"]
+warmup_runs = 3
+
+[telemetry]
+json_log = false
+log_level = "info"
+heartbeat_interval_ms = 1000

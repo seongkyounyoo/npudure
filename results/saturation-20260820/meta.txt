@@ -1,0 +1,3 @@
+freeze_commit=1da69d4
+experiment=S3_saturation
+started=2026-08-20T06:49:01Z

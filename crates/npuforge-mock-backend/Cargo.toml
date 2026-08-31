@@ -1,0 +1,19 @@
+[package]
+name = "npuforge-mock-backend"
+description = "실제 NPU 없이 스케줄링과 장애 시나리오를 검증하기 위한 Mock 추론 백엔드"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+npuforge-common.workspace = true
+async-trait = "0.1"
+bytes = "1"
+tokio = { version = "1", features = ["time", "sync"] }
+rand = "0.9"
+tracing = "0.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "test-util"] }

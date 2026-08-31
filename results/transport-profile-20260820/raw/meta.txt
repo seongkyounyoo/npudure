@@ -1,0 +1,6 @@
+freeze_commit=01f29a2
+concurrency=32
+load_dur=80
+prof_dur=45
+warm=20
+collected=2026-08-20T08:10:10Z

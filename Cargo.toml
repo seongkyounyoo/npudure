@@ -1,0 +1,38 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/seongkyounyoo/npuforge"
+homepage = "https://github.com/seongkyounyoo/npuforge"
+readme = "README.md"
+keywords = ["npu", "edge-ai", "inference", "rknn", "rk3576"]
+categories = ["network-programming", "science"]
+
+[workspace.dependencies]
+npuforge-common = { path = "crates/npuforge-common", version = "0.1.0" }
+npuforge-proto = { path = "crates/npuforge-proto", version = "0.1.0" }
+npuforge-node = { path = "crates/npuforge-node", version = "0.1.0" }
+npuforge-mock-backend = { path = "crates/npuforge-mock-backend", version = "0.1.0" }
+npuforge-rknn = { path = "crates/npuforge-rknn", version = "0.1.0" }
+npuforge-bench = { path = "crates/npuforge-bench", version = "0.1.0" }
+
+# 빌드 프로파일은 벤치마크 재현성에 직접 영향을 준다.
+# 측정에 사용하는 바이너리는 반드시 release 프로파일로 빌드한다.
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = false          # 프로파일링에 심볼이 필요하므로 유지한다
+debug = 1              # perf/flamegraph용 최소 디버그 정보
+
+# 벤치마크 프로파일. release와 동일한 최적화를 사용한다.
+# (`panic` 설정은 bench 프로파일에서 무시되므로 지정하지 않는다.)
+[profile.bench]
+inherits = "release"

@@ -1,0 +1,16 @@
+# 노드 에이전트는 개발 PC에서 ARM64로 크로스컴파일하여 세 노드에 동일 바이너리를 배포한다.
+# docs/03-DEVELOPMENT-REQUIREMENTS.md §2.3 참조.
+
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+
+[alias]
+# 전체 워크스페이스 검사. npuforge-rknn은 기본 feature가 꺼져 있어
+# Windows/x86에서도 통과한다.
+lint = "clippy --workspace --all-targets -- -D warnings"
+
+# ARM64 노드 바이너리 빌드
+build-node = "build --release --target aarch64-unknown-linux-gnu -p npuforge-node --features rknn"
+
+# Mock 3노드 로컬 클러스터에 필요한 바이너리만 빌드
+build-mock = "build --workspace --exclude npuforge-rknn"
