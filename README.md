@@ -13,6 +13,12 @@
 대시보드(M6)다. v0.1 태그는 컨퍼런스 발표 일정에 맞출 계획이지만
 **CFP 심사 중이라 시점은 미정이다.**
 
+![NPUForge 3노드 클러스터 — 스케줄러 호스트(좌) · 노드 3대와 냉각 팬(중앙) · 부하 측정 중인 대시보드(우)](results/photos-public/cluster-overview-01.jpg)
+
+*측정에 쓴 그 장비다. 왼쪽이 스케줄러 호스트, 가운데가 NanoPi R76S 3대와
+냉각 팬, 오른쪽 화면은 부하가 도는 중의 대시보드다. 사진 20장은
+[`results/photos-public/`](results/photos-public/) 에 있다.*
+
 > ### 결과 한 장
 >
 > | | 값 | 문서 |

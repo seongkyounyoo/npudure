@@ -16,6 +16,13 @@ stopped it.
 
 ---
 
+![NPUForge three-node cluster: scheduler host on the left, three NanoPi R76S boards with cooling fans in the centre, the dashboard under load on the right](results/photos-public/cluster-overview-01.jpg)
+
+*The actual rig the measurements came from. Scheduler host on the left,
+three NanoPi R76S boards with their cooling fans in the centre, and the
+dashboard mid-run on the right. Twenty photographs are in
+[`results/photos-public/`](results/photos-public/).*
+
 ## Results
 
 Three NanoPi R76S boards (Rockchip RK3576, 6 TOPS each), YOLOv8n INT8,
