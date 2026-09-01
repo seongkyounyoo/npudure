@@ -4,7 +4,7 @@
 # docs/03-DEVELOPMENT-REQUIREMENTS.md §5.1 참조.
 
 [licenses]
-# NPUForge 자체는 Apache-2.0이다. 의존성은 이와 호환되는 것만 허용한다.
+# NPUDure 자체는 Apache-2.0이다. 의존성은 이와 호환되는 것만 허용한다.
 allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",

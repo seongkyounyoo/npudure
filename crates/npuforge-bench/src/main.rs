@@ -1,4 +1,4 @@
-//! NPUForge 벤치마크 CLI.
+//! NPUDure 벤치마크 CLI.
 //!
 //! ```bash
 //! npuforge-bench \

@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// NPUForge 오류 코드.
+/// NPUDure 오류 코드.
 ///
 /// 외부 API 응답과 메트릭 레이블에 사용한다.
 /// 새 코드는 추가만 하고, 기존 코드의 의미를 바꾸지 않는다.
@@ -139,7 +139,7 @@ impl std::fmt::Display for ErrorCode {
     }
 }
 
-/// NPUForge 공통 오류.
+/// NPUDure 공통 오류.
 #[derive(Debug, thiserror::Error)]
 #[error("{code}: {message}")]
 pub struct NpuForgeError {

@@ -1,4 +1,4 @@
-//! NPUForge gRPC 프로토콜.
+//! NPUDure gRPC 프로토콜.
 //!
 //! `proto/npuforge.proto` 에서 생성된 코드와, `npuforge-common` 타입 사이의
 //! 변환을 제공한다.

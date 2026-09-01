@@ -1,6 +1,6 @@
 # 제3자 의존성
 
-NPUForge는 Apache-2.0이다. 이 문서는 함께 사용하는 제3자 구성요소의 라이선스를 정리한다.
+NPUDure는 Apache-2.0이다. 이 문서는 함께 사용하는 제3자 구성요소의 라이선스를 정리한다.
 
 모델과 데이터 세트는 별도 문서를 따른다 → [`MODEL_LICENSES.md`](MODEL_LICENSES.md)
 

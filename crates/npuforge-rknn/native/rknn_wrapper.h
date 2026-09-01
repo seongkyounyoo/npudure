@@ -1,5 +1,5 @@
 /*
- * NPUForge 최소 RKNN C Wrapper.
+ * NPUDure 최소 RKNN C Wrapper.
  *
  * Rust가 RKNN 헤더에 직접 강하게 결합되지 않도록 하는 얇은 경계다.
  * docs/03-DEVELOPMENT-REQUIREMENTS.md §2.4 참조.
@@ -35,7 +35,7 @@ extern "C" {
 /* 지원하는 최대 출력 텐서 수. YOLOv8n(rknn_model_zoo)은 9개다. */
 #define NPF_RKNN_MAX_OUTPUTS 32
 
-/* 오류 코드. Rust 쪽에서 NPUForge 오류 코드로 변환한다. */
+/* 오류 코드. Rust 쪽에서 NPUDure 오류 코드로 변환한다. */
 typedef enum {
     NPF_RKNN_OK = 0,
     NPF_RKNN_ERR_INVALID_ARG = -1,

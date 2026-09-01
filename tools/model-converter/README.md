@@ -1,4 +1,4 @@
-# NPUForge 모델 변환 환경
+# NPUDure 모델 변환 환경
 
 ONNX 모델을 RK3576 용 `.rknn` 으로 변환한다.
 

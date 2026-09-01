@@ -70,7 +70,7 @@ COPY convert_yolov8n.py validate_rknn.py /work/
 RUN python3 -c "from rknn.api import RKNN; print('rknn-toolkit2 import OK')" \
     && python3 -m pip freeze > /work/pip-freeze.txt
 
-LABEL org.opencontainers.image.title="NPUForge model converter" \
+LABEL org.opencontainers.image.title="NPUDure model converter" \
       org.opencontainers.image.description="RKNN-Toolkit2 기반 ONNX -> RKNN 변환 환경" \
       org.opencontainers.image.licenses="Apache-2.0"
 

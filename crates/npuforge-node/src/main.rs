@@ -1,4 +1,4 @@
-//! NPUForge 노드 에이전트.
+//! NPUDure 노드 에이전트.
 //!
 //! 설정을 읽어 백엔드와 모델을 준비하고, `NodeService` gRPC 서버를 띄운 뒤
 //! 스케줄러에 등록해 하트비트를 보낸다.
@@ -115,7 +115,7 @@ async fn run(config: NodeConfig) -> Result<(), String> {
         advertise_address = %config.node.advertise_address,
         model = %model_id,
         boot_id = %telemetry::read_boot_id(),
-        "NPUForge 노드 시작"
+        "NPUDure 노드 시작"
     );
 
     // Warmup. 첫 추론은 지연시간이 크게 튀므로 벤치마크에서 제외한다.

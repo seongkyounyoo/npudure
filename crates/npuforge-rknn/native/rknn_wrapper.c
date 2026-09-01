@@ -1,5 +1,5 @@
 /*
- * NPUForge 최소 RKNN C Wrapper.
+ * NPUDure 최소 RKNN C Wrapper.
  *
  * 검증 상태: 실장비(RK3576, RKNN Runtime 2.3.0, driver 0.9.8)에서 컴파일 및
  * 동작 검증 완료. 확정된 버전 조합은 docs/environment-matrix.md §3 참조.

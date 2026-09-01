@@ -1,6 +1,6 @@
 # 모델 및 데이터 세트 라이선스
 
-NPUForge 소스코드는 Apache-2.0이다. 그러나 **벤치마크에 사용하는 모델과 데이터 세트는 별개의 라이선스를 따른다.**
+NPUDure 소스코드는 Apache-2.0이다. 그러나 **벤치마크에 사용하는 모델과 데이터 세트는 별개의 라이선스를 따른다.**
 
 이 문서는 그 구분을 명확히 한다.
 
@@ -10,7 +10,7 @@ NPUForge 소스코드는 Apache-2.0이다. 그러나 **벤치마크에 사용하
 
 | 구성요소 | 라이선스 | 저장소 포함 여부 |
 |---|---|---|
-| NPUForge 소스코드 | Apache-2.0 | 포함 |
+| NPUDure 소스코드 | Apache-2.0 | 포함 |
 | RKNN Runtime / Toolkit2 | Rockchip 자체 조건 | **미포함** |
 | YOLOv8n 가중치 및 파생 ONNX | **AGPL-3.0** | **미포함** |
 | 변환된 `.rknn` | AGPL-3.0 (파생물) | **미포함** |
@@ -34,14 +34,14 @@ NPUForge 소스코드는 Apache-2.0이다. 그러나 **벤치마크에 사용하
 Ultralytics YOLOv8 (AGPL-3.0)
   └─ airockchip/ultralytics_yolov8  (AGPL-3.0 유지, RKNN용 출력 구조 수정)
        └─ yolov8n.onnx  (rknn_model_zoo 배포본)
-            └─ yolov8n.rknn  (NPUForge가 변환)   ← 파생물. AGPL-3.0 적용
+            └─ yolov8n.rknn  (NPUDure가 변환)   ← 파생물. AGPL-3.0 적용
 ```
 
 `airockchip/rknn_model_zoo` 저장소 자체는 Apache-2.0이지만, **그 안에서 배포하는 YOLOv8 모델의 라이선스가 Apache-2.0으로 바뀌지는 않는다.** 저장소 라이선스와 데이터 라이선스는 별개다.
 
-## 2.2 NPUForge에 미치는 영향
+## 2.2 NPUDure에 미치는 영향
 
-**소스코드는 영향받지 않는다.** NPUForge는 YOLOv8 코드를 링크하지 않는다. RKNN Runtime을 통해 모델 파일을 로딩할 뿐이며, 이는 저작물의 사용이지 결합이 아니다.
+**소스코드는 영향받지 않는다.** NPUDure는 YOLOv8 코드를 링크하지 않는다. RKNN Runtime을 통해 모델 파일을 로딩할 뿐이며, 이는 저작물의 사용이지 결합이 아니다.
 
 **모델 파일 재배포는 영향받는다.** 변환된 `.rknn`은 AGPL-3.0 가중치의 파생물이다. 배포하려면 AGPL-3.0 조건을 따라야 한다.
 
@@ -56,7 +56,7 @@ Ultralytics YOLOv8 (AGPL-3.0)
 
 ## 2.3 남은 판단
 
-발표와 논문에서 "NPUForge는 Apache-2.0"이라고만 말하면 오해의 소지가 있다. **데모에 사용한 모델은 AGPL-3.0**이라는 점을 함께 밝힌다.
+발표와 논문에서 "NPUDure는 Apache-2.0"이라고만 말하면 오해의 소지가 있다. **데모에 사용한 모델은 AGPL-3.0**이라는 점을 함께 밝힌다.
 
 상용 환경에서 AGPL을 피해야 하는 사용자를 위해 §3의 대체 모델을 문서화한다.
 
@@ -103,7 +103,7 @@ Ultralytics YOLOv8 (AGPL-3.0)
 | RKNN-Toolkit2 | PyPI | 미포함 (Docker 빌드 시 설치) |
 | `rknn_model_zoo` | GitHub, Apache-2.0 | 미포함 (필요 시 clone) |
 
-**RKNN SDK 바이너리를 NPUForge 저장소에 포함하지 않는다.** 사용자는 보드 제조사가 제공하는 이미지나 Rockchip 공식 경로에서 설치한다.
+**RKNN SDK 바이너리를 NPUDure 저장소에 포함하지 않는다.** 사용자는 보드 제조사가 제공하는 이미지나 Rockchip 공식 경로에서 설치한다.
 
 `rknn_model_zoo`는 Apache-2.0이므로 코드 인용은 가능하다. 다만 그 안에서 배포하는 **모델 파일에는 각 원본 라이선스가 적용된다**(§2.1 참조).
 

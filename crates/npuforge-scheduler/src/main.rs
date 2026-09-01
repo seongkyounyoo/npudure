@@ -1,4 +1,4 @@
-//! NPUForge 스케줄러 실행 파일.
+//! NPUDure 스케줄러 실행 파일.
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -88,7 +88,7 @@ async fn run(config: SchedulerConfig) -> Result<(), String> {
         grpc_listen = %config.server.grpc_listen,
         max_retries = config.scheduler.max_retries,
         request_timeout_ms = config.scheduler.request_timeout_ms,
-        "NPUForge 스케줄러 시작"
+        "NPUDure 스케줄러 시작"
     );
 
     tonic::transport::Server::builder()

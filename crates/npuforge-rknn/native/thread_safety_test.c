@@ -276,7 +276,7 @@ int main(int argc, char **argv)
         fprintf(stderr,
                 "사용법: %s <model.rknn> [iterations] [sweep_from] [sweep_to]\n"
                 "\n"
-                "  NPUForge 노드의 worker_count 를 결정하기 위한 검증 도구입니다.\n"
+                "  NPUDure 노드의 worker_count 를 결정하기 위한 검증 도구입니다.\n"
                 "  결과를 docs/environment-matrix.md §3.1 에 기록하세요.\n"
                 "\n"
                 "  sweep_from/to 를 같은 값으로 주면 해당 스레드 수만 측정합니다.\n"

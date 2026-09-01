@@ -102,7 +102,7 @@ unsafe extern "C" {
     ) -> c_int;
 }
 
-/// C wrapper 상태 코드를 NPUForge 오류로 변환한다.
+/// C wrapper 상태 코드를 NPUDure 오류로 변환한다.
 pub fn check(status: c_int, context: &str) -> Result<()> {
     if status == 0 {
         return Ok(());
