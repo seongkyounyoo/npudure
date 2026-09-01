@@ -1,8 +1,8 @@
-# NPUForge Environment Matrix
+# NPUDure Environment Matrix
 
 - 문서명: `environment-matrix.md`
-- 프로젝트명: NPUForge
-- 대상 릴리스: NPUForge v0.1
+- 프로젝트명: NPUDure
+- 대상 릴리스: NPUDure v0.1
 - 작성일: 2026-08-06
 - 상태: **확정.** S0 열 특성까지 닫혔다 (§9). 미해결 목록은 `experiments/README.md` §7
 - 관련 문서:
@@ -13,7 +13,7 @@
 
 # 1. 문서 목적
 
-본 문서는 NPUForge v0.1의 **버전 조합과 해시를 고정**하기 위한 단일 출처다.
+본 문서는 NPUDure v0.1의 **버전 조합과 해시를 고정**하기 위한 단일 출처다.
 
 여기에 기록하는 값은 소스코드, 설정 파일, git 이력 어디에서도 유도할 수 없다. RKNN Toolkit과 Runtime, 커널 드라이버의 조합은 외부에서 주어지는 사실이며, 조합이 바뀌면 이전 벤치마크 결과와 비교할 수 없게 된다.
 

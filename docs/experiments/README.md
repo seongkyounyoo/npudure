@@ -11,7 +11,7 @@
 
 **한 문장 요약**
 
-> NPUForge 의 transport 최적화는 custom transport 구현에서 시작했지만,
+> NPUDure 의 transport 최적화는 custom transport 구현에서 시작했지만,
 > 측정 기반 병목 제거를 통해 **표준 gRPC 구성만으로 3노드 처리량을 13.3%
 > 개선**했고, 그 과정에서 **성능 최적화보다 operating-point 선정과 실험
 > 검증이 먼저**라는 사실을 확인했다.

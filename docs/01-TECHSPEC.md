@@ -1,4 +1,4 @@
-# NPUForge Technical Specification
+# NPUDure Technical Specification
 
 > ## ⚠️ 이 문서는 **규범 문서이자 일부는 계획 기준선**이다
 >
@@ -19,9 +19,9 @@
 > 했다.** S3.9b 가 회수 가능한 몫을 ≈8% 로 측정했고, 그 근거로 배제했다.
 
 - 문서명: `01-TECHSPEC.md`
-- 프로젝트명: NPUForge
+- 프로젝트명: NPUDure
 - 문서 버전: v0.2
-- 대상 릴리스: NPUForge v0.1
+- 대상 릴리스: NPUDure v0.1
 - 목표 발표: 2026년 11월 FOSS for All Conference
 - 작성일: 2026-08-05
 - 최종 수정: 2026-08-06 (본문)
@@ -39,9 +39,9 @@
 
 # 1. 문서 목적
 
-본 문서는 NPUForge v0.1의 구현 구조, 컴포넌트 책임, 통신 프로토콜, 데이터 모델, 스케줄링 방식, 장애 처리, 메트릭 수집, 벤치마크 방법 및 배포 구조를 정의한다.
+본 문서는 NPUDure v0.1의 구현 구조, 컴포넌트 책임, 통신 프로토콜, 데이터 모델, 스케줄링 방식, 장애 처리, 메트릭 수집, 벤치마크 방법 및 배포 구조를 정의한다.
 
-NPUForge v0.1은 RK3576 기반 6 TOPS NPU 노드 최대 3대를 하나의 분산 추론 클러스터로 운영하는 Rust 기반 오픈소스 런타임이다.
+NPUDure v0.1은 RK3576 기반 6 TOPS NPU 노드 최대 3대를 하나의 분산 추론 클러스터로 운영하는 Rust 기반 오픈소스 런타임이다.
 
 이 문서의 목표는 다음과 같다.
 
@@ -57,7 +57,7 @@ NPUForge v0.1은 RK3576 기반 6 TOPS NPU 노드 최대 3대를 하나의 분산
 
 ## 2.1 데이터 병렬 우선
 
-NPUForge v0.1은 하나의 모델을 여러 노드에 분할하지 않는다.
+NPUDure v0.1은 하나의 모델을 여러 노드에 분할하지 않는다.
 
 각 노드는 동일한 전체 모델을 보유하고 서로 다른 추론 요청을 독립적으로 처리한다.
 
@@ -138,7 +138,7 @@ RKNN Runtime 직접 호출은 `npuforge-rknn` 크레이트에 격리한다.
                                │
                                ▼
 ┌───────────────────────────────────────────────────────────┐
-│ NPUForge Scheduler                                        │
+│ NPUDure Scheduler                                        │
 │                                                           │
 │  API Gateway                                              │
 │  Node Registry                                            │
@@ -151,7 +151,7 @@ RKNN Runtime 직접 호출은 `npuforge-rknn` 크레이트에 격리한다.
                │                │                │
                ▼                ▼                ▼
       ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
-      │ NPUForge Node 1│ │ NPUForge Node 2│ │ NPUForge Node 3│
+      │ NPUDure Node 1│ │ NPUDure Node 2│ │ NPUDure Node 3│
       │ RK3576 / RKNN  │ │ RK3576 / RKNN  │ │ RK3576 / RKNN  │
       └────────────────┘ └────────────────┘ └────────────────┘
 ```
@@ -1943,7 +1943,7 @@ RKNN 하드웨어 테스트는 self-hosted runner 또는 수동 테스트로 분
 ## 2026년 11월 28일
 
 - FOSS for All Conference 발표
-- NPUForge v0.1 공개
+- NPUDure v0.1 공개
 
 ---
 
@@ -1973,7 +1973,7 @@ RKNN 하드웨어 테스트는 self-hosted runner 또는 수동 테스트로 분
 
 ## 29.1 메인 화면
 
-- NPUForge 로고 및 버전
+- NPUDure 로고 및 버전
 - Node 1/2/3 상태
 - 노드별 FPS
 - 전체 FPS
@@ -2007,7 +2007,7 @@ RKNN 하드웨어 테스트는 self-hosted runner 또는 수동 테스트로 분
 
 # 30. 완료 정의
 
-NPUForge v0.1은 다음 조건을 모두 충족할 때 완료로 간주한다.
+NPUDure v0.1은 다음 조건을 모두 충족할 때 완료로 간주한다.
 
 - RK3576 NPU 3노드 동작
 - Rust Scheduler 동작
@@ -2029,6 +2029,6 @@ NPUForge v0.1은 다음 조건을 모두 충족할 때 완료로 간주한다.
 
 # 31. 최종 기술 정의
 
-NPUForge는 여러 엣지 NPU를 물리적으로 결합하는 기술이 아니다.
+NPUDure는 여러 엣지 NPU를 물리적으로 결합하는 기술이 아니다.
 
-NPUForge는 독립적인 추론 요청을 여러 NPU 노드에 분산하고, 각 노드의 부하와 상태를 기준으로 요청을 스케줄링하며, 장애 발생 시 서비스를 지속하고, 실제 성능 손실과 확장 효율을 재현 가능하게 측정하는 Linux/Rust 기반 오픈소스 분산 추론 런타임이다.
+NPUDure는 독립적인 추론 요청을 여러 NPU 노드에 분산하고, 각 노드의 부하와 상태를 기준으로 요청을 스케줄링하며, 장애 발생 시 서비스를 지속하고, 실제 성능 손실과 확장 효율을 재현 가능하게 측정하는 Linux/Rust 기반 오픈소스 분산 추론 런타임이다.

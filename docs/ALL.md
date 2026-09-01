@@ -1,6 +1,6 @@
 <a id="index"></a>
 
-# NPUForge 문서 묶음
+# NPUDure 문서 묶음
 
 > **이 파일은 생성물이다. 직접 편집하지 않는다.**
 > `docs/` 의 원본 26개를 읽기·인쇄·검토용으로 이어 붙인 것이다.
@@ -10,7 +10,7 @@
 > python scripts/build-docs-bundle.py $(git log -1 --format=%cs -- docs/)
 > ```
 >
-> - 생성 기준: **2026-08-28** (`docs/` 최종 커밋일)
+> - 생성 기준: **2026-09-01** (`docs/` 최종 커밋일)
 > - 파일 간 링크는 문서 내 앵커로 바뀌어 있다
 > - `docs/` 밖을 가리키는 링크(`../results/...`)는 그대로다
 > - **세션 인수인계 메모(`handoff-*.md`)와 공개 준비 문서(`public/`)는 빠져 있다.**
@@ -20,13 +20,13 @@
 
 ## 차례
 
-- [NPUForge Product Requirements Document](#00-prd)  ·  `docs/00-PRD.md`
-- [NPUForge Technical Specification](#01-techspec)  ·  `docs/01-TECHSPEC.md`
-- [NPUForge Hardware Setup Guide](#02-hardware-setup)  ·  `docs/02-HARDWARE-SETUP.md`
-- [NPUForge Development Requirements](#03-development-requirements)  ·  `docs/03-DEVELOPMENT-REQUIREMENTS.md`
+- [NPUDure Product Requirements Document](#00-prd)  ·  `docs/00-PRD.md`
+- [NPUDure Technical Specification](#01-techspec)  ·  `docs/01-TECHSPEC.md`
+- [NPUDure Hardware Setup Guide](#02-hardware-setup)  ·  `docs/02-HARDWARE-SETUP.md`
+- [NPUDure Development Requirements](#03-development-requirements)  ·  `docs/03-DEVELOPMENT-REQUIREMENTS.md`
 - [기술 용어 정리 (Glossary)](#glossary)  ·  `docs/GLOSSARY.md`
-- [NPUForge 인프라 현황](#infrastructure)  ·  `docs/infrastructure.md`
-- [NPUForge Environment Matrix](#environment-matrix)  ·  `docs/environment-matrix.md`
+- [NPUDure 인프라 현황](#infrastructure)  ·  `docs/infrastructure.md`
+- [NPUDure Environment Matrix](#environment-matrix)  ·  `docs/environment-matrix.md`
 - [호스트 인벤토리](#hosts-readme)  ·  `docs/hosts/README.md`
 - [호스트 인벤토리 — server](#hosts-server-i7-4790-20260826)  ·  `docs/hosts/server-i7-4790-20260826.md`
 - [호스트 인벤토리 — Dell PowerEdge R620 (구 스케줄러 서버)](#hosts-server-xeon-e5-2630l-20260826)  ·  `docs/hosts/server-xeon-e5-2630l-20260826.md`
@@ -42,25 +42,25 @@
 - [S3.9a — Scale-out Efficiency Loss Profiling](#experiments-s3-9a-scaleout-profile)  ·  `docs/experiments/S3_9A_SCALEOUT_PROFILE.md`
 - [S3.9b — Node-side Residual Cost Profiling](#experiments-s3-9b-node-residual)  ·  `docs/experiments/S3_9B_NODE_RESIDUAL.md`
 - [S3 — Per-configuration Saturation](#experiments-s3-saturation)  ·  `docs/experiments/S3_SATURATION.md`
-- [NPUForge 측정 결과 — 1차 정리](#results)  ·  `docs/RESULTS.md`
-- [NPUForge 기술 논의](#discuss)  ·  `docs/discuss.md`
-- [NPUForge 보드 작업 로그](#board-worklog)  ·  `docs/board-worklog.md`
-- [NPUForge 진행 현황](#todo)  ·  `docs/TODO.md`
+- [NPUDure 측정 결과 — 1차 정리](#results)  ·  `docs/RESULTS.md`
+- [NPUDure 기술 논의](#discuss)  ·  `docs/discuss.md`
+- [NPUDure 보드 작업 로그](#board-worklog)  ·  `docs/board-worklog.md`
+- [NPUDure 진행 현황](#todo)  ·  `docs/TODO.md`
 
 ---
 
 <a id="00-prd"></a>
 
-# NPUForge Product Requirements Document
+# NPUDure Product Requirements Document
 
 - 문서명: `00-PRD.md`
 - 문서 버전: v0.2
-- 프로젝트명: NPUForge
+- 프로젝트명: NPUDure
 - 프로젝트 유형: 오픈소스 분산 엣지 NPU 추론 런타임
 - 개발 언어: Rust
 - 대상 플랫폼: Linux / RK3576 기반 엣지 장치
 - 목표 발표: 2026년 11월 FOSS for All Conference
-- 목표 공개 버전: NPUForge v0.1
+- 목표 공개 버전: NPUDure v0.1
 - 문서 상태: Draft
 - 작성일: 2026-08-05
 - 최종 수정: 2026-08-06 (본문)
@@ -110,7 +110,7 @@
 
 # 1. 프로젝트 개요
 
-NPUForge는 여러 대의 저비용 엣지 NPU 장치를 하나의 분산 추론 자원처럼 운영하기 위한 Rust 기반 오픈소스 런타임이다.
+NPUDure는 여러 대의 저비용 엣지 NPU 장치를 하나의 분산 추론 자원처럼 운영하기 위한 Rust 기반 오픈소스 런타임이다.
 
 1차 구현에서는 6 TOPS급 RK3576 NPU 장치 3대를 네트워크로 연결하고, 단일 장치 대비 2대 및 3대 구성에서 실제 추론 처리량이 어느 정도까지 확장되는지 측정한다.
 
@@ -145,7 +145,7 @@ NPUForge는 여러 대의 저비용 엣지 NPU 장치를 하나의 분산 추론
 
 ## 3.1 핵심 목표
 
-NPUForge v0.1의 핵심 목표는 다음과 같다.
+NPUDure v0.1의 핵심 목표는 다음과 같다.
 
 1. RK3576 기반 NPU 노드 3대를 하나의 추론 클러스터로 구성한다.
 2. Rust 기반 중앙 스케줄러가 각 노드에 추론 요청을 분배한다.
@@ -173,7 +173,7 @@ NPUForge v0.1의 핵심 목표는 다음과 같다.
 
 # 4. 비목표
 
-NPUForge v0.1에서는 다음 항목을 목표로 하지 않는다.
+NPUDure v0.1에서는 다음 항목을 목표로 하지 않는다.
 
 - 여러 NPU를 하나의 물리적 NPU처럼 보이게 만드는 하드웨어 수준 통합
 - 단일 추론 요청의 지연시간을 노드 수에 비례하여 단축
@@ -226,7 +226,7 @@ Linux 네트워크, 장치 드라이버, NPU 런타임, Rust 기반 시스템 �
 
 ## 6.1 다중 이미지 추론
 
-사용자가 여러 이미지를 NPUForge에 전송하면 스케줄러가 사용 가능한 NPU 노드에 요청을 분배한다.
+사용자가 여러 이미지를 NPUDure에 전송하면 스케줄러가 사용 가능한 NPU 노드에 요청을 분배한다.
 
 ```text
 Client
@@ -597,7 +597,7 @@ TLS와 사용자 인증은 선택 기능으로 두되, 외부 네트워크 공�
            │
            ▼
 ┌──────────────────────┐
-│ NPUForge Scheduler   │
+│ NPUDure Scheduler   │
 │                      │
 │ · API Gateway        │
 │ · Node Registry      │
@@ -668,7 +668,7 @@ TLS와 사용자 인증은 선택 기능으로 두되, 외부 네트워크 공�
 
 추론시간, 편차, 오류율, 큐 제한을 설정으로 조절한다.
 
-외부 사용자가 RK3576 장비 없이도 NPUForge의 핵심 구조를 실행할 수 있어야 하므로 부가 기능이 아닌 필수 구성요소로 취급한다.
+외부 사용자가 RK3576 장비 없이도 NPUDure의 핵심 구조를 실행할 수 있어야 하므로 부가 기능이 아닌 필수 구성요소로 취급한다.
 
 크레이트 전체 목록과 정확한 이름은 `01-TECHSPEC.md` §4에서 정의한다.
 
@@ -824,7 +824,7 @@ RKNN 종속성을 최소화하기 위해 추론 백엔드 인터페이스를 별
 
 따라서 성능 목표치는 §8 NFR-01에 두고, 달성 여부는 성공 조건이 아니라 결과로 보고한다.
 
-다음 조건을 충족하면 NPUForge v0.1을 성공으로 판단한다.
+다음 조건을 충족하면 NPUDure v0.1을 성공으로 판단한다.
 
 - RK3576 NPU 노드 3대 연결
 - 단일, 2노드, 3노드 추론 성공
@@ -977,7 +977,7 @@ Round Robin과 ECT 정책의 처리량 및 지연시간을 비교한다.
 ## 2026년 11월 28일
 
 - FOSS for All Conference 발표
-- NPUForge v0.1 공개
+- NPUDure v0.1 공개
 
 ---
 
@@ -1097,9 +1097,9 @@ v0.1 이후 검토 가능한 기능:
 
 # 18. 최종 제품 정의
 
-NPUForge v0.1은 6 TOPS NPU 세 대를 물리적으로 합쳐 하나의 18 TOPS NPU를 만드는 제품이 아니다.
+NPUDure v0.1은 6 TOPS NPU 세 대를 물리적으로 합쳐 하나의 18 TOPS NPU를 만드는 제품이 아니다.
 
-NPUForge는 독립적인 추론 요청을 여러 엣지 NPU에 효율적으로 분배하고, 실제 성능과 병목을 측정하며, 노드 장애 상황에서도 서비스를 지속할 수 있도록 하는 오픈소스 분산 추론 런타임이다.
+NPUDure는 독립적인 추론 요청을 여러 엣지 NPU에 효율적으로 분배하고, 실제 성능과 병목을 측정하며, 노드 장애 상황에서도 서비스를 지속할 수 있도록 하는 오픈소스 분산 추론 런타임이다.
 
 프로젝트의 핵심 가치는 높은 TOPS 수치 자체가 아니라 다음에 있다.
 
@@ -1115,18 +1115,18 @@ NPUForge는 독립적인 추론 요청을 여러 엣지 NPU에 효율적으로 �
 # 19. 발표 핵심 메시지
 
 > 6 TOPS NPU 세 대를 연결한다고 자동으로 18 TOPS가 되는 것은 아니다.  
-> NPUForge는 그 차이가 어디에서 발생하는지 측정하고, 실제로 확장 가능한 조건을 찾아가는 오픈소스 프로젝트다.
+> NPUDure는 그 차이가 어디에서 발생하는지 측정하고, 실제로 확장 가능한 조건을 찾아가는 오픈소스 프로젝트다.
 
 발표 제목:
 
 > **6 TOPS NPU 세 대는 정말 18 TOPS가 되는가?**  
-> Rust 기반 분산 엣지 추론 런타임 NPUForge 개발기
+> Rust 기반 분산 엣지 추론 런타임 NPUDure 개발기
 
 ---
 
 <a id="01-techspec"></a>
 
-# NPUForge Technical Specification
+# NPUDure Technical Specification
 
 > ## ⚠️ 이 문서는 **규범 문서이자 일부는 계획 기준선**이다
 >
@@ -1147,9 +1147,9 @@ NPUForge는 독립적인 추론 요청을 여러 엣지 NPU에 효율적으로 �
 > 했다.** S3.9b 가 회수 가능한 몫을 ≈8% 로 측정했고, 그 근거로 배제했다.
 
 - 문서명: `01-TECHSPEC.md`
-- 프로젝트명: NPUForge
+- 프로젝트명: NPUDure
 - 문서 버전: v0.2
-- 대상 릴리스: NPUForge v0.1
+- 대상 릴리스: NPUDure v0.1
 - 목표 발표: 2026년 11월 FOSS for All Conference
 - 작성일: 2026-08-05
 - 최종 수정: 2026-08-06 (본문)
@@ -1167,9 +1167,9 @@ NPUForge는 독립적인 추론 요청을 여러 엣지 NPU에 효율적으로 �
 
 # 1. 문서 목적
 
-본 문서는 NPUForge v0.1의 구현 구조, 컴포넌트 책임, 통신 프로토콜, 데이터 모델, 스케줄링 방식, 장애 처리, 메트릭 수집, 벤치마크 방법 및 배포 구조를 정의한다.
+본 문서는 NPUDure v0.1의 구현 구조, 컴포넌트 책임, 통신 프로토콜, 데이터 모델, 스케줄링 방식, 장애 처리, 메트릭 수집, 벤치마크 방법 및 배포 구조를 정의한다.
 
-NPUForge v0.1은 RK3576 기반 6 TOPS NPU 노드 최대 3대를 하나의 분산 추론 클러스터로 운영하는 Rust 기반 오픈소스 런타임이다.
+NPUDure v0.1은 RK3576 기반 6 TOPS NPU 노드 최대 3대를 하나의 분산 추론 클러스터로 운영하는 Rust 기반 오픈소스 런타임이다.
 
 이 문서의 목표는 다음과 같다.
 
@@ -1185,7 +1185,7 @@ NPUForge v0.1은 RK3576 기반 6 TOPS NPU 노드 최대 3대를 하나의 분산
 
 ## 2.1 데이터 병렬 우선
 
-NPUForge v0.1은 하나의 모델을 여러 노드에 분할하지 않는다.
+NPUDure v0.1은 하나의 모델을 여러 노드에 분할하지 않는다.
 
 각 노드는 동일한 전체 모델을 보유하고 서로 다른 추론 요청을 독립적으로 처리한다.
 
@@ -1266,7 +1266,7 @@ RKNN Runtime 직접 호출은 `npuforge-rknn` 크레이트에 격리한다.
                                │
                                ▼
 ┌───────────────────────────────────────────────────────────┐
-│ NPUForge Scheduler                                        │
+│ NPUDure Scheduler                                        │
 │                                                           │
 │  API Gateway                                              │
 │  Node Registry                                            │
@@ -1279,7 +1279,7 @@ RKNN Runtime 직접 호출은 `npuforge-rknn` 크레이트에 격리한다.
                │                │                │
                ▼                ▼                ▼
       ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
-      │ NPUForge Node 1│ │ NPUForge Node 2│ │ NPUForge Node 3│
+      │ NPUDure Node 1│ │ NPUDure Node 2│ │ NPUDure Node 3│
       │ RK3576 / RKNN  │ │ RK3576 / RKNN  │ │ RK3576 / RKNN  │
       └────────────────┘ └────────────────┘ └────────────────┘
 ```
@@ -3071,7 +3071,7 @@ RKNN 하드웨어 테스트는 self-hosted runner 또는 수동 테스트로 분
 ## 2026년 11월 28일
 
 - FOSS for All Conference 발표
-- NPUForge v0.1 공개
+- NPUDure v0.1 공개
 
 ---
 
@@ -3101,7 +3101,7 @@ RKNN 하드웨어 테스트는 self-hosted runner 또는 수동 테스트로 분
 
 ## 29.1 메인 화면
 
-- NPUForge 로고 및 버전
+- NPUDure 로고 및 버전
 - Node 1/2/3 상태
 - 노드별 FPS
 - 전체 FPS
@@ -3135,7 +3135,7 @@ RKNN 하드웨어 테스트는 self-hosted runner 또는 수동 테스트로 분
 
 # 30. 완료 정의
 
-NPUForge v0.1은 다음 조건을 모두 충족할 때 완료로 간주한다.
+NPUDure v0.1은 다음 조건을 모두 충족할 때 완료로 간주한다.
 
 - RK3576 NPU 3노드 동작
 - Rust Scheduler 동작
@@ -3157,20 +3157,20 @@ NPUForge v0.1은 다음 조건을 모두 충족할 때 완료로 간주한다.
 
 # 31. 최종 기술 정의
 
-NPUForge는 여러 엣지 NPU를 물리적으로 결합하는 기술이 아니다.
+NPUDure는 여러 엣지 NPU를 물리적으로 결합하는 기술이 아니다.
 
-NPUForge는 독립적인 추론 요청을 여러 NPU 노드에 분산하고, 각 노드의 부하와 상태를 기준으로 요청을 스케줄링하며, 장애 발생 시 서비스를 지속하고, 실제 성능 손실과 확장 효율을 재현 가능하게 측정하는 Linux/Rust 기반 오픈소스 분산 추론 런타임이다.
+NPUDure는 독립적인 추론 요청을 여러 NPU 노드에 분산하고, 각 노드의 부하와 상태를 기준으로 요청을 스케줄링하며, 장애 발생 시 서비스를 지속하고, 실제 성능 손실과 확장 효율을 재현 가능하게 측정하는 Linux/Rust 기반 오픈소스 분산 추론 런타임이다.
 
 ---
 
 <a id="02-hardware-setup"></a>
 
-# NPUForge Hardware Setup Guide
+# NPUDure Hardware Setup Guide
 
 - 문서명: `02-HARDWARE-SETUP.md`
-- 프로젝트명: NPUForge
+- 프로젝트명: NPUDure
 - 문서 버전: v0.2
-- 대상 릴리스: NPUForge v0.1
+- 대상 릴리스: NPUDure v0.1
 - 목표 발표: 2026년 11월 FOSS for All Conference
 - 작성일: 2026-08-05
 - 최종 수정: 2026-08-06
@@ -3197,7 +3197,7 @@ NanoPi R76S 3대는 모두 동일한 NPU Worker로 구성한다.
               │ Benchmark / Scheduler      │
               │ Server (PCIe 슬롯 필요)    │
               │                            │
-              │ · NPUForge Scheduler       │
+              │ · NPUDure Scheduler       │
               │ · Benchmark Client         │
               │ · Dashboard                │
               │ · Prometheus               │
@@ -3285,7 +3285,7 @@ JACK ─────┘
 
 ## 3.2 IP 주소 계획
 
-NPUForge 전용 추론망 예시:
+NPUDure 전용 추론망 예시:
 
 ```text
 Network     : 10.20.0.0/24
@@ -4038,7 +4038,7 @@ systemd
 
 ```ini
 [Unit]
-Description=NPUForge Node Agent
+Description=NPUDure Node Agent
 After=network-online.target
 Wants=network-online.target
 
@@ -4292,7 +4292,7 @@ ethtool eth0
 - 커널 및 NPU 드라이버 확인
 - 동일 입력 결과 비교
 
-## Step 6. NPUForge Node 배포
+## Step 6. NPUDure Node 배포
 
 - 전용 사용자 생성
 - 바이너리 설치
@@ -4312,7 +4312,7 @@ ethtool eth0
 
 # 16. 최종 구성 기준
 
-NPUForge v0.1 공식 하드웨어 구성은 다음과 같이 정의한다.
+NPUDure v0.1 공식 하드웨어 구성은 다음과 같이 정의한다.
 
 ```text
 Worker Node:
@@ -4365,12 +4365,12 @@ CPU가 약해진 것은 이 프로젝트에서 오히려 다룰 거리가 늘어
 
 <a id="03-development-requirements"></a>
 
-# NPUForge Development Requirements
+# NPUDure Development Requirements
 
 - 문서명: `03-DEVELOPMENT-REQUIREMENTS.md`
-- 프로젝트명: NPUForge
+- 프로젝트명: NPUDure
 - 문서 버전: v0.2
-- 대상 릴리스: NPUForge v0.1
+- 대상 릴리스: NPUDure v0.1
 - 목표 발표: 2026년 11월 FOSS for All Conference
 - 작성일: 2026-08-05
 - 최종 수정: 2026-08-06
@@ -4387,7 +4387,7 @@ CPU가 약해진 것은 이 프로젝트에서 오히려 다룰 거리가 늘어
 
 # 1. 문서 목적
 
-본 문서는 NPUForge v0.1 개발을 위해 추가로 필요한 소프트웨어, 개발환경, 계측 도구, 자동화, 오픈소스 공개 준비 및 발표용 구성 요소를 정의한다.
+본 문서는 NPUDure v0.1 개발을 위해 추가로 필요한 소프트웨어, 개발환경, 계측 도구, 자동화, 오픈소스 공개 준비 및 발표용 구성 요소를 정의한다.
 
 현재 보유한 NanoPi R76S 3대와 별도 Linux PC를 기준으로 하며, 하드웨어 자체보다 다음 항목을 우선한다.
 
@@ -4604,7 +4604,7 @@ npf_rknn_get_runtime_version()
 - ~~Runtime 동시 호출 가능 여부 검증~~ → **완료.** 개별 호출은 thread-safe 이나
   시퀀스는 원자적이지 않다. 컨텍스트 풀 필수 (`environment-matrix.md` §3.1)
 - Thread-safe가 아니면 모델당 전용 Worker Thread 사용
-- FFI 오류를 NPUForge 오류 코드로 변환
+- FFI 오류를 NPUDure 오류 코드로 변환
 
 필수 테스트:
 
@@ -4743,7 +4743,7 @@ ethtool
 npuforge-scheduler → /metrics
 npuforge-node      → /metrics
 Prometheus
-NPUForge Dashboard
+NPUDure Dashboard
 ```
 
 최소 메트릭:
@@ -4770,7 +4770,7 @@ request_retries_total
 
 Prometheus는 원본 시계열 데이터 수집기로 사용한다.
 
-발표 화면은 NPUForge 자체 Dashboard를 우선한다.
+발표 화면은 NPUDure 자체 Dashboard를 우선한다.
 
 Grafana는 선택 사항이다.
 
@@ -4992,12 +4992,12 @@ RKNN Runtime Version
 
 ## 5.1 라이선스 구성
 
-NPUForge 자체 소스코드는 Apache License 2.0을 우선 검토한다.
+NPUDure 자체 소스코드는 Apache License 2.0을 우선 검토한다.
 
 권장 구조:
 
 ```text
-NPUForge Source       : Apache-2.0
+NPUDure Source       : Apache-2.0
 RKNN Runtime          : 저장소에 포함하지 않음
 RKNN Toolkit          : 공식 경로에서 별도 설치
 RKNN Header/Binary    : 재배포 조건 확인
@@ -5017,7 +5017,7 @@ MODEL_LICENSES.md
 
 주의사항:
 
-- RKNN SDK Binary를 NPUForge 저장소에 임의로 포함하지 않음
+- RKNN SDK Binary를 NPUDure 저장소에 임의로 포함하지 않음
 - 사용자가 공식 경로에서 Runtime을 설치하도록 안내
 - 모델 원본 라이선스 확인
 - 변환된 `.rknn` 파일의 재배포 조건 확인
@@ -5031,7 +5031,7 @@ MODEL_LICENSES.md
 README 필수 내용:
 
 ```text
-NPUForge 소개
+NPUDure 소개
 핵심 문제 정의
 아키텍처
 Mock 3-node Quick Start
@@ -5159,7 +5159,7 @@ Temperature
 노드 상태 LED
 노드 번호 라벨
 소형 거치대
-NPUForge Logo
+NPUDure Logo
 GitHub QR Code
 실시간 전력 표시
 객체 탐지 영상
@@ -5228,7 +5228,7 @@ Scheduler
 
 # 10. 개발 준비 완료 기준
 
-다음 조건이 충족되면 NPUForge v0.1 본개발 준비가 완료된 것으로 판단한다.
+다음 조건이 충족되면 NPUDure v0.1 본개발 준비가 완료된 것으로 판단한다.
 
 - RKNN 버전 조합 고정
 - 기준 모델 선정
@@ -5249,7 +5249,7 @@ Scheduler
 
 # 11. 최종 판단
 
-현재 보유한 NanoPi R76S 3대와 별도 Linux PC만으로 NPUForge v0.1 개발은 가능하다.
+현재 보유한 NanoPi R76S 3대와 별도 Linux PC만으로 NPUDure v0.1 개발은 가능하다.
 
 추가로 가장 중요한 것은 새로운 하드웨어 구매가 아니라 다음의 완성도다.
 
@@ -5266,7 +5266,7 @@ Rust와 RKNN 연결 안정성
 
 Zero-Copy와 io_uring은 마지막 최적화 단계에서 실제 병목이 확인될 때만 적용한다.
 
-NPUForge v0.1의 성공은 이론상 18 TOPS라는 숫자가 아니라, 실제 확장 효율과 손실 원인을 재현 가능하게 증명하는 데 있다.
+NPUDure v0.1의 성공은 이론상 18 TOPS라는 숫자가 아니라, 실제 확장 효율과 손실 원인을 재현 가능하게 증명하는 데 있다.
 
 ---
 
@@ -5556,7 +5556,7 @@ NPUForge v0.1의 성공은 이론상 18 TOPS라는 숫자가 아니라, 실제 �
 
 <a id="infrastructure"></a>
 
-# NPUForge 인프라 현황
+# NPUDure 인프라 현황
 
 - 문서명: `infrastructure.md`
 - 최종 갱신: 2026-08-20
@@ -5967,11 +5967,11 @@ CPU governor(`performance`), 보드 배치 편차, OS 패치 레벨.
 
 <a id="environment-matrix"></a>
 
-# NPUForge Environment Matrix
+# NPUDure Environment Matrix
 
 - 문서명: `environment-matrix.md`
-- 프로젝트명: NPUForge
-- 대상 릴리스: NPUForge v0.1
+- 프로젝트명: NPUDure
+- 대상 릴리스: NPUDure v0.1
 - 작성일: 2026-08-06
 - 상태: **확정.** S0 열 특성까지 닫혔다 (§9). 미해결 목록은 `experiments/README.md` §7
 - 관련 문서:
@@ -5982,7 +5982,7 @@ CPU governor(`performance`), 보드 배치 편차, OS 패치 레벨.
 
 # 1. 문서 목적
 
-본 문서는 NPUForge v0.1의 **버전 조합과 해시를 고정**하기 위한 단일 출처다.
+본 문서는 NPUDure v0.1의 **버전 조합과 해시를 고정**하기 위한 단일 출처다.
 
 여기에 기록하는 값은 소스코드, 설정 파일, git 이력 어디에서도 유도할 수 없다. RKNN Toolkit과 Runtime, 커널 드라이버의 조합은 외부에서 주어지는 사실이며, 조합이 바뀌면 이전 벤치마크 결과와 비교할 수 없게 된다.
 
@@ -7172,7 +7172,7 @@ S3.5~S3.9b transport 계보 · S0-A~D 열/정책 계보.
 
 **한 문장 요약**
 
-> NPUForge 의 transport 최적화는 custom transport 구현에서 시작했지만,
+> NPUDure 의 transport 최적화는 custom transport 구현에서 시작했지만,
 > 측정 기반 병목 제거를 통해 **표준 gRPC 구성만으로 3노드 처리량을 13.3%
 > 개선**했고, 그 과정에서 **성능 최적화보다 operating-point 선정과 실험
 > 검증이 먼저**라는 사실을 확인했다.
@@ -8398,7 +8398,7 @@ adaptive 정책이 회수할 수 있는 상한이 여기 있다. S0-A 에서 관
 ## 6. 2단계 정책 A/B — **Future Work (지금 하지 않는다)**
 
 교정이 대응표를 주었으므로 언제든 돌릴 수 있다. 다만 **지금 우선순위가
-아니다** — ECT 와 LQ 의 우열은 NPUForge 의 핵심 결론을 바꾸지 않기
+아니다** — ECT 와 LQ 의 우열은 NPUDure 의 핵심 결론을 바꾸지 않기
 때문이다(§7). 본선은 S3.9b 다.
 
 돌릴 때의 설계:
@@ -8424,7 +8424,7 @@ adaptive 정책이 회수할 수 있는 상한이 여기 있다. S0-A 에서 관
    p99 −37%, 노드 지연 편차 1.33× → 1.00× (S0-C §9).
 3. **LQ 와 ECT 는 둘 다 정상 동작한다.** 두 조건 모두 regression 없음.
 4. **강한 이질에서 ECT 가 우위인지는 미확정이다.**
-5. **그러나 그 우열은 NPUForge 의 핵심 결론을 바꾸지 않는다.** 핵심은
+5. **그러나 그 우열은 NPUDure 의 핵심 결론을 바꾸지 않는다.** 핵심은
    "상태 신선도를 고친 부하 인지 스케줄링이 이질을 흡수한다" 이고,
    그것은 LQ·ECT 어느 쪽으로도 성립한다. 기본값은 `ect` 를 유지한다.
 6. **S0-D 가 남긴 것은 답이 아니라 fixture 다** — 그 질문을 언제든
@@ -9754,7 +9754,7 @@ Connection knee    그 요청을 몇 개의 커넥션으로 나누는 것이 효
 즉 튜닝해야 할 것은 "커넥션 수" 하나가 아니라
 **load concurrency × connection parallelism 의 2차원 운영점**이다.
 
-이것은 NPUForge 의 원래 질문 —"왜 안 늘어나지?"— 에 정확히 닿는다.
+이것은 NPUDure 의 원래 질문 —"왜 안 늘어나지?"— 에 정확히 닿는다.
 **포화 이후에는 더 밀어넣어도 NPU 가 더 일하는 게 아니라 시스템 안에 큐만
 쌓인다.** 아래 §2 가 그것을 실측으로 잡은 것이다.
 
@@ -10816,7 +10816,7 @@ near-linear** 하다. 포화는 노드당 ~10–16 동시에서 일어난다. �
 
 <a id="results"></a>
 
-# NPUForge 측정 결과 — 1차 정리
+# NPUDure 측정 결과 — 1차 정리
 
 - 정리 시점: **2026-08-14** (단일 노드 계보)
 - 대상 기간: 2026-08-07 ~ 2026-08-12
@@ -11432,7 +11432,7 @@ FP16  1,228,800 ×  84.3 × 8 = 0.829 Gbps / node   →  3노드 2.486 Gbps
 
 <a id="discuss"></a>
 
-# NPUForge 기술 논의
+# NPUDure 기술 논의
 
 이 문서는 설계 판단이 갈리는 지점의 논의를 기록한다. 출처(누구의 의견인지)를 명시해 나중에 어떤 근거로 결정했는지 추적할 수 있게 한다.
 
@@ -11652,7 +11652,7 @@ io_uring은 이 단일 노드 RKNN scaling 문제의 직접 원인은 아니다.
 분산 transport 최적화 여부는 M2/M3의 network_* timing과 syscall 계측 후 판단한다.
 ```
 
-즉, 현재 관측된 8스레드 scaling 한계의 원인은 네트워크 I/O가 아니다. 그러나 NPUForge 전체에서 `io_uring`이 의미 있는지는 gRPC baseline 이후 별도 측정해야 한다.
+즉, 현재 관측된 8스레드 scaling 한계의 원인은 네트워크 I/O가 아니다. 그러나 NPUDure 전체에서 `io_uring`이 의미 있는지는 gRPC baseline 이후 별도 측정해야 한다.
 
 ## 3. NPU load 30% 해석은 한 번 더 검증한다
 
@@ -11774,7 +11774,7 @@ CPU 전체 사용률 기준으로는 여유가 있다 (8스레드에서 최대 4
 
 ```text
 이 단일 노드 RKNN scaling 한계의 직접 원인은 네트워크 I/O 가 아니다.
-NPUForge 전체에서 io_uring 이 의미 있는지는 gRPC baseline 이후
+NPUDure 전체에서 io_uring 이 의미 있는지는 gRPC baseline 이후
 TimingBreakdown 과 syscall 계측으로 별도 판단한다.
 ```
 
@@ -12967,7 +12967,7 @@ throttling 판정은 NPU 만으로 했다.
 
 <a id="board-worklog"></a>
 
-# NPUForge 보드 작업 로그
+# NPUDure 보드 작업 로그
 
 - 문서명: `board-worklog.md`
 - 대상: NanoPi R76S × 3 (`king` / `queen` / `jack`)
@@ -14798,7 +14798,7 @@ ssh npuforge-k 'printf "$NPUFORGE_SUDO_PASS\n" | sudo -S -p "" <command>'
 
 <a id="todo"></a>
 
-# NPUForge 진행 현황
+# NPUDure 진행 현황
 
 - 최종 갱신: **2026-08-21**
 - 발표까지: **D-99** (2026-11-28)

@@ -1,9 +1,9 @@
-# NPUForge Hardware Setup Guide
+# NPUDure Hardware Setup Guide
 
 - 문서명: `02-HARDWARE-SETUP.md`
-- 프로젝트명: NPUForge
+- 프로젝트명: NPUDure
 - 문서 버전: v0.2
-- 대상 릴리스: NPUForge v0.1
+- 대상 릴리스: NPUDure v0.1
 - 목표 발표: 2026년 11월 FOSS for All Conference
 - 작성일: 2026-08-05
 - 최종 수정: 2026-08-06
@@ -30,7 +30,7 @@ NanoPi R76S 3대는 모두 동일한 NPU Worker로 구성한다.
               │ Benchmark / Scheduler      │
               │ Server (PCIe 슬롯 필요)    │
               │                            │
-              │ · NPUForge Scheduler       │
+              │ · NPUDure Scheduler       │
               │ · Benchmark Client         │
               │ · Dashboard                │
               │ · Prometheus               │
@@ -118,7 +118,7 @@ JACK ─────┘
 
 ## 3.2 IP 주소 계획
 
-NPUForge 전용 추론망 예시:
+NPUDure 전용 추론망 예시:
 
 ```text
 Network     : 10.20.0.0/24
@@ -871,7 +871,7 @@ systemd
 
 ```ini
 [Unit]
-Description=NPUForge Node Agent
+Description=NPUDure Node Agent
 After=network-online.target
 Wants=network-online.target
 
@@ -1125,7 +1125,7 @@ ethtool eth0
 - 커널 및 NPU 드라이버 확인
 - 동일 입력 결과 비교
 
-## Step 6. NPUForge Node 배포
+## Step 6. NPUDure Node 배포
 
 - 전용 사용자 생성
 - 바이너리 설치
@@ -1145,7 +1145,7 @@ ethtool eth0
 
 # 16. 최종 구성 기준
 
-NPUForge v0.1 공식 하드웨어 구성은 다음과 같이 정의한다.
+NPUDure v0.1 공식 하드웨어 구성은 다음과 같이 정의한다.
 
 ```text
 Worker Node:

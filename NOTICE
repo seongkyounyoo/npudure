@@ -1,7 +1,7 @@
-NPUForge
-Copyright 2026 NPUForge Contributors
+NPUDure
+Copyright 2026 NPUDure Contributors
 
-This product includes software developed as part of the NPUForge project.
+This product includes software developed as part of the NPUDure project.
 
 --------------------------------------------------------------------------------
 제3자 구성요소에 대하여
@@ -13,7 +13,7 @@ This product includes software developed as part of the NPUForge project.
   - RKNN SDK 헤더 및 바이너리
 
 이들은 Rockchip이 배포하며 각자의 라이선스 조건을 따른다.
-NPUForge는 이 구성요소들을 재배포하지 않고, 빌드 시점에 사용자가 지정한
+NPUDure는 이 구성요소들을 재배포하지 않고, 빌드 시점에 사용자가 지정한
 경로에서 참조할 뿐이다. docs/03-DEVELOPMENT-REQUIREMENTS.md §5.1 참조.
 
 모델 파일(*.rknn, *.onnx)과 벤치마크 데이터 세트 역시 저장소에 포함하지 않는다.

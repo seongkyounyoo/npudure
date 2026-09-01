@@ -1,5 +1,5 @@
 [Unit]
-# NPUForge 노드 에이전트.
+# NPUDure 노드 에이전트.
 #
 # 왜 이 유닛이 필요한가 (2026-08-20)
 #   jack 의 노드 프로세스가 죽어 있었는데 **원인을 확정할 수 없었다.**
@@ -20,7 +20,7 @@
 #   그래서 재시작 정책을 `on-failure` 로 두고, 측정 스크립트는 `pkill` 대신
 #   `systemctl stop` 을 쓰도록 함께 바꿔야 한다. 그 전까지는 설치하지 않는다.
 #   → `docs/TODO.md` §1.2
-Description=NPUForge node agent
+Description=NPUDure node agent
 Documentation=file:///home/pi/npuforge/node.toml
 After=network-online.target
 Wants=network-online.target

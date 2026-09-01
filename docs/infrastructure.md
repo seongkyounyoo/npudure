@@ -1,4 +1,4 @@
-# NPUForge 인프라 현황
+# NPUDure 인프라 현황
 
 - 문서명: `infrastructure.md`
 - 최종 갱신: 2026-08-20

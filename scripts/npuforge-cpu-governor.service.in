@@ -1,5 +1,5 @@
 [Unit]
-Description=NPUForge benchmark CPU governor
+Description=NPUDure benchmark CPU governor
 Documentation=file:///docs/board-worklog.md
 # cpufreq 드라이버가 sysfs 를 노출한 뒤에 실행한다.
 After=multi-user.target

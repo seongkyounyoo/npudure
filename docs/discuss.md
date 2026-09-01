@@ -1,4 +1,4 @@
-# NPUForge 기술 논의
+# NPUDure 기술 논의
 
 이 문서는 설계 판단이 갈리는 지점의 논의를 기록한다. 출처(누구의 의견인지)를 명시해 나중에 어떤 근거로 결정했는지 추적할 수 있게 한다.
 
@@ -218,7 +218,7 @@ io_uring은 이 단일 노드 RKNN scaling 문제의 직접 원인은 아니다.
 분산 transport 최적화 여부는 M2/M3의 network_* timing과 syscall 계측 후 판단한다.
 ```
 
-즉, 현재 관측된 8스레드 scaling 한계의 원인은 네트워크 I/O가 아니다. 그러나 NPUForge 전체에서 `io_uring`이 의미 있는지는 gRPC baseline 이후 별도 측정해야 한다.
+즉, 현재 관측된 8스레드 scaling 한계의 원인은 네트워크 I/O가 아니다. 그러나 NPUDure 전체에서 `io_uring`이 의미 있는지는 gRPC baseline 이후 별도 측정해야 한다.
 
 ## 3. NPU load 30% 해석은 한 번 더 검증한다
 
@@ -340,7 +340,7 @@ CPU 전체 사용률 기준으로는 여유가 있다 (8스레드에서 최대 4
 
 ```text
 이 단일 노드 RKNN scaling 한계의 직접 원인은 네트워크 I/O 가 아니다.
-NPUForge 전체에서 io_uring 이 의미 있는지는 gRPC baseline 이후
+NPUDure 전체에서 io_uring 이 의미 있는지는 gRPC baseline 이후
 TimingBreakdown 과 syscall 계측으로 별도 판단한다.
 ```
 

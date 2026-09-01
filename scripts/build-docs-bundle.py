@@ -102,7 +102,7 @@ for path in ORDER:
 
 header = f"""<a id="index"></a>
 
-# NPUForge 문서 묶음
+# NPUDure 문서 묶음
 
 > **이 파일은 생성물이다. 직접 편집하지 않는다.**
 > `docs/` 의 원본 {len(ORDER)}개를 읽기·인쇄·검토용으로 이어 붙인 것이다.

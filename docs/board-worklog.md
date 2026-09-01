@@ -1,4 +1,4 @@
-# NPUForge 보드 작업 로그
+# NPUDure 보드 작업 로그
 
 - 문서명: `board-worklog.md`
 - 대상: NanoPi R76S × 3 (`king` / `queen` / `jack`)

@@ -1,9 +1,9 @@
-# NPUForge Development Requirements
+# NPUDure Development Requirements
 
 - 문서명: `03-DEVELOPMENT-REQUIREMENTS.md`
-- 프로젝트명: NPUForge
+- 프로젝트명: NPUDure
 - 문서 버전: v0.2
-- 대상 릴리스: NPUForge v0.1
+- 대상 릴리스: NPUDure v0.1
 - 목표 발표: 2026년 11월 FOSS for All Conference
 - 작성일: 2026-08-05
 - 최종 수정: 2026-08-06
@@ -20,7 +20,7 @@
 
 # 1. 문서 목적
 
-본 문서는 NPUForge v0.1 개발을 위해 추가로 필요한 소프트웨어, 개발환경, 계측 도구, 자동화, 오픈소스 공개 준비 및 발표용 구성 요소를 정의한다.
+본 문서는 NPUDure v0.1 개발을 위해 추가로 필요한 소프트웨어, 개발환경, 계측 도구, 자동화, 오픈소스 공개 준비 및 발표용 구성 요소를 정의한다.
 
 현재 보유한 NanoPi R76S 3대와 별도 Linux PC를 기준으로 하며, 하드웨어 자체보다 다음 항목을 우선한다.
 
@@ -237,7 +237,7 @@ npf_rknn_get_runtime_version()
 - ~~Runtime 동시 호출 가능 여부 검증~~ → **완료.** 개별 호출은 thread-safe 이나
   시퀀스는 원자적이지 않다. 컨텍스트 풀 필수 (`environment-matrix.md` §3.1)
 - Thread-safe가 아니면 모델당 전용 Worker Thread 사용
-- FFI 오류를 NPUForge 오류 코드로 변환
+- FFI 오류를 NPUDure 오류 코드로 변환
 
 필수 테스트:
 
@@ -376,7 +376,7 @@ ethtool
 npuforge-scheduler → /metrics
 npuforge-node      → /metrics
 Prometheus
-NPUForge Dashboard
+NPUDure Dashboard
 ```
 
 최소 메트릭:
@@ -403,7 +403,7 @@ request_retries_total
 
 Prometheus는 원본 시계열 데이터 수집기로 사용한다.
 
-발표 화면은 NPUForge 자체 Dashboard를 우선한다.
+발표 화면은 NPUDure 자체 Dashboard를 우선한다.
 
 Grafana는 선택 사항이다.
 
@@ -625,12 +625,12 @@ RKNN Runtime Version
 
 ## 5.1 라이선스 구성
 
-NPUForge 자체 소스코드는 Apache License 2.0을 우선 검토한다.
+NPUDure 자체 소스코드는 Apache License 2.0을 우선 검토한다.
 
 권장 구조:
 
 ```text
-NPUForge Source       : Apache-2.0
+NPUDure Source       : Apache-2.0
 RKNN Runtime          : 저장소에 포함하지 않음
 RKNN Toolkit          : 공식 경로에서 별도 설치
 RKNN Header/Binary    : 재배포 조건 확인
@@ -650,7 +650,7 @@ MODEL_LICENSES.md
 
 주의사항:
 
-- RKNN SDK Binary를 NPUForge 저장소에 임의로 포함하지 않음
+- RKNN SDK Binary를 NPUDure 저장소에 임의로 포함하지 않음
 - 사용자가 공식 경로에서 Runtime을 설치하도록 안내
 - 모델 원본 라이선스 확인
 - 변환된 `.rknn` 파일의 재배포 조건 확인
@@ -664,7 +664,7 @@ MODEL_LICENSES.md
 README 필수 내용:
 
 ```text
-NPUForge 소개
+NPUDure 소개
 핵심 문제 정의
 아키텍처
 Mock 3-node Quick Start
@@ -792,7 +792,7 @@ Temperature
 노드 상태 LED
 노드 번호 라벨
 소형 거치대
-NPUForge Logo
+NPUDure Logo
 GitHub QR Code
 실시간 전력 표시
 객체 탐지 영상
@@ -861,7 +861,7 @@ Scheduler
 
 # 10. 개발 준비 완료 기준
 
-다음 조건이 충족되면 NPUForge v0.1 본개발 준비가 완료된 것으로 판단한다.
+다음 조건이 충족되면 NPUDure v0.1 본개발 준비가 완료된 것으로 판단한다.
 
 - RKNN 버전 조합 고정
 - 기준 모델 선정
@@ -882,7 +882,7 @@ Scheduler
 
 # 11. 최종 판단
 
-현재 보유한 NanoPi R76S 3대와 별도 Linux PC만으로 NPUForge v0.1 개발은 가능하다.
+현재 보유한 NanoPi R76S 3대와 별도 Linux PC만으로 NPUDure v0.1 개발은 가능하다.
 
 추가로 가장 중요한 것은 새로운 하드웨어 구매가 아니라 다음의 완성도다.
 
@@ -899,4 +899,4 @@ Rust와 RKNN 연결 안정성
 
 Zero-Copy와 io_uring은 마지막 최적화 단계에서 실제 병목이 확인될 때만 적용한다.
 
-NPUForge v0.1의 성공은 이론상 18 TOPS라는 숫자가 아니라, 실제 확장 효율과 손실 원인을 재현 가능하게 증명하는 데 있다.
+NPUDure v0.1의 성공은 이론상 18 TOPS라는 숫자가 아니라, 실제 확장 효율과 손실 원인을 재현 가능하게 증명하는 데 있다.
