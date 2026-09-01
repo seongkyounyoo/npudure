@@ -1,4 +1,4 @@
-# NPUForge Scheduler 설정 예시
+# NPUDure Scheduler 설정 예시
 #
 # 스키마 정의: docs/01-TECHSPEC.md §16.1
 # 이 파일은 crates/npuforge-common 의 테스트로 파싱이 검증된다.

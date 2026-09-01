@@ -1,6 +1,6 @@
 [package]
 name = "npuforge-scheduler"
-description = "NPUForge 중앙 스케줄러. 노드 레지스트리, 스케줄링 정책, 헬스체크, 재시도"
+description = "NPUDure 중앙 스케줄러. 노드 레지스트리, 스케줄링 정책, 헬스체크, 재시도"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

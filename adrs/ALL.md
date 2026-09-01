@@ -1,6 +1,6 @@
 <a id="index"></a>
 
-# NPUForge 아키텍처 결정 기록 (ADR)
+# NPUDure 아키텍처 결정 기록 (ADR)
 
 > **이 파일은 생성물이다. 직접 편집하지 않는다.**
 > `adrs/` 의 원본 31개를 읽기·인쇄·공유용으로 이어 붙인 것이다.
@@ -10,7 +10,7 @@
 > python scripts/build-adr-bundle.py $(git log -1 --format=%cs -- adrs/)
 > ```
 >
-> - 생성 기준: **2026-08-19** (`adrs/` 최종 커밋일)
+> - 생성 기준: **2026-08-31** (`adrs/` 최종 커밋일)
 > - 원본: `adrs/README.md`, `adrs/OVERVIEW.md`, ADR 28건, `adrs/TEMPLATE.md`
 > - 파일 간 링크는 문서 내 앵커로 바뀌어 있다
 
@@ -205,7 +205,7 @@ python scripts/build-adr-bundle.py $(git log -1 --format=%cs -- adrs/)
 
 <a id="overview"></a>
 
-# NPUForge 아키텍처 개요
+# NPUDure 아키텍처 개요
 
 ADR 을 읽기 전에 보는 문서다. **시스템 전체가 어떻게 생겼는지** 한 번에
 훑는 것이 목적이고, 개별 선택의 근거는 각 ADR 로 넘긴다.

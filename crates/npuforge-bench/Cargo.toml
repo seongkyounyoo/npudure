@@ -1,6 +1,6 @@
 [package]
 name = "npuforge-bench"
-description = "NPUForge 벤치마크 CLI. 부하 발생, 지연 분포 집계, run 유효성 판정"
+description = "NPUDure 벤치마크 CLI. 부하 발생, 지연 분포 집계, run 유효성 판정"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,4 +1,4 @@
-# NPUForge Node 설정 예시 (RK3576 실장비용)
+# NPUDure Node 설정 예시 (RK3576 실장비용)
 #
 # 스키마 정의: docs/01-TECHSPEC.md §16.2
 # 세 노드 간 차이는 [node] 섹션의 id / advertise_address 두 값으로 제한한다.

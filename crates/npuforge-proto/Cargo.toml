@@ -1,6 +1,6 @@
 [package]
 name = "npuforge-proto"
-description = "NPUForge gRPC 서비스 정의 및 생성 코드"
+description = "NPUDure gRPC 서비스 정의 및 생성 코드"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "npuforge-node"
-description = "NPUForge 노드 에이전트. 각 NPU 장치에서 실행되어 추론 요청을 처리한다"
+description = "NPUDure 노드 에이전트. 각 NPU 장치에서 실행되어 추론 요청을 처리한다"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

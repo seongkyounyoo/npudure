@@ -1,6 +1,6 @@
 [package]
 name = "npuforge-common"
-description = "NPUForge 공통 타입, 오류 코드, 설정 구조체, 백엔드 인터페이스"
+description = "NPUDure 공통 타입, 오류 코드, 설정 구조체, 백엔드 인터페이스"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
