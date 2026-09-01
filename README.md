@@ -1,245 +1,306 @@
 # NPUForge
 
-*[English README](README.en.md)*
+*[한국어 README](README.ko.md)*
 
-여러 대의 저비용 엣지 NPU를 하나의 분산 추론 클러스터로 운영하는 Rust 기반 오픈소스 런타임.
+**Do three 6 TOPS NPUs actually give you 18?**
 
-> **6 TOPS NPU 세 대는 정말 18 TOPS가 되는가?**
->
-> NPUForge는 그 차이가 어디에서 발생하는지 측정하고, 실제로 확장 가능한 조건을 찾아가는 프로젝트다.
+NPUForge is an open-source distributed inference runtime in Rust that spreads
+independent inference requests across several low-cost edge NPUs over ordinary
+Ethernet and standard gRPC — no custom transport, no RDMA, no kernel bypass.
 
-**상태: 측정 계보 종료 (2026-08-21).** S2 부터 S3.9b · S0-D 까지 닫혔다.
-**측정 421건, 전 구간 오류율 0.** 남은 것은 Prometheus 메트릭(M2)과
-대시보드(M6)다. v0.1 태그는 컨퍼런스 발표 일정에 맞출 계획이지만
-**CFP 심사 중이라 시점은 미정이다.**
+We ran **421 valid hardware measurements, with zero inference errors in the
+valid runs**, to find out where scale-out performance actually goes.
 
-![NPUForge 3노드 클러스터 — 스케줄러 호스트(좌) · 노드 3대와 냉각 팬(중앙) · 부하 측정 중인 대시보드(우)](results/photos-public/cluster-overview-01.jpg)
-
-*측정에 쓴 그 장비다. 왼쪽이 스케줄러 호스트, 가운데가 NanoPi R76S 3대와
-냉각 팬, 오른쪽 화면은 부하가 도는 중의 대시보드다. 사진 20장은
-[`results/photos-public/`](results/photos-public/) 에 있다.*
-
-> ### 결과 한 장
->
-> | | 값 | 문서 |
-> |---|---|---|
-> | **3노드 near-linear** | **3.00×** · 112.9 / 229.0 / 338.4 inf/s (30 run) | [S2](docs/experiments/S2_GRPC_BASELINE.md) |
-> | **운영점 최적화** | **387.2 inf/s** (+13.3%) — 단 efficiency 는 98.9 → **95.3%** | [S3.8](docs/experiments/S3_8_OPTIMIZED_SCALEOUT.md) |
-> | 남은 손실 | **tail 에서 나타난다** — p50 +0%, p99 **+36%** | [S3.9a](docs/experiments/S3_9A_SCALEOUT_PROFILE.md) |
-> | 지속 부하 | 능동 냉각 −1.9% vs 팬리스 −11.3% | [S0](docs/experiments/S0_SUSTAINED_LOAD.md) |
-> | 스케줄링 | stale 상태 herding 버그 수정 → p99 **−37%** | [S0-C](docs/experiments/S0_C_POLICY_AB.md) |
-> | **io_uring** | **적용하지 않는다 — 측정으로 반박됨** | [S3.9b](docs/experiments/S3_9B_NODE_RESIDUAL.md) |
->
-> 절대 처리량과 scaling efficiency 가 **반대로 움직인다**. 둘 중 하나만
-> 인용하면 트레이드오프가 숨는다 — 이 저장소는 항상 둘 다 적는다.
->
-> **여기서 시작한다 →** [`docs/experiments/README.md`](docs/experiments/README.md)
-> (실험 대장 · 배제표 · 방법론 교훈)
+Short answer: **it scales.** The interesting part is everything that almost
+stopped it.
 
 ---
 
-## 무엇을 하는 프로젝트인가
+![NPUForge three-node cluster: scheduler host on the left, three NanoPi R76S boards with cooling fans in the centre, the dashboard under load on the right](results/photos-public/cluster-overview-01.jpg)
 
-RK3576 기반 6 TOPS NPU 노드 3대를 네트워크로 묶고, 단일 노드 대비 2노드·3노드 구성에서 **실제 추론 처리량이 어디까지 확장되는지 측정**한다.
+*The actual rig the measurements came from. Scheduler host on the left,
+three NanoPi R76S boards with their cooling fans in the centre, and the
+dashboard mid-run on the right. Twenty photographs are in
+[`results/photos-public/`](results/photos-public/).*
 
-명목 TOPS를 합산하는 것이 목표가 아니다. 네트워크 지연, 메모리 복사, 전처리, 스케줄링 불균형, 노드 장애로 인한 손실을 **정량적으로 측정하고 공개**하는 것이 핵심이다.
+## Results
 
-### 하는 것
+Three NanoPi R76S boards (Rockchip RK3576, 6 TOPS each), YOLOv8n INT8,
+2.5 GbE per node, a separate x86 scheduler (Dell PowerEdge R620, dual Xeon
+E5-2630L, 24 threads, 10 GbE) — the three-node traffic converges there, so
+2.5 GbE is not enough.
 
-- 독립적인 추론 요청을 여러 NPU 노드에 분산 (데이터 병렬)
-- 노드 부하와 상태를 반영한 동적 스케줄링
-- 장애 노드 자동 제외 및 복구 후 자동 재편입
-- 단계별 지연시간 분해 측정
-- 재현 가능한 벤치마크와 원본 데이터 공개
+**Thread count on the scheduler host matters more than clock speed.** We
+found this the hard way when the host was replaced: a faster-per-core
+8-thread desktop produced 7.5% *less* throughput than the 24-thread server,
+because the load generator shares that CPU with the scheduler. Sixteen
+threads or more is what we would recommend
+([§3.3.4](docs/02-HARDWARE-SETUP.md)).
 
-### 하지 않는 것
+Photographs of the actual rig are in
+[`results/photos-public/`](results/photos-public/). Host specifications are
+in [`docs/hosts/`](docs/hosts/).
 
-- 여러 NPU를 하나의 물리 NPU처럼 보이게 하는 하드웨어 통합
-- 단일 요청의 지연시간을 노드 수에 비례해 단축
-- 모델을 레이어 단위로 분할하거나 LLM 텐서 병렬
-- Kubernetes 수준의 범용 오케스트레이션
+> **The scheduler host was replaced on 2026-08-26.** All 421 measurements
+> come from the R620 above and stand as recorded. The replacement host
+> yields a different baseline; see
+> [`docs/infrastructure.md`](docs/infrastructure.md) §3.2.1.
+
+| | Result | Report |
+|---|---|---|
+| **Near-linear scale-out** | **3.00×** — 112.9 / 229.0 / 338.4 inf/s (30 runs) | [S2](docs/experiments/S2_GRPC_BASELINE.md) |
+| **Tuned transport** | **387.2 inf/s** (+13.3%) — but efficiency fell 98.9% → **95.3%** | [S3.8](docs/experiments/S3_8_OPTIMIZED_SCALEOUT.md) |
+| Where the loss went | **in the tail** — p50 flat, p99 **+36%** | [S3.9a](docs/experiments/S3_9A_SCALEOUT_PROFILE.md) |
+| Sustained load | active cooling −1.9% vs fanless −11.3% over 31 min | [S0](docs/experiments/S0_SUSTAINED_LOAD.md) |
+| Scheduling | a herding bug in our own defaults; fixing it cut p99 **−37%** | [S0-C](docs/experiments/S0_C_POLICY_AB.md) |
+| **io_uring** | **not implemented — the measurement argued against it** | [S3.9b](docs/experiments/S3_9B_NODE_RESIDUAL.md) |
+
+> **Absolute throughput and scaling efficiency move in opposite directions.**
+> Tuning the transport bought 13.3% more throughput and cost 3.6 points of
+> scaling efficiency. Quoting either number alone hides the trade-off, so this
+> repository always reports both — with the measurement conditions attached.
+
+**Start here → [`docs/experiments/README.md`](docs/experiments/README.md)** —
+the experiment ledger: what each experiment asked, what was ruled out and
+under which conditions, and every raw dataset mapped to its experiment.
 
 ---
 
-## 기준 하드웨어
+## Four things we did not expect
 
-| 항목 | 값 |
-|---|---|
-| 보드 | NanoPi R76S × 3 |
-| SoC | Rockchip RK3576 (4× A72 @2.2GHz + 4× A53 @1.8GHz) |
-| NPU | 6 TOPS |
-| 네트워크 | worker 2.5GbE, **aggregation 10GbE** (NEXI 스위치, 구축·실측 완료) |
-| 냉각 | 팬리스(조건 A)·능동냉각(조건 B) 두 조건. throttling은 제거 대상이 아니라 **측정 대상** |
-| Scheduler | **별도 x86 서버 (10GbE, 16 스레드 이상 권장).** 3노드 합류점이라 2.5G 로는 부족하다. 측정 421건은 Dell PowerEdge R620 / Xeon E5-2630L ×2 (24T) 에서 나왔다 — **CPU 스레드 수가 처리량을 가른다** ([§3.3.4](docs/02-HARDWARE-SETUP.md)) |
+### 1. Optimizing outside the operating point inverted our conclusion
 
-> **스케줄러 호스트는 2026-08-26 에 교체됐다.** 측정 421건은 위 R620 에서
-> 얻은 값이며 그대로 유효하다. 교체 후 호스트에서는 기준선이 다르게
-> 나온다 — 경위와 두 호스트의 규격은 [`docs/hosts/`](docs/hosts/) 와
-> [`docs/infrastructure.md`](docs/infrastructure.md) §3.2.1 에 있다.
+Comparing connection counts at a fixed high load told us that more connections
+wreck tail latency. That measurement was correct — and useless, because the
+load we picked was **overload for every configuration under test**. Re-measured
+at the operating point, the same change *improved* tail latency by 18.8%.
 
-> 실장비 사진은 [`results/photos-public/`](results/photos-public/) 에 있다.
+The sign of the conclusion flipped. We kept the overload data, relabelled it
+"overload behaviour", and stopped using it for operating decisions.
 
-팬리스를 유지하는 이유는 엣지 디바이스의 실제 배치 형태가 그렇기 때문이다. 팬을 달아 얻은 수치는 현장에서 재현되지 않는다. 벤더가 공개하는 TOPS는 순간 성능이며, 지속 부하에서의 **Peak FPS 대비 Sustained FPS 격차**는 공개 자료가 거의 없다. 이 격차를 측정하는 것 자체가 이 프로젝트의 문제의식과 같은 방향이다.
+### 2. Same temperature, different results
 
-## 구조
+We assumed thermal heterogeneity came from boards running at different
+temperatures. It doesn't. Across three fanless experiments, peak SoC
+temperature was nearly identical (**~86 °C**) while the observed node-latency
+spread ranged from **1.10× to 2.40×**. Temperature alone did not determine it.
 
-```text
-Client → Scheduler → Node 1 (RK3576 / RKNN)
-                   → Node 2 (RK3576 / RKNN)
-                   → Node 3 (RK3576 / RKNN)
+What tracked the spread was how far clock throttling *diverged* between
+boards — and thermal control targets temperature, not divergence. **Thermal
+control was not a deterministic way to reproduce the heterogeneity**, so
+heating longer did not help.
+
+We then built a deterministic fixture with CPU frequency caps that reproduces
+any spread from 1.12× to 3.93× on demand.
+
+### 3. Our scheduler was herding on stale state
+
+Load-aware policies *collapsed* throughput by 55–58% against round-robin.
+The policies were not wrong; they were deciding on heartbeat state that was
+already out of date, so every scheduler instance picked the same "idle" node
+at the same moment. After switching to a locally-tracked in-flight counter,
+adaptive scheduling cut p99 latency by 37% and evened per-node latency spread
+from 1.33× to 1.00×.
+
+This was a bug in our default configuration. It took a policy A/B to find it.
+
+### 4. We planned io_uring, measured, and didn't build it
+
+The plan said: profile CPU, measure syscall and copy cost, then implement
+io_uring. We did the first two.
+
+```
+transport cost          16.35 CPU-ms per request
+  user   9.37 ms (57%)  serialization, user-space copy, HTTP/2 framing
+  kernel 6.99 ms (43%)  syscall entry, TCP stack, copy_to_user
+
+network syscalls        ~165 per request
+syscall entry           ~0.17 ms = 1.0% of transport cost
+board CPU under load    48.9% idle, no core saturated
 ```
 
-| 크레이트 | 역할 |
-|---|---|
-| `npuforge-common` | 공통 타입, 오류 코드, 설정 스키마, 백엔드 인터페이스 |
-| `npuforge-proto` | gRPC 서비스 정의 |
-| `npuforge-scheduler` | 중앙 스케줄러. 레지스트리, 정책, 헬스체크, 재시도 |
-| `npuforge-node` | 노드 에이전트. 모델 로딩, 추론, 상태 보고 |
-| `npuforge-rknn` | RKNN Runtime FFI. `unsafe` 코드는 여기로 제한 |
-| `npuforge-mock-backend` | 하드웨어 없이 동작하는 Mock 백엔드 |
-| `npuforge-bench` | 부하 발생 및 통계 계산 CLI |
+Even assuming io_uring eliminates a 1.2 MB copy in both directions, the total
+reachable slice is about 8% of transport cost — and recovering it buys nothing,
+because **CPU here is a cost, not a constraint.** Reducing consumption of an
+unsaturated resource does not raise throughput.
+
+We recorded the decision in the spec rather than the commit log.
 
 ---
 
-## 하드웨어 없이 시작하기
-
-RK3576 장비가 없어도 Mock Backend로 핵심 구조를 실행할 수 있다. 이는 부가 기능이 아니라 설계 원칙이다.
-
-### 전제 조건
+## Figures
 
 | | |
 |---|---|
-| **Rust** | stable 툴체인 (`rust-toolchain.toml` 이 채널을 고정한다) |
-| **protoc** | **필수** — gRPC 정의를 빌드 시점에 컴파일한다 |
-| 네트워크 | crates.io 접근. 의존성은 `Cargo.lock` 으로 버전이 고정돼 있으나 vendor 되어 있지는 않다 |
+| ![near-linear scale-out](results/baseline-20260820/figures/fig1_throughput_vs_node.png) | ![optimized scale-out](results/scaleout-optimized-20260820/figures/fig_scaleout_optimized.png) |
+| **3.00× near-linear** (S2) | **+13.3% absolute, 98.9 → 95.3% efficiency** (S3.8) |
+| ![sustained thermal](results/sustained-20260821-fanless/figures/fig_sustained_thermal.png) | ![policy tail](results/policy-ab-20260821b/figures/fig_policy_tail.png) |
+| **Cooling decides sustained throughput** (S0) | **Round-robin's tail is unpredictable when nodes differ** (S0-C) |
+
+Regenerate: `python scripts/make-experiment-figures.py`
+
+---
+
+## Limitations — read these first
+
+We would rather you find these here than in the comments.
+
+- **Three nodes.** Whether these conclusions hold at four or more is unmeasured.
+- **Small repetition counts.** Most configurations are 3–4 runs. Percentile
+  differences have small SD and are usable; **throughput differences under 1%
+  were never used to rank anything.**
+- **Percentiles are run-level averages, not pooled.** This dilutes each run's
+  worst window, so tail numbers read low. Valid for comparing conditions,
+  invalid as "the p99 of this system".
+- **The residual 16.1% is not explained.** Local direct inference reaches
+  161.5 inf/s; the operating point reaches 135.5. It looks like path latency
+  rather than CPU cost — the 1.2 MB payload alone costs ~8.2 ms round trip on
+  a 2.5 GbE link — but we did not pin it down.
+- **`perf` is unavailable on these boards** (vendor kernel), so there is no
+  symbol-level profile. The CPU split comes from `/proc/PID/stat`.
+- **No authentication, no TLS.** gRPC is plaintext and node registration is
+  unverified. This is scoped for a trusted private network, not a hostile one --
+  a boundary, not a defect.
+- **Most detailed documentation is in Korean.** This file and the figures are
+  the English entry point.
+
+---
+
+## What this is, and isn't
+
+**Is:** data-parallel distribution of independent requests, load-aware
+scheduling, automatic exclusion and re-admission of failed nodes, per-stage
+latency breakdown, reproducible benchmarks with raw data published.
+
+**Isn't:** making several NPUs look like one device, reducing the latency of a
+*single* request, layer-wise model partitioning or LLM tensor parallelism, or
+general-purpose orchestration.
+
+---
+
+## Try it without hardware
+
+The Mock backend is a design requirement, not a convenience. The full workspace
+builds and tests on x86 without the RKNN SDK.
+
+### Prerequisites
+
+| | |
+|---|---|
+| **Rust** | stable toolchain (`rust-toolchain.toml` pins the channel) |
+| **protoc** | **required** — the gRPC definitions are compiled at build time |
+| Network | crates.io access. Dependencies are version-pinned by `Cargo.lock` but not vendored |
 
 ```bash
-# protoc — 플랫폼에 맞게
+# protoc — pick your platform
 sudo apt install protobuf-compiler     # Ubuntu / Debian
 sudo dnf install protobuf-compiler     # Rocky / RHEL / Fedora
 brew install protobuf                  # macOS
 winget install protobuf                # Windows
 ```
 
-`protoc` 이 없으면 빌드가 `npuforge-proto` 에서 멈추며 **빠진 도구를
-이름으로 지목한다.** 조용히 실패하지 않는다.
+Without `protoc` the build stops at `npuforge-proto` with an explicit
+message naming the missing tool — it does not fail silently.
 
 ```bash
 git clone https://github.com/seongkyounyoo/npuforge.git
 cd npuforge
 
-# 전체 빌드와 테스트. RKNN SDK 없이 통과한다.
-cargo test --workspace
+cargo test --workspace         # passes without the RKNN SDK
 
-# 설정 검증
 cargo run -p npuforge-scheduler -- --config configs/scheduler.example.toml
-cargo run -p npuforge-node -- --config configs/mock/node-01.toml
+cargo run -p npuforge-node      -- --config configs/mock/node-01.toml
 ```
 
-`configs/mock/` 의 세 노드는 서로 다른 속도와 오류율을 갖도록 되어 있다. Round Robin과 ECT의 차이가 로컬에서도 드러나게 하기 위한 것이다.
+The three mock nodes in `configs/mock/` are deliberately given different speeds
+and error rates, so the difference between round-robin and ECT shows up
+locally.
+
+### On real hardware
+
+```bash
+export RKNN_SDK_PATH=/path/to/rknn/include
+export RKNN_LIB_PATH=/path/to/rknn/lib
+cargo build-node    # --release --target aarch64-unknown-linux-gnu --features rknn
+```
+
+The `rknn` feature is off by default. A binary built without it fails loudly at
+startup if given an RKNN config, rather than silently falling back.
+
+> **Reproducibility, honestly stated.** The measurement harnesses in `scripts/`
+> are written against this specific four-machine setup (three boards plus a
+> scheduler host, reachable by SSH alias). They are published so the *method*
+> is inspectable and the raw data is checkable — not as a turnkey suite that
+> will run elsewhere unchanged.
 
 ---
 
-## 스케줄링 정책
+## Scheduling policies
 
-| 식별자 | 정책 | 설명 |
+| id | policy | note |
 |---|---|---|
-| `round-robin` | Round Robin | 순차 분배. 비교 기준 |
-| `least-queue` | Least Queue | 가장 짧은 큐 선택 |
-| `ect` | Estimated Completion Time | 예상 완료시간 기반. 기본값 |
+| `round-robin` | Round Robin | comparison baseline |
+| `least-queue` | Least Queue | shortest queue wins |
+| `ect` | Estimated Completion Time | **default** |
 
 ```text
 ECT = ((queue_depth + in_flight + 1) × EWMA_inference
        + EWMA_network + thermal_penalty + error_penalty) / load_factor
 ```
 
-세 정책은 동일한 후보 필터를 공유한다. 정책마다 필터가 다르면 정책 비교 실험이 정책이 아니라 필터의 차이를 측정하게 되기 때문이다.
+All three share the same candidate filter. If the filters differed, a policy
+A/B would be measuring the filters instead of the policies.
+
+Under heterogeneity, `least-queue` and `ect` both work and neither dominates:
+ECT is slightly ahead on throughput, LQ slightly ahead on tail. The default
+stays `ect`. Whether that is right at strong heterogeneity is **still open** —
+[S0-D](docs/experiments/S0_D_CAPACITY_HETERO.md) built the fixture to answer it
+and we deliberately stopped there.
 
 ---
 
-## 실장비 빌드
+## How this project measures
 
-노드 바이너리는 개발 PC에서 ARM64로 크로스컴파일해 세 노드에 **동일 바이너리**를 배포한다.
+The methodology is the part most likely to be useful to you, whatever hardware
+you have. Full list in
+[`docs/experiments/README.md`](docs/experiments/README.md) §4.
 
-```bash
-# RKNN SDK 설치 후
-export RKNN_SDK_PATH=/path/to/rknn/include
-export RKNN_LIB_PATH=/path/to/rknn/lib
-
-cargo build-node   # = --release --target aarch64-unknown-linux-gnu -p npuforge-node --features rknn
-```
-
-`npuforge-rknn` 의 `rknn` feature는 기본으로 꺼져 있다. 개발 PC(Windows/x86 포함)에서 `cargo build --workspace` 가 통과해야 Mock 기반 개발이 하드웨어에 묶이지 않기 때문이다.
-
-RKNN 지원 없이 빌드한 바이너리에 RKNN 설정을 주면 시작 시점에 명확한 오류로 중단된다.
+- **Optimize at the operating point, not in the overload region.** A fixed-load
+  comparison can show overload behaviour rather than a configuration effect.
+- **Exclusion is conditional.** A ruled-out bottleneck reopens when conditions
+  change. Every verdict carries the conditions it was reached under.
+- **Decision rules are fixed before the results arrive** and are not moved to
+  fit them. When a rule fails to fire, that is also a result.
+- **Turn silent failures loud.** Node count is verified by probe traffic, not
+  by process existence. Config injection is verified by reading it back.
+- **Instruments can be measuring the wrong quantity.** Ours did on six
+  documented occasions during this campaign — each named in
+  [`docs/experiments/README.md`](docs/experiments/README.md) §4.13.
+  Moving a threshold to fit results and fixing a broken instrument are
+  different acts; we document which one we did.
+- **Derived numbers that humans maintain will diverge.** Run totals and
+  percentages are computed by scripts, with the source recorded.
 
 ---
 
-## 문서
+## Documentation
 
-| 문서 | 내용 |
+| | |
 |---|---|
-| **[`docs/experiments/README.md`](docs/experiments/README.md)** | **실험 대장 — 여기서 시작한다.** 무엇을 묻고 무엇이 배제됐는지 한 장. 원본 데이터 대응표와 방법론 교훈 포함 |
-| [`adrs/`](adrs/README.md) | **왜 이렇게 되어 있는가 — 아키텍처 결정 기록 28건** |
-| [`docs/experiments/`](docs/experiments/) | 실험 보고서 12건 (S2 · S3 · S3.5~3.9b · S0-A~D) |
-| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 기술 용어 13개 절 — 실험 ID 체계, 측정 방법론, 사전 등록 규칙 |
-| [`docs/RESULTS.md`](docs/RESULTS.md) | 단일 노드 계보 1차 정리 (다중 노드는 `experiments/`) |
-| [`docs/TODO.md`](docs/TODO.md) | 진행 현황과 다음에 할 일 |
-| [`docs/00-PRD.md`](docs/00-PRD.md) | 목표, 비목표, 기능 요구사항, 성공 기준 |
-| [`docs/01-TECHSPEC.md`](docs/01-TECHSPEC.md) | 구조, 프로토콜, 설정 스키마, 스케줄링, 벤치마크 설계 |
-| [`docs/02-HARDWARE-SETUP.md`](docs/02-HARDWARE-SETUP.md) | 물리 구성, 네트워크, 전원, 냉각, 실험 조건 |
-| [`docs/03-DEVELOPMENT-REQUIREMENTS.md`](docs/03-DEVELOPMENT-REQUIREMENTS.md) | 개발환경, 도구, 배포 자동화, 라이선스 |
-| [`docs/environment-matrix.md`](docs/environment-matrix.md) | 버전 조합과 해시 고정 |
-| [`docs/hosts/`](docs/hosts/) | 스케줄러 호스트 하드웨어 인벤토리 (기계 수집) |
-| [`docs/ALL.md`](docs/ALL.md) | **위 문서 전부를 한 파일로.** 읽기·인쇄·검토용 생성물 |
+| **[`docs/experiments/README.md`](docs/experiments/README.md)** | **Experiment ledger — start here.** Questions, exclusions, raw-data map, methodology |
+| [`adrs/`](adrs/README.md) | 28 architecture decision records |
+| [`docs/experiments/`](docs/experiments/) | 12 experiment reports (S2 · S3 · S3.5–3.9b · S0-A–D) |
+| [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Terminology, experiment ID scheme, pre-registered rules |
+| [`docs/01-TECHSPEC.md`](docs/01-TECHSPEC.md) | Architecture, protocol, config schema, benchmark design |
 
-문서가 서로 다른 값을 기술하면 `docs/00-PRD.md` §0의 우선순위를 따른다.
+Most are Korean. The experiment reports lead with tables and figures, which
+survive machine translation reasonably well.
 
 ---
 
-## 성공 기준에 대해
-
-이 프로젝트의 성공 기준은 **"특정 수치가 나왔는가"가 아니라 "측정하고 설명할 수 있는가"** 이다.
-
-측정을 목적으로 하는 프로젝트에서 결과값을 성공 조건으로 걸면, 목표 수치가 나오지 않을 때 실험 조건을 유리하게 선택할 유인이 생긴다. 따라서 다음 결과도 유효한 성과로 간주한다.
-
-- ✅ **io_uring이 유의미한 성능 개선을 만들지 못함 — 실현됨 (2026-08-21)**
-- Zero-Copy 적용 범위가 제한적임
-- 네트워크보다 NPU 또는 전처리가 주요 병목으로 확인됨
-- ✅ **3노드 확장 효율이 예상보다 낮음 — 부분 실현** (운영점 95.3%)
-- 단일 고성능 장치가 비용 면에서 더 유리함
-
-병목 원인과 적용 조건을 정량적으로 제시하는 것이 결과다.
-
-> **첫 항목은 측정 전에 적어 둔 것이고, 실제로 그렇게 됐다.**
-> 요청당 네트워크 syscall 은 약 165회지만 진입 비용은 transport CPU 의
-> 1%에 그치고, 부하 중 보드는 48.9% idle 이다 — **CPU 는 비용이지
-> 제약이 아니다.** 만들지 않기로 결정하고 그 근거를
-> [`01-TECHSPEC.md` §15](docs/01-TECHSPEC.md) 에 기록했다.
-> → [S3.9b](docs/experiments/S3_9B_NODE_RESIDUAL.md)
-
----
-
-## 알려진 제한사항
-
-- **노드가 3대뿐이다.** 4노드 이상에서 이 결론이 유지되는지는 미측정이다
-- **반복 수가 작다.** 구성당 3~4 run 이 많다. p50/p95 차이는 SD 가 작아
-  신뢰할 만하나 **처리량 1% 미만 차이는 우열 근거로 쓰지 않았다**
-- **percentile 은 run-level 평균이다.** pooled 가 아니다 — tail 을 낮게
-  보이게 하므로 절대값을 "이 시스템의 p99" 로 인용하면 안 된다
-- **잔여 gap 16.1% 의 정체는 미확정.** CPU 비용이 아니라 경로 지연으로
-  보이지만(페이로드 1.2MB 왕복만 8.2ms) 특정하지 못했다
-- **Prometheus 메트릭 미구현.** REST 관리 API와 대시보드(M6)도 아직이다
-- **후처리(NMS) 없음.** 노드는 원시 텐서를 그대로 반환한다
-- **JPEG 디코딩 없음.** 입력은 RGB8/BGR8 원본만 받는다
-- **인증·TLS 없음.** gRPC 는 평문이고 노드 등록에 검증이 없다.
-  **신뢰된 사설망 안에서만 쓰도록 설계했다** — 결함이 아니라 범위다
-
----
-
-## 라이선스
+## License
 
 [Apache License 2.0](LICENSE).
 
-RKNN Runtime과 SDK는 이 저장소에 포함되지 않는다. 공식 경로에서 별도로 설치해야 한다.
-모델 파일과 데이터 세트의 재배포 조건은 각 원본 라이선스를 따른다.
+The RKNN Runtime and SDK are not included; install them from the vendor. Model
+files and datasets follow their own upstream licenses.

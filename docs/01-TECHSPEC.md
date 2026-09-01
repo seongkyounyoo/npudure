@@ -244,7 +244,8 @@ npuforge/
 ├── Cargo.toml
 ├── Cargo.lock
 ├── LICENSE
-├── README.md
+├── README.md              (영문 — 기본)
+├── README.ko.md           (한글)
 ├── rust-toolchain.toml
 ├── crates/
 │   ├── npuforge-common/
