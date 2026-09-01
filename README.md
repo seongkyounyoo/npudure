@@ -1,10 +1,16 @@
-# NPUForge
+# NPUDure
 
 *[한국어 README](README.ko.md)*
 
+> **This project started out as NPUForge.** Only the name changed — same
+> project, same code, same measurements. The crate names, source identifiers
+> and recorded results still read `npuforge`, and are left that way on
+> purpose: the 421 measurements were taken under that name, and the record
+> should keep the name it was recorded under.
+
 **Do three 6 TOPS NPUs actually give you 18?**
 
-NPUForge is an open-source distributed inference runtime in Rust that spreads
+NPUDure is an open-source distributed inference runtime in Rust that spreads
 independent inference requests across several low-cost edge NPUs over ordinary
 Ethernet and standard gRPC — no custom transport, no RDMA, no kernel bypass.
 
@@ -16,7 +22,7 @@ stopped it.
 
 ---
 
-![NPUForge three-node cluster: scheduler host on the left, three NanoPi R76S boards with cooling fans in the centre, the dashboard under load on the right](results/photos-public/cluster-overview-01.jpg)
+![NPUDure three-node cluster: scheduler host on the left, three NanoPi R76S boards with cooling fans in the centre, the dashboard under load on the right](results/photos-public/cluster-overview-01.jpg)
 
 *The actual rig the measurements came from. Scheduler host on the left,
 three NanoPi R76S boards with their cooling fans in the centre, and the
@@ -203,8 +209,8 @@ Without `protoc` the build stops at `npuforge-proto` with an explicit
 message naming the missing tool — it does not fail silently.
 
 ```bash
-git clone https://github.com/seongkyounyoo/npuforge.git
-cd npuforge
+git clone https://github.com/seongkyounyoo/npudure.git
+cd npudure
 
 cargo test --workspace         # passes without the RKNN SDK
 

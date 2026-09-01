@@ -1,19 +1,24 @@
-# NPUForge
+# NPUDure
 
 *[English README](README.md)*
+
+> **원래 NPUForge 라는 이름으로 시작한 프로젝트다.** 이름만 바꿨을 뿐
+> 프로젝트도 코드도 측정 결과도 동일하다. 크레이트 이름과 소스 식별자,
+> 기록된 측정 결과는 `npuforge` 그대로 두었다. 421건의 측정이 그 이름으로
+> 이뤄졌으니, 기록은 기록된 당시의 이름을 유지하는 것이 맞기 때문이다.
 
 여러 대의 저비용 엣지 NPU를 하나의 분산 추론 클러스터로 운영하는 Rust 기반 오픈소스 런타임.
 
 > **6 TOPS NPU 세 대는 정말 18 TOPS가 되는가?**
 >
-> NPUForge는 그 차이가 어디에서 발생하는지 측정하고, 실제로 확장 가능한 조건을 찾아가는 프로젝트다.
+> NPUDure는 그 차이가 어디에서 발생하는지 측정하고, 실제로 확장 가능한 조건을 찾아가는 프로젝트다.
 
 **상태: 측정 계보 종료 (2026-08-21).** S2 부터 S3.9b · S0-D 까지 닫혔다.
 **측정 421건, 전 구간 오류율 0.** 남은 것은 Prometheus 메트릭(M2)과
 대시보드(M6)다. v0.1 태그는 컨퍼런스 발표 일정에 맞출 계획이지만
 **CFP 심사 중이라 시점은 미정이다.**
 
-![NPUForge 3노드 클러스터 — 스케줄러 호스트(좌) · 노드 3대와 냉각 팬(중앙) · 부하 측정 중인 대시보드(우)](results/photos-public/cluster-overview-01.jpg)
+![NPUDure 3노드 클러스터 — 스케줄러 호스트(좌) · 노드 3대와 냉각 팬(중앙) · 부하 측정 중인 대시보드(우)](results/photos-public/cluster-overview-01.jpg)
 
 *측정에 쓴 그 장비다. 왼쪽이 스케줄러 호스트, 가운데가 NanoPi R76S 3대와
 냉각 팬, 오른쪽 화면은 부하가 도는 중의 대시보드다. 사진 20장은
@@ -125,8 +130,8 @@ winget install protobuf                # Windows
 이름으로 지목한다.** 조용히 실패하지 않는다.
 
 ```bash
-git clone https://github.com/seongkyounyoo/npuforge.git
-cd npuforge
+git clone https://github.com/seongkyounyoo/npudure.git
+cd npudure
 
 # 전체 빌드와 테스트. RKNN SDK 없이 통과한다.
 cargo test --workspace
