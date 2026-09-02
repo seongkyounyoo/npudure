@@ -1,58 +1,67 @@
-# 기준선 재현 — 스케줄러 호스트 교체 후 (2026-08-26)
+# Baseline reproduction — after the scheduler host swap (2026-08-26)
 
-**이 디렉터리는 측정 421건에 합산되지 않는다.** 스케줄러 호스트가 다르다.
+*[한국어 원문](README.ko.md)*
 
-`scripts/count-runs.sh` 가 `-althost` 접미사를 보고 따로 센다.
+**This directory is not counted towards the 421 measurements.** The scheduler
+host is different.
 
-## 무엇을 측정했나
+`scripts/count-runs.sh` sees the `-althost` suffix and counts it separately.
 
-구서버(Xeon E5-2630L ×2, 24T)가 물리적으로 교체되어 여분 데스크톱
-(Core i7-4790, 8T)으로 옮겼다. **노드 3대·스위치·모델·바이너리는 그대로고
-스케줄러 호스트만 바뀌었다.** 기준선이 재현되는지 확인한 run 이다.
+## What was measured
+
+The old server (Xeon E5-2630L ×2, 24T) was physically replaced and things moved
+to a spare desktop (Core i7-4790, 8T). **The three nodes, the switch, the model
+and the binaries are unchanged; only the scheduler host differs.** These are the
+runs checking whether the baseline reproduces.
 
 ```text
 npuforge-bench --scheduler http://127.0.0.1:50051 --model yolov8n \
                --concurrency 36 --duration 60 --policy sanity
 ```
 
-## 결과
+## Results
 
-| | run1 | run2 | run3 | 구서버 기준선 |
+| | run1 | run2 | run3 | old server baseline |
 |---|---:|---:|---:|---:|
 | throughput (inf/s) | 360.5 | 362.5 | 357.2 | **~391** |
 | p50 (ms) | 93.2 | — | — | ~86 |
 | error_rate | 0 | 0 | 0 | 0 |
 
-**재현되지 않았다 (−7.5%).** 3 run 이 일정하므로 우연이 아니다.
+**It did not reproduce (−7.5%).** The three runs are consistent, so it is not
+chance.
 
-## 원인 — 호스트 CPU
+## The cause — host CPU
 
-측정 중 서버 CPU 82.2% (8스레드 합). 구서버 조건에서는 42% 였다.
+Server CPU during measurement was 82.2% (across 8 threads). Under the old
+server's conditions it was 42%.
 
 ```text
-스케줄러        45.3%  ≈ 3.6 코어
-기타(벤치+커널)  36.9%  ≈ 2.9 코어
+scheduler          45.3%  ~ 3.6 cores
+other (bench+kernel) 36.9%  ~ 2.9 cores
 ```
 
-노드는 정상이다 — NPU 추론 p50 28.3ms, 분배 33.3% 균등, 오류 0.
-`scheduler_queue` 0.00ms · `scheduler_route` 0.01ms 로 애플리케이션 큐도
-비어 있다. 늘어난 시간은 전부 전송 구간에 있다.
+The nodes are fine — NPU inference p50 28.3 ms, distribution an even 33.3%, 0
+errors. The application queue is empty too, with `scheduler_queue` 0.00 ms and
+`scheduler_route` 0.01 ms. All the added time is in the transport sections.
 
-즉 S3.9a 가 배제한 것(애플리케이션 큐)은 지금도 옳고, 좁아진 곳은 그
-**바깥의 호스트 CPU** 다. **벤치 클라이언트가 스케줄러와 같은 호스트에서
-돈다**는 측정 구조가 이를 키운다.
+That is, what S3.9a excluded (the application queue) still stands, and what
+narrowed is **the host CPU outside it.** The measurement structure — **the bench
+client runs on the same host as the scheduler** — amplifies this.
 
-→ `../../docs/infrastructure.md` §3.2.1 · `../../docs/environment-matrix.md` §10.2
-→ 배제 판정의 조건화는 `../../docs/experiments/README.md` §2
+→ `../../docs/infrastructure.md` §3.2.1 ·
+`../../docs/environment-matrix.md` §10.2
+→ On conditioning an exclusion verdict, `../../docs/experiments/README.md` §2
 
-## 이 데이터를 어떻게 쓰나
+## How to use this data
 
-- **구서버 값과 직접 비교하지 않는다.** 호스트가 다르다.
-- 신서버에서 측정을 이어간다면 **여기를 기준선으로 다시 깐다.**
-- 측정 421건은 구서버에서 얻은 값이며 그대로 유효하다. 소급해 고치지 않는다.
+- **Do not compare directly with the old server's values.** The host differs.
+- If measurement continues on the new server, **re-lay the baseline here.**
+- The 421 measurements were taken on the old server and stand as recorded. They
+  are not retroactively edited.
 
-## 읽을 때 주의
+## A caveat when reading
 
-`stage_breakdown` 의 `network_to_node` 와 `network_to_client` 는 **값이
-동일하다.** 두 방향을 따로 잰 것이 아니라 왕복에서 노드 보고분을 뺀 나머지를
-절반씩 나눈 파생값이다. 한쪽만 인용하면 전송 비용을 절반으로 과소평가한다.
+In `stage_breakdown`, `network_to_node` and `network_to_client` **hold the same
+value.** They are not two separately measured directions but a derived figure:
+the round trip minus what the node reported, split in half. Quoting one alone
+halves the apparent transport cost.

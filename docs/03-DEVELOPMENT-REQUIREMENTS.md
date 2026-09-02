@@ -1,71 +1,79 @@
 # NPUDure Development Requirements
 
-- 문서명: `03-DEVELOPMENT-REQUIREMENTS.md`
-- 프로젝트명: NPUDure
-- 문서 버전: v0.2
-- 대상 릴리스: NPUDure v0.1
-- 목표 발표: 2026년 11월 FOSS for All Conference
-- 작성일: 2026-08-05
-- 최종 수정: 2026-08-06
-- 상태: Draft
-- 관련 문서:
+*[한국어 원문](03-DEVELOPMENT-REQUIREMENTS.ko.md)*
+
+- Document: `03-DEVELOPMENT-REQUIREMENTS.md`
+- Project: NPUDure
+- Document version: v0.2
+- Target release: NPUDure v0.1
+- Target talk: FOSS for All Conference, November 2026
+- Written: 2026-08-05
+- Last modified: 2026-08-06
+- Status: Draft
+- Related documents:
   - `00-PRD.md`
   - `01-TECHSPEC.md`
   - `02-HARDWARE-SETUP.md`
   - `environment-matrix.md`
 
-본 문서는 개발환경, 도구, 배포 자동화, 라이선스에 대한 규범 문서다. 버전 조합의 실제 고정값은 `environment-matrix.md`에 기록한다.
+This document is normative for the development environment, tooling, deployment
+automation and licensing. The actual pinned values of the version combination
+are recorded in `environment-matrix.md`.
 
 ---
 
-# 1. 문서 목적
+# 1. Purpose
 
-본 문서는 NPUDure v0.1 개발을 위해 추가로 필요한 소프트웨어, 개발환경, 계측 도구, 자동화, 오픈소스 공개 준비 및 발표용 구성 요소를 정의한다.
+This document defines the additional software, development environment,
+instrumentation, automation, open-source publication preparation and talk
+components needed to develop NPUDure v0.1.
 
-현재 보유한 NanoPi R76S 3대와 별도 Linux PC를 기준으로 하며, 하드웨어 자체보다 다음 항목을 우선한다.
+It assumes the three NanoPi R76S on hand plus a separate Linux PC, and
+prioritises the following over the hardware itself.
 
-- RKNN 모델 변환 환경
-- Rust 및 C 크로스컴파일
-- RKNN C Wrapper
-- Mock Backend
-- 벤치마크 도구
-- 메트릭 및 프로파일링
-- 자동 배포
-- 라이선스 검토
-- 발표 데모 안정화
+- The RKNN model conversion environment
+- Rust and C cross-compilation
+- The RKNN C wrapper
+- The Mock backend
+- Benchmark tooling
+- Metrics and profiling
+- Automated deployment
+- License review
+- Stabilising the talk demo
 
 ---
 
-# 2. 반드시 필요한 개발 요소
+# 2. Essential development elements
 
-## 2.1 RKNN 모델 변환 환경
+## 2.1 The RKNN model conversion environment
 
-NanoPi에서 모델을 직접 변환하지 않는다.
+Models are not converted on the NanoPi.
 
-개발 PC에서 ONNX 또는 PyTorch 모델을 RKNN 형식으로 변환한 뒤 세 노드에 동일하게 배포한다.
+An ONNX or PyTorch model is converted to RKNN format on the development PC and
+deployed identically to all three nodes.
 
 ```text
 PyTorch / ONNX
-      ↓
+      |
 RKNN-Toolkit2
-      ↓
+      |
 model.rknn
-      ↓
+      |
 KING / QUEEN / JACK
 ```
 
-권장 구성:
+Recommended setup:
 
-- Ubuntu x86_64 개발환경
-- Python 가상환경
+- An Ubuntu x86_64 development environment
+- A Python virtual environment
 - RKNN-Toolkit2
 - ONNX Runtime
-- 모델 변환 스크립트
-- 양자화용 Calibration 이미지
-- 변환 결과 검증 스크립트
-- 가능하면 Docker 기반 변환 환경
+- Model conversion scripts
+- Calibration images for quantization
+- Conversion result verification scripts
+- A Docker-based conversion environment where possible
 
-권장 디렉터리:
+Recommended directory:
 
 ```text
 tools/model-converter/
@@ -77,78 +85,84 @@ tools/model-converter/
 └── Dockerfile
 ```
 
-필수 관리 항목:
+Items that must be managed:
 
 ```text
-RKNN-Toolkit2 버전
-RKNN Runtime 버전
-RKNPU Driver 버전
-Python 버전
-ONNX 모델 SHA-256
-RKNN 모델 SHA-256
-Calibration Dataset 해시
-변환 옵션
-양자화 방식
+RKNN-Toolkit2 version
+RKNN Runtime version
+RKNPU Driver version
+Python version
+ONNX model SHA-256
+RKNN model SHA-256
+Calibration dataset hash
+Conversion options
+Quantization scheme
 ```
 
-위 항목의 실제 고정값은 `environment-matrix.md`에 기록한다. 코드나 git 이력에서 유도할 수 없는 값이므로 별도 문서로 관리하는 유일한 예외다.
+The actual pinned values are recorded in `environment-matrix.md`. They cannot be
+derived from the code or the git history, which is the sole reason they are
+managed in a separate document.
 
-### 변환 타깃 플랫폼
+### The conversion target platform
 
-보유 장비는 **RK3576** 기반 NanoPi R76S다.
+The equipment on hand is the **RK3576**-based NanoPi R76S.
 
 ```python
 rknn.config(target_platform='rk3576')
 ```
 
-`rk3588`로 변환한 `.rknn` 파일은 RK3576에서 동작하지 않는다. **플랫폼 간 호환되지 않으므로** 참고 예제나 기존 모델을 그대로 쓰지 않도록 주의한다.
+A `.rknn` file converted for `rk3588` does not work on RK3576. **They are not
+compatible across platforms**, so take care not to use reference examples or
+existing models as-is.
 
-RKNN-Toolkit2가 RK3576을 지원하는 최소 버전을 확인해 `environment-matrix.md` §3에 기록한다. 지원 버전보다 낮으면 변환 자체가 되지 않는다.
+Confirm the minimum RKNN-Toolkit2 version supporting RK3576 and record it in
+`environment-matrix.md` §3. Below the supported version, conversion does not
+work at all.
 
 ---
 
-## 2.2 기준 모델
+## 2.2 The reference model
 
-v0.1에서는 모델 한 개만 기준 모델로 사용한다.
+v0.1 uses exactly one reference model.
 
-권장 모델:
+Recommended model:
 
 ```text
 Model       : YOLOv8n INT8
-Input       : 640 × 640 RGB
+Input       : 640 x 640 RGB
 Purpose     : Object Detection
-Dataset     : 공개 이미지 100~500장
+Dataset     : 100-500 public images
 Model Hash  : SHA-256
-Dataset Hash: SHA-256 Manifest
+Dataset Hash: SHA-256 manifest
 ```
 
-YOLOv8n을 우선하는 이유:
+Why YOLOv8n first:
 
-- 발표 화면에서 결과를 직관적으로 보여줄 수 있다.
-- 입력 크기를 고정하기 쉽다.
-- 동시 요청 처리 성능을 비교하기 쉽다.
-- RK3576 및 RKNN 관련 예제와 참고자료가 상대적으로 많다.
-- 단일 노드와 3노드 결과의 정확성을 비교하기 쉽다.
+- The results can be shown intuitively on a talk screen.
+- The input size is easy to fix.
+- Concurrent request handling performance is easy to compare.
+- There is relatively more RK3576 and RKNN reference material for it.
+- Comparing the accuracy of single-node and 3-node results is easy.
 
-검증 대상:
+Verification targets:
 
 ```text
-ONNX 결과
-RKNN Simulator 또는 Toolkit 결과
-KING 결과
-QUEEN 결과
-JACK 결과
+ONNX results
+RKNN simulator or Toolkit results
+KING results
+QUEEN results
+JACK results
 ```
 
-동일 입력에 대해 탐지 결과가 허용 오차 내에서 일치해야 한다.
+Detection results for the same input have to match within tolerance.
 
-v0.1 발표 전에는 여러 모델 지원을 추가하지 않는다.
+Support for multiple models is not added before the v0.1 talk.
 
 ---
 
-## 2.3 Rust ARM64 빌드 환경
+## 2.3 The Rust ARM64 build environment
 
-Scheduler와 Node Agent의 빌드 타깃이 다르다.
+The scheduler and node agent have different build targets.
 
 ```text
 Scheduler:
@@ -158,7 +172,7 @@ Node Agent:
   aarch64-unknown-linux-gnu
 ```
 
-Ubuntu 빌드 PC 패키지 예시:
+Example packages on an Ubuntu build PC:
 
 ```bash
 sudo apt install -y \
@@ -172,51 +186,52 @@ sudo apt install -y \
 rustup target add aarch64-unknown-linux-gnu
 ```
 
-`.cargo/config.toml` 예시:
+An example `.cargo/config.toml`:
 
 ```toml
 [target.aarch64-unknown-linux-gnu]
 linker = "aarch64-linux-gnu-gcc"
 ```
 
-초기 개발 권장 순서:
+Recommended order for early development:
 
-1. R76S에서 Rust 네이티브 빌드 성공
-2. RKNN C Wrapper와 연결 성공
-3. 동일 소스를 ARM64 로 빌드 (크로스컴파일 또는 보드 네이티브 — §5.3)
-4. 세 노드에 동일 바이너리 배포
-5. 바이너리 SHA-256 확인
+1. A successful native Rust build on the R76S
+2. A successful connection to the RKNN C wrapper
+3. The same source built for ARM64 (cross-compiled or natively on the board —
+   §5.3)
+4. The same binary deployed to all three nodes
+5. Binary SHA-256 verified
 
-주의사항:
+Cautions:
 
-- 보드 OS의 glibc 버전 확인
-- `librknnrt.so` 위치 확인
-- 동적 링커 경로 확인
-- `LD_LIBRARY_PATH` 의존 최소화
-- 배포판별 OpenSSL 의존 제거 또는 통일
-- 가능하면 정적 링크 가능한 의존성 사용
+- Check the board OS's glibc version
+- Check the location of `librknnrt.so`
+- Check the dynamic linker path
+- Minimise dependence on `LD_LIBRARY_PATH`
+- Remove or unify distribution-specific OpenSSL dependencies
+- Prefer dependencies that can be statically linked where possible
 
 ---
 
-## 2.4 RKNN C Wrapper
+## 2.4 The RKNN C wrapper
 
-Rust에서 RKNN C API를 직접 광범위하게 호출하지 않는다.
+Rust does not call the RKNN C API directly and extensively.
 
-최소 C Wrapper를 만들고 Rust에서는 안전한 래퍼만 사용한다.
+A minimal C wrapper is written and Rust uses only a safe wrapper over it.
 
 ```text
 Rust Application
-      ↓
+      |
 Safe Rust Wrapper
-      ↓
+      |
 Rust FFI Module
-      ↓
+      |
 Minimal C Wrapper
-      ↓
+      |
 librknnrt.so
 ```
 
-최소 함수 예시:
+Example minimal functions:
 
 ```c
 npf_rknn_create()
@@ -227,58 +242,59 @@ npf_rknn_release_output()
 npf_rknn_get_runtime_version()
 ```
 
-구현 원칙:
+Implementation principles:
 
-- `unsafe` 코드는 `npuforge-rknn` 내부로 제한
-- RKNN Context는 RAII로 관리
-- 입력과 출력 버퍼 수명을 명시적으로 관리
-- Raw Pointer는 외부 크레이트에 노출하지 않음
-- C Wrapper 단독 테스트 프로그램 유지
-- ~~Runtime 동시 호출 가능 여부 검증~~ → **완료.** 개별 호출은 thread-safe 이나
-  시퀀스는 원자적이지 않다. 컨텍스트 풀 필수 (`environment-matrix.md` §3.1)
-- Thread-safe가 아니면 모델당 전용 Worker Thread 사용
-- FFI 오류를 NPUDure 오류 코드로 변환
+- `unsafe` code is confined inside `npuforge-rknn`
+- The RKNN context is managed by RAII
+- Input and output buffer lifetimes are managed explicitly
+- Raw pointers are not exposed to other crates
+- A standalone test program for the C wrapper is maintained
+- ~~Verify whether concurrent runtime calls are possible~~ → **done.**
+  Individual calls are thread-safe but the sequence is not atomic. A context
+  pool is mandatory (`environment-matrix.md` §3.1)
+- If it is not thread-safe, use a dedicated worker thread per model
+- Convert FFI errors into NPUDure error codes
 
-필수 테스트:
+Required tests:
 
 ```text
-모델 로딩
-1회 추론
-1,000회 반복 추론
-입력 오류
-모델 파일 오류
-출력 버퍼 해제
-프로세스 종료 시 Context 정리
-다중 Thread 호출
+model loading
+one inference
+1,000 repeated inferences
+input errors
+model file errors
+output buffer release
+context cleanup on process exit
+multi-thread calls
 ```
 
 ---
 
-# 3. 성능 계측에 필요한 요소
+# 3. What performance measurement requires
 
-## 3.1 Benchmark Client
+## 3.1 The benchmark client
 
-단순한 `curl` 반복으로는 발표 및 논문 수준의 데이터가 나오지 않는다.
+Repeating `curl` does not produce data at the level a talk or a paper needs.
 
-`npuforge-bench`는 다음을 지원해야 한다.
+`npuforge-bench` has to support the following.
 
 ```text
-동시성 1 / 4 / 16 / 64
-고정 시간 실행
-고정 요청 수 실행
-Warmup 구간 제외
-입력 데이터 순환
-입력 Shuffle
-JSONL 원본 저장
-CSV 요약 저장
+concurrency 1 / 4 / 16 / 64
+fixed-duration runs
+fixed-request-count runs
+excluding the warmup section
+cycling through input data
+input shuffling
+storing raw JSONL
+storing a CSV summary
 p50 / p95 / p99
-오류율
-재시도율
-노드별 요청 분배 비율
-Scheduler 정책 기록
+error rate
+retry rate
+per-node request distribution ratio
+recording the scheduler policy
 ```
 
-실행 예시:
+Example invocation:
 
 ```bash
 npuforge-bench \
@@ -290,9 +306,10 @@ npuforge-bench \
   --output ./benchmarks/results
 ```
 
-`--scheduler`가 받는 값은 `round-robin`, `least-queue`, `ect` 세 개다. `01-TECHSPEC.md` §10.0에서 정의한 식별자와 동일해야 한다.
+`--scheduler` takes one of three values: `round-robin`, `least-queue`, `ect`.
+They have to be identical to the identifiers defined in `01-TECHSPEC.md` §10.0.
 
-요청 단위 원본 결과 예시:
+An example of a per-request raw result:
 
 ```json
 {
@@ -309,13 +326,13 @@ npuforge-bench \
 }
 ```
 
-원본 데이터는 요약 결과와 별도로 보관한다.
+The raw data is kept separately from the summary results.
 
 ---
 
-## 3.2 프로파일링 도구
+## 3.2 Profiling tools
 
-각 노드 및 Scheduler PC에 다음 도구를 준비한다.
+The following are prepared on each node and the scheduler PC.
 
 ```text
 perf
@@ -330,7 +347,7 @@ bpftrace
 FlameGraph
 ```
 
-초기 필수 도구:
+Essential initial tools:
 
 ```text
 perf
@@ -339,47 +356,47 @@ iperf3
 ethtool
 ```
 
-분석 항목:
+Items to analyse:
 
-- NPU 추론시간
-- 이미지 디코딩시간
-- 전처리시간
-- 후처리시간
-- 메모리 할당량
-- System Call 수
-- Context Switch
-- 네트워크 대역폭
-- CPU 사용률
-- Scheduler CPU 병목
-- 온도와 Thermal Throttling
-- 모델별 Runtime 편차
-- 노드별 처리량 편차
+- NPU inference time
+- Image decoding time
+- Preprocessing time
+- Postprocessing time
+- Memory allocation
+- System call count
+- Context switches
+- Network bandwidth
+- CPU utilisation
+- Scheduler CPU bottlenecks
+- Temperature and thermal throttling
+- Per-model runtime variance
+- Per-node throughput variance
 
-권장 프로파일링 순서:
+Recommended profiling order:
 
-1. 단일 노드 추론시간 확인
-2. 전처리와 후처리 분리 측정
-3. Scheduler CPU Profile
-4. Node CPU Profile
-5. 네트워크 대역폭 측정
-6. System Call 및 Context Switch 확인
-7. 버퍼 할당과 복사 구간 확인
-8. io_uring 적용 필요 여부 결정
+1. Confirm single-node inference time
+2. Measure preprocessing and postprocessing separately
+3. Scheduler CPU profile
+4. Node CPU profile
+5. Measure network bandwidth
+6. Confirm system calls and context switches
+7. Confirm buffer allocation and copy sections
+8. Decide whether io_uring is needed
 
 ---
 
-## 3.3 메트릭 수집
+## 3.3 Metrics collection
 
-구성:
+Setup:
 
 ```text
-npuforge-scheduler → /metrics
-npuforge-node      → /metrics
+npuforge-scheduler -> /metrics
+npuforge-node      -> /metrics
 Prometheus
 NPUDure Dashboard
 ```
 
-최소 메트릭:
+Minimum metrics:
 
 ```text
 requests_total
@@ -401,25 +418,26 @@ request_failures_total
 request_retries_total
 ```
 
-Prometheus는 원본 시계열 데이터 수집기로 사용한다.
+Prometheus is used as the raw time-series collector.
 
-발표 화면은 NPUDure 자체 Dashboard를 우선한다.
+The talk screen prefers NPUDure's own dashboard.
 
-Grafana는 선택 사항이다.
+Grafana is optional.
 
 ---
 
-## 3.4 전력 측정
+## 3.4 Power measurement
 
-개발 초기에는 필수가 아니지만, 논문과 산업 비교를 위해 최종 벤치마크 전에는 필요하다.
+Not required early on, but needed before the final benchmarks for the paper and
+for industry comparison.
 
-권장 장비:
+Recommended equipment:
 
-- USB-C 전력 측정기 3개
-- 또는 노드별 반복 측정이 가능한 전력계
-- Scheduler와 스위치 전력은 별도 기록
+- Three USB-C power meters
+- Or a meter allowing repeated per-node measurement
+- Scheduler and switch power recorded separately
 
-측정 지표:
+Measured metrics:
 
 ```text
 Idle Power
@@ -430,29 +448,33 @@ Requests per Watt-hour
 Cost per FPS
 ```
 
-전력 측정 시 기록할 조건:
+Conditions to record during power measurement:
 
 ```text
-전원 어댑터 모델
-케이블 길이
-주변 온도
-노드 온도 (측정 시작 시점과 종료 시점)
-입력 전압
-측정 장비 모델
-측정 간격
+power adapter model
+cable length
+ambient temperature
+node temperature (at measurement start and end)
+input voltage
+measurement equipment model
+sampling interval
 ```
 
-팬리스 구성이므로 팬 소비전력 항목은 없다. 대신 **온도에 따라 소비전력이 달라진다.** thermal throttling이 걸리면 주파수가 낮아져 전력도 함께 떨어지므로, 같은 워크로드라도 측정 시점에 따라 값이 달라진다. 시작·종료 온도를 반드시 함께 기록한다.
+Being a fanless configuration there is no fan power item. Instead, **power
+consumption varies with temperature.** When thermal throttling engages, the
+frequency drops and power falls with it, so the same workload gives different
+values depending on when it is measured. Always record the starting and ending
+temperatures.
 
-`02-HARDWARE-SETUP.md` §9 참조.
+See `02-HARDWARE-SETUP.md` §9.
 
 ---
 
-# 4. 개발 안정성을 위한 요소
+# 4. What development stability requires
 
-## 4.1 Mock Backend
+## 4.1 The Mock backend
 
-실제 NanoPi 3대가 항상 켜져 있어야 개발 가능한 구조를 피한다.
+Avoid a structure where development requires three real NanoPi to be powered on.
 
 ```text
 InferenceBackend
@@ -460,21 +482,21 @@ InferenceBackend
 └── Mock Backend
 ```
 
-Mock Backend 설정 항목:
+Mock backend configuration items:
 
 ```text
-기본 추론시간
-추론시간 편차
-오류율
-응답 지연
-Queue 제한
-노드 장애
-느린 노드
-온도 상승
-Timeout
+base inference time
+inference time variance
+error rate
+response delay
+queue limit
+node failure
+a slow node
+temperature rise
+timeout
 ```
 
-예시 설정:
+Example configuration:
 
 ```toml
 [backend]
@@ -488,40 +510,42 @@ worker_count = 1
 max_queue_depth = 32
 ```
 
-`max_queue_depth`는 백엔드 종류와 무관한 노드 실행 설정이므로 `[worker]` 아래에 둔다. `[backend]`에는 백엔드 고유 항목만 기술한다. 전체 스키마는 `01-TECHSPEC.md` §16.2를 따른다.
+`max_queue_depth` is a node execution setting independent of backend type, so it
+goes under `[worker]`. `[backend]` describes only backend-specific items. The
+full schema follows `01-TECHSPEC.md` §16.2.
 
-Mock Backend로 검증할 항목:
+What to verify with the Mock backend:
 
 - Round Robin
 - Least Queue
 - Estimated Completion Time
-- 장애 노드 제외
-- 자동 복구
-- 재시도
+- Excluding a failed node
+- Automatic recovery
+- Retries
 - Deadline
-- Queue Saturation
+- Queue saturation
 - Dashboard
-- CI 통합 테스트
+- CI integration tests
 
 ---
 
-## 4.2 CI와 자동 테스트
+## 4.2 CI and automated testing
 
-CI 항목:
+CI items:
 
 ```text
 cargo fmt --check
 cargo clippy
 cargo test
-Mock 3-node Integration Test
-Protocol Code Generation
-x86_64 Build
-aarch64 Cross Build
+Mock 3-node integration test
+Protocol code generation
+x86_64 build
+aarch64 cross build
 cargo audit
-License Check
+License check
 ```
 
-권장 GitHub Actions Workflow:
+Recommended GitHub Actions workflows:
 
 ```text
 .github/workflows/
@@ -531,22 +555,23 @@ License Check
 └── release.yml
 ```
 
-하드웨어 테스트 방식:
+Hardware testing approach:
 
-- 초기: 수동 테스트
-- 중기: R76S 한 대를 Self-hosted Runner로 사용 가능
-- 릴리스 전: 3노드 전체 테스트
-- 야간 반복 테스트는 선택사항
+- Early: manual testing
+- Mid: one R76S can serve as a self-hosted runner
+- Before release: full 3-node testing
+- Nightly repeat testing is optional
 
-11월 발표 전에는 일반 CI와 수동 하드웨어 테스트 조합으로 충분하다.
+Before the November talk, ordinary CI combined with manual hardware testing is
+sufficient.
 
 ---
 
-## 4.3 배포 자동화
+## 4.3 Deployment automation
 
-세 노드에 수동으로 바이너리를 복사하면 버전 불일치가 쉽게 발생한다.
+Copying binaries to three nodes by hand easily produces version mismatches.
 
-필수 스크립트:
+Required scripts:
 
 ```text
 scripts/
@@ -562,49 +587,49 @@ scripts/
 └── run-benchmark.sh
 ```
 
-`deploy-all.sh` 처리 순서:
+`deploy-all.sh`'s processing order:
 
 ```text
-1. ARM64 바이너리 빌드
-2. SHA-256 생성
-3. 세 노드에 동일 바이너리 복사
-4. 설정 파일 복사
-5. 모델 해시 확인
+1. Build the ARM64 binaries
+2. Generate SHA-256
+3. Copy the same binaries to all three nodes
+4. Copy the configuration files
+5. Verify the model hashes
 6. systemd restart
-7. Agent 버전 확인
-8. Runtime 버전 확인
-9. Health 상태 확인
+7. Verify the agent version
+8. Verify the runtime version
+9. Verify health status
 ```
 
-노드가 3대뿐이므로 초기에는 Bash와 SSH로 충분하다.
+With only three nodes, Bash and SSH suffice initially.
 
-Ansible은 반복 작업이 늘어난 뒤 검토한다.
+Ansible is considered once the repetitive work grows.
 
 ---
 
-## 4.4 직렬 콘솔 및 복구 도구
+## 4.4 Serial console and recovery tools
 
-개발 중 다음 상황에 대비한다.
+Prepare for the following during development.
 
-- 부팅 실패
-- 네트워크 설정 오류
-- Kernel Panic
-- eMMC 손상
-- NPU Driver 문제
-- SSH 접속 불가
+- Boot failure
+- Network configuration errors
+- Kernel panic
+- eMMC corruption
+- NPU driver problems
+- Inability to connect over SSH
 
-필요 장비:
+Required equipment:
 
 ```text
-3.3V USB-TTL UART Adapter × 1 이상
-USB microSD Card Reader
-복구용 microSD
-기준 OS 이미지
-예비 Ethernet Cable
-예비 USB-C Power Adapter
+1 or more 3.3V USB-TTL UART adapters
+A USB microSD card reader
+A recovery microSD
+The reference OS image
+A spare Ethernet cable
+A spare USB-C power adapter
 ```
 
-관리 문서에 기록할 항목:
+Items to record in the management document:
 
 ```text
 Node ID
@@ -621,24 +646,24 @@ RKNN Runtime Version
 
 ---
 
-# 5. 오픈소스 공개 준비
+# 5. Preparing for open-source publication
 
-## 5.1 라이선스 구성
+## 5.1 License structure
 
-NPUDure 자체 소스코드는 Apache License 2.0을 우선 검토한다.
+Apache License 2.0 is the preferred option for NPUDure's own source code.
 
-권장 구조:
+Recommended structure:
 
 ```text
-NPUDure Source       : Apache-2.0
-RKNN Runtime          : 저장소에 포함하지 않음
-RKNN Toolkit          : 공식 경로에서 별도 설치
-RKNN Header/Binary    : 재배포 조건 확인
-model.rknn            : 원본 모델 라이선스 확인
-Sample Dataset        : 재배포 가능한 자료만 포함
+NPUDure Source        : Apache-2.0
+RKNN Runtime          : not included in the repository
+RKNN Toolkit          : installed separately from the official source
+RKNN Header/Binary    : redistribution terms to be confirmed
+model.rknn            : the original model's license to be confirmed
+Sample Dataset        : only redistributable material included
 ```
 
-필요 파일:
+Required files:
 
 ```text
 LICENSE
@@ -648,39 +673,40 @@ DEPENDENCIES.md
 MODEL_LICENSES.md
 ```
 
-주의사항:
+Cautions:
 
-- RKNN SDK Binary를 NPUDure 저장소에 임의로 포함하지 않음
-- 사용자가 공식 경로에서 Runtime을 설치하도록 안내
-- 모델 원본 라이선스 확인
-- 변환된 `.rknn` 파일의 재배포 조건 확인
-- 데이터 세트 이미지의 재배포 가능 여부 확인
-- 제3자 Rust 및 C 라이브러리 라이선스 목록화
+- Do not arbitrarily include the RKNN SDK binary in the NPUDure repository
+- Direct users to install the Runtime from the official source
+- Confirm the original model's license
+- Confirm the redistribution terms of the converted `.rknn` file
+- Confirm whether the dataset images can be redistributed
+- List the licenses of third-party Rust and C libraries
 
 ---
 
-## 5.2 README 및 설치 문서
+## 5.2 README and installation documentation
 
-README 필수 내용:
+Required README content:
 
 ```text
-NPUDure 소개
-핵심 문제 정의
-아키텍처
-Mock 3-node Quick Start
-RK3576 설치 방법
-RKNN Runtime 별도 설치 안내
-모델 변환 방법
-Benchmark 실행 방법
-장애 데모 방법
-결과 재현 방법
-알려진 제한사항
-라이선스
+An introduction to NPUDure
+The core problem statement
+Architecture
+Mock 3-node quick start
+RK3576 installation
+Guidance on installing the RKNN Runtime separately
+Model conversion
+Running benchmarks
+Running the failure demo
+Reproducing the results
+Known limitations
+License
 ```
 
-외부 사용자는 실제 RK3576 장비가 없어도 Mock Backend로 핵심 구조를 실행할 수 있어야 한다.
+An external user has to be able to run the core structure with the Mock backend
+even without real RK3576 hardware.
 
-권장 문서:
+Recommended documents:
 
 ```text
 docs/
@@ -696,23 +722,24 @@ docs/
 
 ---
 
-# 6. io_uring 및 Zero-Copy 검증
+# 6. Verifying io_uring and zero-copy
 
-## 6.1 기본 원칙
+## 6.1 Basic principle
 
-io_uring과 Zero-Copy는 필수 성공 조건이 아니다.
+io_uring and zero-copy are not conditions for success.
 
-다음 조건을 만족할 때만 적용한다.
+They are applied only when the following hold.
 
-- 네트워크 또는 System Call이 실제 병목으로 확인됨
-- 입력 Payload가 충분히 큼
-- 동시 요청이 충분히 많음
-- 기준 구현과 동일 조건 비교 가능
-- 구현 복잡도 대비 개선 효과가 있음
+- The network or system calls are confirmed as an actual bottleneck
+- The input payload is large enough
+- Concurrent requests are numerous enough
+- Comparison against the reference implementation under identical conditions is
+  possible
+- There is an improvement worth the implementation complexity
 
-## 6.2 사전 하드웨어 검증
+## 6.2 Prior hardware verification
 
-NanoPi에서 다음을 확인한다.
+Confirm the following on the NanoPi.
 
 ```bash
 ethtool -l eth0
@@ -722,32 +749,33 @@ ethtool -n eth0
 ethtool --show-priv-flags eth0
 ```
 
-검증 항목:
+Items to verify:
 
 ```text
-RX Queue 수
-Header/Data Split 지원
-Flow Steering 지원
-RSS 지원
-Kernel io_uring 기능
-NIC Driver 지원
-Registered Buffer 지원
+RX queue count
+Header/data split support
+Flow steering support
+RSS support
+Kernel io_uring capability
+NIC driver support
+Registered buffer support
 ```
 
-R76S NIC 또는 BSP Driver가 Zero-Copy RX를 지원하지 않으면 해당 구현은 제외한다.
+If the R76S NIC or BSP driver does not support zero-copy RX, that implementation
+is excluded.
 
-그 경우 다음 대체 최적화를 수행한다.
+In that case the following alternative optimizations are performed.
 
 ```text
 Tokio/gRPC
-→ Bytes 기반 공유 버퍼
-→ Buffer Pool
-→ 입력 버퍼 재사용
-→ 메모리 재할당 감소
-→ io_uring 일반 I/O 비교
+-> Bytes-based shared buffers
+-> a buffer pool
+-> input buffer reuse
+-> reduced memory reallocation
+-> an io_uring general I/O comparison
 ```
 
-## 6.3 측정 지표
+## 6.3 Measured metrics
 
 ```text
 System Calls per Request
@@ -760,143 +788,147 @@ p95 Latency
 CPU Utilization
 ```
 
-개선율이 5% 미만이면 발표용 핵심 기능으로 채택하지 않는다.
+Below a 5% improvement it is not adopted as a headline feature for the talk.
 
-효과가 없었던 이유도 유효한 발표 결과로 기록한다.
+The reason it had no effect is also recorded as a valid result for the talk.
 
 ---
 
-# 7. 발표용 추가 요소
+# 7. Additional elements for the talk
 
-## 7.1 필수 요소
+## 7.1 Required
 
 ```text
-실시간 Dashboard
-1 / 2 / 3 Node 비교
-Round Robin / ECT 전환
-Node 상태 카드
-실시간 FPS
-p95 Latency
-Queue Depth
+A live dashboard
+1 / 2 / 3 node comparison
+Switching between Round Robin and ECT
+Node status cards
+Live FPS
+p95 latency
+Queue depth
 Temperature
-장애 노드 자동 제외
-노드 자동 복구
-녹화된 예비 영상
-사전 저장 Benchmark 결과
-오프라인 실행
+Automatic exclusion of a failed node
+Automatic node recovery
+A recorded backup video
+Pre-saved benchmark results
+Offline execution
 ```
 
-## 7.2 권장 요소
+## 7.2 Recommended
 
 ```text
-노드 상태 LED
-노드 번호 라벨
-소형 거치대
-NPUDure Logo
-GitHub QR Code
-실시간 전력 표시
-객체 탐지 영상
+Node status LEDs
+Node number labels
+A small stand
+The NPUDure logo
+A GitHub QR code
+A live power readout
+Object detection video
 ```
 
-## 7.3 발표 장애 대비
+## 7.3 Fallbacks for the talk
 
-- 예비 Ethernet Cable
-- 예비 Power Adapter
-- Benchmark 결과 CSV
-- 결과 그래프 PNG
-- 동일 데모 녹화 영상
-- Mock Backend Mode
-- 인터넷 없는 환경에서 실행
-- 발표 전 전체 재부팅 시나리오 확인
+- A spare Ethernet cable
+- A spare power adapter
+- Benchmark results as CSV
+- Result graphs as PNG
+- A recording of the same demo
+- Mock backend mode
+- Running in an environment without internet
+- Verifying a full reboot scenario before the talk
 
 ---
 
-# 8. 개발 우선순위
+# 8. Development priorities
 
-| 구분 | 항목 | 우선순위 |
+| Category | Item | Priority |
 |---|---|---:|
-| 모델 | YOLOv8n INT8 기준 모델 | 최우선 |
-| 환경 | RKNN Toolkit 변환 환경 | 최우선 |
-| 빌드 | ARM64 Rust/C Cross Compile | 최우선 |
-| 연동 | RKNN C Wrapper | 최우선 |
-| 테스트 | Mock Backend | 최우선 |
-| 측정 | Benchmark CLI | 최우선 |
-| 운영 | 3노드 배포 스크립트 | 높음 |
-| 계측 | Prometheus Metrics | 높음 |
-| 장비 | 2.5GbE Switch 및 동일 전원·냉각 | 높음 |
-| 공개 | License 및 Third-party Notice | 높음 |
-| 측정 | USB-C 전력계 | 중간 |
-| 최적화 | io_uring 지원 검증 | 중간 |
-| 최적화 | Zero-Copy 실험 | 낮음~중간 |
-| 발표 | Dashboard 및 예비 영상 | 10~11월 |
+| Model | the YOLOv8n INT8 reference model | highest |
+| Environment | the RKNN Toolkit conversion environment | highest |
+| Build | ARM64 Rust/C cross-compilation | highest |
+| Integration | the RKNN C wrapper | highest |
+| Testing | the Mock backend | highest |
+| Measurement | the benchmark CLI | highest |
+| Operations | 3-node deployment scripts | high |
+| Instrumentation | Prometheus metrics | high |
+| Equipment | the 2.5GbE switch and identical power and cooling | high |
+| Publication | licenses and third-party notices | high |
+| Measurement | USB-C power meters | medium |
+| Optimization | verifying io_uring support | medium |
+| Optimization | zero-copy experiments | low–medium |
+| Talk | dashboard and backup video | October–November |
 
 ---
 
-# 9. 즉시 수행할 5개 항목
+# 9. Five things to do immediately
 
 ```text
-1. RKNN Toolkit / Runtime / Driver 버전 고정
-2. YOLOv8n INT8 단일 노드 추론 성공
-3. Rust에서 RKNN C Wrapper 호출 성공
-4. Mock 3-node Scheduler 구현
-5. deploy-all.sh로 동일 바이너리 3대 배포
+1. Pin the RKNN Toolkit / Runtime / Driver versions
+2. Successful YOLOv8n INT8 single-node inference
+3. Successfully calling the RKNN C wrapper from Rust
+4. Implement the Mock 3-node scheduler
+5. Deploy the same binary to all three with deploy-all.sh
 ```
 
-이 다섯 가지가 완료되면 핵심 기술 위험 대부분이 제거된다.
+With those five complete, most of the core technical risk is removed.
 
-그 다음 순서:
+The order after that:
 
 ```text
 Scheduler
-→ 장애 복구
-→ Benchmark
-→ Metrics
-→ Dashboard
-→ Profile
-→ io_uring 검토
-→ Zero-Copy 검토
+-> failure recovery
+-> benchmarks
+-> metrics
+-> dashboard
+-> profiling
+-> consider io_uring
+-> consider zero-copy
 ```
 
 ---
 
-# 10. 개발 준비 완료 기준
+# 10. Criteria for development readiness
 
-다음 조건이 충족되면 NPUDure v0.1 본개발 준비가 완료된 것으로 판단한다.
+NPUDure v0.1 is judged ready for main development when the following hold.
 
-- RKNN 버전 조합 고정
-- 기준 모델 선정
-- 모델 변환 재현 가능
-- 단일 NanoPi NPU 추론 성공
-- Rust ARM64 빌드 성공
-- RKNN C Wrapper 동작
-- Mock Backend 동작
-- 세 노드 네트워크 연결
-- 동일 바이너리 자동 배포
-- Benchmark 원본 결과 저장 가능
-- 메트릭 수집 가능
-- 라이선스 구조 정리
-- GitHub 저장소 공개 준비
-- 발표 일정과 기능 동결일 정의
+- The RKNN version combination is pinned
+- The reference model is selected
+- Model conversion is reproducible
+- Single-NanoPi NPU inference succeeds
+- The Rust ARM64 build succeeds
+- The RKNN C wrapper works
+- The Mock backend works
+- The three nodes are networked
+- The same binary deploys automatically
+- Raw benchmark results can be stored
+- Metrics can be collected
+- The license structure is organised
+- The GitHub repository is ready to publish
+- The talk schedule and feature freeze date are defined
 
 ---
 
-# 11. 최종 판단
+# 11. Final judgement
 
-현재 보유한 NanoPi R76S 3대와 별도 Linux PC만으로 NPUDure v0.1 개발은 가능하다.
+Developing NPUDure v0.1 is possible with the three NanoPi R76S on hand plus a
+separate Linux PC.
 
-추가로 가장 중요한 것은 새로운 하드웨어 구매가 아니라 다음의 완성도다.
+What matters most beyond that is not buying new hardware but completeness in the
+following.
 
 ```text
-모델 변환의 재현성
-Rust와 RKNN 연결 안정성
-동일 환경의 3노드 구성
-원본 Benchmark 데이터
-장애 복구
-자동 배포
-라이선스 정리
-발표 데모 안정성
+reproducibility of model conversion
+stability of the Rust-to-RKNN integration
+a three-node setup in an identical environment
+raw benchmark data
+failure recovery
+automated deployment
+license organisation
+stability of the talk demo
 ```
 
-Zero-Copy와 io_uring은 마지막 최적화 단계에서 실제 병목이 확인될 때만 적용한다.
+Zero-copy and io_uring are applied only when an actual bottleneck is confirmed
+at the final optimization stage.
 
-NPUDure v0.1의 성공은 이론상 18 TOPS라는 숫자가 아니라, 실제 확장 효율과 손실 원인을 재현 가능하게 증명하는 데 있다.
+NPUDure v0.1's success lies not in the theoretical figure of 18 TOPS but in
+demonstrating actual scaling efficiency and the causes of loss, reproducibly.

@@ -1,11 +1,13 @@
-# S3 saturation sweep — 원본·집계 (2026-08-20)
+# S3 saturation sweep — raw data and aggregation (2026-08-20)
 
-- 동결 commit: `1da69d4` (bench `254d560`, S2 와 동일 코드)
-- 원본: [`raw/`](raw/) 45건 (`sat_n{노드}_c{concurrency}_r{라운드}.json`)
-- 그래프: [`figures/fig3`](figures/fig3_saturation_sweep.png)
-- **실험 보고서(질문·해석·결론):** [`../../docs/experiments/S3_SATURATION.md`](../../docs/experiments/S3_SATURATION.md)
+*[한국어 원문](README.ko.md)*
 
-## Ceilings (3 runs/point 평균)
+- Frozen commit: `1da69d4` (bench `254d560`, the same code as S2)
+- Raw data: [`raw/`](raw/), 45 files (`sat_n{nodes}_c{concurrency}_r{round}.json`)
+- Figure: [`figures/fig3`](figures/fig3_saturation_sweep.png)
+- **The experiment report (question, interpretation, conclusion):** [`../../docs/experiments/S3_SATURATION.md`](../../docs/experiments/S3_SATURATION.md)
+
+## Ceilings (mean of 3 runs per point)
 
 | Config | Ceiling | @ conc | Speedup | Eff |
 |---|---:|---:|---:|---:|
@@ -13,5 +15,6 @@
 | 2 node | 232.0 inf/s | c24 | 2.01× | 101% |
 | 3 node | **341.8 inf/s** | c32 | **2.97×** | **99%** |
 
-ceiling 기준으로도 near-linear. 곡선 형태(미포화→plateau→과부하 하락)와
-전체 sweep 표는 실험 보고서 §3 참조.
+Near-linear by the ceiling measure too. The shape of the curve (unsaturated →
+plateau → decline under overload) and the full sweep table are in §3 of the
+experiment report.

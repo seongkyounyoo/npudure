@@ -1,39 +1,45 @@
-# S0-C 4차 — **INVALID: concurrent harness collision**
+# S0-C 4th attempt — **INVALID: concurrent harness collision**
+
+*[한국어 원문](README.ko.md)*
 
 > **Do not use for performance conclusions.**
-> 성능 결론에 쓰지 않는다.
 
-2026-08-21. 강한 이질(2.4×)에서 LQ vs ECT 를 판정하려던 4차 시도의
-잔해다. 실험 자체는 [`S0_C_POLICY_AB.md`](../../docs/experiments/S0_C_POLICY_AB.md)
-§17~19, 사고 경위는 [`S0_D_CAPACITY_HETERO.md`](../../docs/experiments/S0_D_CAPACITY_HETERO.md)
-§4 에 있다.
+2026-08-21. The wreckage of a fourth attempt to decide LQ vs ECT under strong
+heterogeneity (2.4×). The experiment itself is in
+[`S0_C_POLICY_AB.md`](../../docs/experiments/S0_C_POLICY_AB.md) §17–19, and the
+incident is in
+[`S0_D_CAPACITY_HETERO.md`](../../docs/experiments/S0_D_CAPACITY_HETERO.md) §4.
 
-## 무엇이 유효하고 무엇이 아닌가
+## What is valid and what is not
 
-| 구간 | 상태 | 비고 |
+| Section | Status | Note |
 |---|---|---|
-| `round-robin,1` | **유효** | 게이트 판정(§18.1)의 근거. 편차 1.10× |
-| `raw/thermal/*.log` | **유효** | 1초 열 로거. §18.2 의 soc·CPU 클럭 집계 근거 |
-| `least-queue,1` · `ect,1` | **무효** | 이 시점에 팬이 켜져 팬리스 조건이 아니다 |
-| `least-queue,2` | **무효** | 위 + 두 번째 하네스의 c36 벤치와 충돌 |
+| `round-robin,1` | **valid** | the basis for the gate verdict (§18.1). Spread 1.10× |
+| `raw/thermal/*.log` | **valid** | the 1-second thermal logger. The basis for §18.2's soc and CPU clock aggregation |
+| `least-queue,1` · `ect,1` | **invalid** | the fan was on by this point, so it is not a fanless condition |
+| `least-queue,2` | **invalid** | the above, plus a collision with a second harness's c36 bench |
 
-## 왜 무효인가
+## Why it is invalid
 
-두 가지가 겹쳤다.
+Two things overlapped.
 
-1. **냉각 조건이 실험 도중 바뀌었다.** 중단했다고 판단하고 팬을 켰는데
-   하네스가 살아 있어 팬리스 라벨로 계속 측정했다.
-2. **하네스 충돌.** 중단이 실패한 정책 A/B 하네스와 새로 띄운 capacity
-   교정 하네스가 **같은 3노드를 각각 c36 으로 때렸다**(합 72).
+1. **The cooling condition changed mid-experiment.** Believing it had been
+   stopped, the fan was switched on, but the harness was still alive and kept
+   measuring under a fanless label.
+2. **A harness collision.** The policy A/B harness that failed to stop and the
+   newly started capacity calibration harness **hit the same three nodes at c36
+   each** (72 combined).
 
-`least-queue,2` 의 208.5 inf/s 는 정책 성능이 아니라 충돌의 산물이다.
-같은 시각 정리 후 재측정한 값은 **391.2 inf/s / 오류 0 / 편차 1.02×** 다.
+`least-queue,2`'s 208.5 inf/s is not policy performance but a product of the
+collision. Re-measured after cleanup at the same time, the value was
+**391.2 inf/s / 0 errors / spread 1.02×**.
 
-## 남겨 두는 이유
+## Why it is kept
 
-이 사고 자체가 방법론 기록이다 —
-[`experiments/README.md`](../../docs/experiments/README.md) §4.11
-("중단했다 를 믿지 말고 공유 자원 쪽에서 확인한다"). 재발 방지로
-`npuforge_assert_cluster_free` 가드가 추가됐고, 그 근거가 이 데이터다.
+The incident itself is a methodology record —
+[`experiments/README.md`](../../docs/experiments/README.md) §4.11 ("do not trust
+'I stopped it' — verify at the shared resource"). The
+`npuforge_assert_cluster_free` guard was added to prevent recurrence, and this
+data is its basis.
 
-`raw/harness.log` 에 충돌 구간이 그대로 남아 있다.
+The collision section survives verbatim in `raw/harness.log`.

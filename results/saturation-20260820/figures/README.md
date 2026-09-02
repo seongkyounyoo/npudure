@@ -1,7 +1,9 @@
 # Figures — S3 saturation
 
-`scripts/make-figures.py` 로 생성 (동결 `1da69d4`).
+*[한국어 원문](README.ko.md)*
 
-| 파일 | 내용 |
+Generated with `scripts/make-figures.py` (frozen `1da69d4`).
+
+| File | Content |
 |---|---|
-| `fig3_saturation_sweep.png` | Throughput vs Concurrency — 1/2/3노드 각 ceiling(115/232/342)에서 plateau |
+| `fig3_saturation_sweep.png` | Throughput vs concurrency — 1/2/3 nodes each plateau at their ceiling (115/232/342) |
