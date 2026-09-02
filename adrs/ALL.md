@@ -1,6 +1,6 @@
 <a id="index"></a>
 
-# NPUDure 아키텍처 결정 기록 (ADR)
+# NPUDure Architecture Decision Records (ADR)
 
 > **이 파일은 생성물이다. 직접 편집하지 않는다.**
 > `adrs/` 의 원본 31개를 읽기·인쇄·공유용으로 이어 붙인 것이다.
@@ -14,59 +14,64 @@
 > - 원본: `adrs/README.md`, `adrs/OVERVIEW.md`, ADR 28건, `adrs/TEMPLATE.md`
 > - 파일 간 링크는 문서 내 앵커로 바뀌어 있다
 
-이 폴더는 **"왜 이렇게 되어 있는가"** 에만 답한다.
+*[한국어 원문](README.ko.md)*
 
-무엇이 어떻게 동작하는지는 `docs/01-TECHSPEC.md` 가, 무슨 값이 나왔는지는
-`docs/RESULTS.md` 가 담당한다. 여기에는 **갈림길에서 무엇을 골랐고 무엇을
-버렸는지**, 그리고 **어떤 관측이 나오면 그 선택이 뒤집히는지**를 적는다.
+This folder answers only **"why is it like this?"**
+
+What does what is `docs/01-TECHSPEC.md`'s job, and what numbers came out is
+`docs/RESULTS.md`'s. Written here is **what was chosen and what was discarded at
+each fork**, and **what observation would overturn that choice**.
 
 ---
 
-## ADR 이 왜 따로 필요한가
+## Why ADRs are needed separately
 
-이 저장소의 다른 문서는 대부분 **시간순**이다.
+Most other documents in this repository are **chronological**.
 
-| 문서 | 축 |
+| Document | Axis |
 |---|---|
-| `docs/discuss.md` | 실험한 순서대로 |
-| `docs/board-worklog.md` | 작업한 순서대로 |
-| `docs/RESULTS.md` | 결과를 주제별로 모았지만, 근거는 위 둘에 흩어져 있다 |
+| `docs/discuss.md` | in the order experiments were run |
+| `docs/board-worklog.md` | in the order work was done |
+| `docs/RESULTS.md` | results gathered by topic, but the reasoning is scattered across the two above |
 
-그래서 "지금 노드가 왜 정수를 보내지?" 같은 질문 하나에 답하려면 세 문서를
-오가며 시각순으로 읽어야 한다. 게다가 이 프로젝트는 **측정으로 결론이
-뒤집힌 것이 다섯 건**이라, 앞부분만 읽으면 이미 폐기된 판단을 현재 결정으로
-착각하기 쉽다.
+So answering a single question like "why does the node send integers now?" means
+moving between three documents and reading chronologically. And since this
+project has had **five conclusions inverted by measurement**, reading only the
+early parts makes it easy to mistake an already-discarded judgement for a
+current decision.
 
-ADR 은 같은 내용을 **주제순**으로 다시 자른다. 결정 하나에 파일 하나다.
+ADRs re-cut the same material **by topic**. One decision, one file.
 
 ---
 
-## 상태 표기
+## Status labels
 
-| 상태 | 뜻 |
+| Status | Meaning |
 |---|---|
-| **확정** | 현재 유효하다. 코드와 문서가 이 결정을 따른다 |
-| **잠정** | 지금은 이렇게 하지만 근거가 약하다. 재측정 조건이 본문에 있다 |
-| **대체됨** | 다른 ADR 이 이 결정을 뒤집었다. 헤더에 대체한 번호를 적는다 |
+| **accepted** | currently valid. The code and documents follow this decision |
+| **provisional** | this is what is done for now, but the evidence is weak. The re-measurement conditions are in the body |
+| **superseded** | another ADR overturned this decision. The header names the superseding number |
 
-### 뒤집힌 결정을 다루는 규칙
+### The rule for handling inverted decisions
 
-**폐기된 결정으로 새 ADR 파일을 만들지 않는다.** 대신 그것을 대체한 ADR 의
-「배경」 절에 경위를 넣는다.
+**Do not create a new ADR file for a discarded decision.** Instead, put the story
+into the "Context" section of the ADR that superseded it.
 
-이 프로젝트는 뒤집힌 판단이 다섯 건(컨텍스트 공유, 노드 상한 78 inf/s,
-throttling 없음, `king` 19°C, 2.5GbE 로 충분)이라 파일로 따로 두면 목록의
-절반이 폐기 문서가 된다. 읽는 사람이 유효한 결정을 찾기 어려워진다.
+This project has five inverted judgements (shared context, the 78 inf/s node
+ceiling, no throttling, `king` at 19 °C, 2.5GbE being sufficient), so keeping
+them as separate files would make half the list obsolete documents. That makes
+it hard for a reader to find the valid decisions.
 
-다만 **뒤집힌 경위 자체는 반드시 남긴다.** 이 프로젝트에서 가장 재사용
-가치가 높은 산출물이 그 목록이기 때문이다(`docs/RESULTS.md` §6).
+But **the story of the inversion is always kept.** That list is the highest
+reuse-value output this project has (`docs/RESULTS.md` §6).
 
 ---
 
-## 통합본
+## Bundle
 
-읽기·인쇄·공유용으로 전체를 하나로 묶은 **[ALL.md](ALL.md)** 가 있다.
-**생성물이므로 직접 편집하지 않는다.** 원본을 고친 뒤 다시 만든다.
+There is an **[ALL.md](ALL.md)** with everything concatenated, for reading,
+printing and sharing. **It is generated, so do not edit it directly.** Fix the
+source and regenerate.
 
 ```bash
 python scripts/build-adr-bundle.py $(git log -1 --format=%cs -- adrs/)
@@ -74,216 +79,224 @@ python scripts/build-adr-bundle.py $(git log -1 --format=%cs -- adrs/)
 
 ---
 
-## 읽는 순서
+## Reading order
 
-처음 오는 사람은 이 순서를 권한다.
+For someone arriving for the first time, this order is recommended.
 
-1. **[OVERVIEW.md](#overview)** — 시스템 전체 지도. ADR 을 읽기 전에 본다
-2. **[001](#adr-001), [002](#adr-002), [003](#adr-003), [004](#adr-004)** — 프로젝트의 방향과 골격
-3. **[007](#adr-007), [011](#adr-011), [012](#adr-012), [013](#adr-013)** — NPU 와 열을 실제로 다루며 나온 결정. 실측 밀도가 가장 높다
-4. **[015](#adr-015), [017](#adr-017), [028](#adr-028)** — "성공처럼 보이는 실패" 를 막는 장치들
-5. 나머지는 필요할 때 찾아 읽는다
+1. **[OVERVIEW.md](#overview)** — a map of the whole system. Read before the
+   ADRs
+2. **[001](#adr-001), [002](#adr-002), [003](#adr-003), [004](#adr-004)** — the project's direction and skeleton
+3. **[007](#adr-007), [011](#adr-011), [012](#adr-012), [013](#adr-013)** — decisions that came out of actually handling the NPU and heat. The highest density of measurement
+4. **[015](#adr-015), [017](#adr-017), [028](#adr-028)** — the devices that block "failures that look like success"
+5. The rest can be looked up when needed
 
-### 시간이 없다면 셋만
+### If there is no time, just three
 
-| # | 왜 |
+| # | Why |
 |---|---|
-| [007](#adr-007) | 오류 0건에 결과 100% 불일치. 이 프로젝트의 성격을 가장 잘 보여준다 |
-| [013](#adr-013) | 먼저 무너지는 것은 NPU 가 아니라 CPU 였다 |
-| [002](#adr-002) | 왜 나쁜 수치를 그대로 내는가 |
+| [007](#adr-007) | 0 errors and 100% result mismatch. It shows this project's character best |
+| [013](#adr-013) | what collapses first is the CPU, not the NPU |
+| [002](#adr-002) | why bad numbers get published as they are |
 
 ---
 
-## 목록
+## The list
 
-### 프로젝트 방향
+### Project direction
 
-| # | 제목 | 상태 |
+| # | Title | Status |
 |---|---|---|
-| [001](#adr-001) | 모델을 쪼개지 않고 요청을 나눈다 (데이터 병렬) | 확정 |
-| [002](#adr-002) | 성공 기준을 수치가 아니라 측정 가능성으로 둔다 | 확정 |
-| [022](#adr-022) | 문서마다 규범 영역을 정하고 값이 다르면 규범 문서를 따른다 | 확정 |
+| [001](#adr-001) | Split requests, not the model (data parallelism) | accepted |
+| [002](#adr-002) | Define success as measurability, not a number | accepted |
+| [022](#adr-022) | Assign each document a normative domain; the normative one wins on disagreement | accepted |
 
-### 시스템 구조
+### System structure
 
-| # | 제목 | 상태 |
+| # | Title | Status |
 |---|---|---|
-| [003](#adr-003) | 스케줄러를 하나만 두고 고가용성을 구현하지 않는다 | 확정 |
-| [004](#adr-004) | 백엔드를 인터페이스로 분리하고 Mock 을 1급으로 둔다 | 확정 |
-| [005](#adr-005) | RKNN 링크를 feature 뒤에 두고 기본값을 끈다 | 확정 |
-| [006](#adr-006) | 크레이트를 7개로 나누고 `unsafe` 를 한 곳에 가둔다 | 확정 |
-| [008](#adr-008) | 내부 통신을 gRPC(tonic + Protocol Buffers)로 한다 | 확정 |
+| [003](#adr-003) | One scheduler, and no high availability | accepted |
+| [004](#adr-004) | Separate the backend behind an interface, with Mock first-class | accepted |
+| [005](#adr-005) | Put the RKNN link behind a feature and default it off | accepted |
+| [006](#adr-006) | Split into seven crates and confine `unsafe` to one | accepted |
+| [008](#adr-008) | Internal communication uses gRPC (tonic + Protocol Buffers) | accepted |
 
-### 스케줄링
+### Scheduling
 
-| # | 제목 | 상태 |
+| # | Title | Status |
 |---|---|---|
-| [009](#adr-009) | 정책은 세 개로 고정하고 후보 필터는 셋이 공유한다 | 확정 |
-| [010](#adr-010) | ECT 점수식과 그 안의 각 항 | 확정 (실장비 검증 전) |
-| [026](#adr-026) | 재시도는 반드시 다른 노드로, 백오프는 짧게 | 확정 |
-| [027](#adr-027) | 노드 상태 머신과 drain·disable 분리 | 확정 (임계치 초안) |
+| [009](#adr-009) | Fix the policies at three; all three share the candidate filter | accepted |
+| [010](#adr-010) | The ECT score formula and each term inside it | accepted (before real-hardware validation) |
+| [026](#adr-026) | Retries always go to a different node; keep the backoff short | accepted |
+| [027](#adr-027) | The node state machine, with drain and disable separated | accepted (thresholds are a draft) |
 
-### NPU 런타임
+### NPU runtime
 
-| # | 제목 | 상태 |
+| # | Title | Status |
 |---|---|---|
-| [007](#adr-007) | 스레드마다 전용 RKNN 컨텍스트 — 공유를 타입으로 막는다 | 확정 |
-| [011](#adr-011) | 기준 모델을 INT8 로 한다 | 확정 |
-| [012](#adr-012) | 노드는 역양자화하지 않고 정수를 보낸다 (`want_float=0`, blob v2) | 확정 |
-| [020](#adr-020) | `worker_count = 8`, `core_mask` 미설정 | 확정 |
-| [021](#adr-021) | 노드는 후처리(NMS)를 하지 않는다 | **잠정** |
+| [007](#adr-007) | A dedicated RKNN context per thread — sharing blocked by the type system | accepted |
+| [011](#adr-011) | The reference model is INT8 | accepted |
+| [012](#adr-012) | The node sends integers without dequantizing (`want_float=0`, blob v2) | accepted |
+| [020](#adr-020) | `worker_count = 8`, `core_mask` unset | accepted |
+| [021](#adr-021) | The node does no postprocessing (NMS) | **provisional** |
 
-### 하드웨어와 측정 환경
+### Hardware and measurement environment
 
-| # | 제목 | 상태 |
+| # | Title | Status |
 |---|---|---|
-| [013](#adr-013) | 팬리스를 기본으로 두고 throttling 을 측정 대상으로 삼는다 | 확정 |
-| [014](#adr-014) | aggregation 만 10G, 스케줄러는 별도 서버 | 확정 (구축·실측 완료) |
-| [018](#adr-018) | 모델은 한 번만 변환해 세 노드에 배포한다 | 확정 |
-| [019](#adr-019) | 보드는 IP 가 아니라 SSH 별칭으로 접근한다 | 확정 |
-| [023](#adr-023) | CPU governor 를 `performance` 로 — 단 근거의 범위를 명시 | **잠정** |
+| [013](#adr-013) | Fanless as the default; throttling is something to measure | accepted |
+| [014](#adr-014) | 10G on aggregation only; the scheduler on a separate server | accepted (built and measured) |
+| [018](#adr-018) | Convert the model once and deploy to all three nodes | accepted |
+| [019](#adr-019) | Reach the boards by SSH alias, not by IP | accepted |
+| [023](#adr-023) | CPU governor to `performance` — but state the scope of the evidence | **provisional** |
 
-### 측정 규율
+### Measurement discipline
 
-| # | 제목 | 상태 |
+| # | Title | Status |
 |---|---|---|
-| [015](#adr-015) | 측정 전 preflight 하드 실패 검사 | 확정 |
-| [016](#adr-016) | `boot_id` 로 측정 중 재부팅을 감지해 run 을 무효화한다 | 확정 |
-| [017](#adr-017) | 원격 실행 함정을 라이브러리 함수로 굳힌다 | 확정 |
-| [028](#adr-028) | 벤치 도구가 run 유효성을 스스로 판정한다 | 확정 |
+| [015](#adr-015) | A hard-failing preflight check before measuring | accepted |
+| [016](#adr-016) | Detect mid-measurement reboots with `boot_id` and invalidate the run | accepted |
+| [017](#adr-017) | Harden the remote-execution pitfalls into library functions | accepted |
+| [028](#adr-028) | The bench tool judges run validity itself | accepted |
 
-### 프로토콜과 정책 세부
+### Protocol and policy details
 
-| # | 제목 | 상태 |
+| # | Title | Status |
 |---|---|---|
-| [024](#adr-024) | 오류를 `NPF-xxxx` 코드 체계로 고정한다 | 확정 |
-| [025](#adr-025) | 하트비트 실패는 곧바로 재등록 — 등록은 멱등 | 확정 |
+| [024](#adr-024) | Fix errors to an `NPF-xxxx` code scheme | accepted |
+| [025](#adr-025) | A failed heartbeat re-registers immediately — registration is idempotent | accepted |
 
 ---
 
-## 실패에서 나온 ADR
+## The ADRs that came out of failures
 
-이 프로젝트는 **같은 유형의 실수를 네 번** 했다. 전부 "지표가 무엇을 세는지
-확인하지 않고 이름만 보고 믿은" 것이다.
+This project made **the same type of mistake four times.** All of them were
+"trusting a metric by its name without checking what it counts".
 
 ```text
-1. run_duration 을 NPU 점유시간으로 읽음        → 큐 대기가 포함된 값
-2. NPU load 를 delayms=3000 인 채로 샘플링      → 3초 평균을 읽고 있었음
-3. thread-safety 를 API 반환 코드로만 판정      → 결과 내용 미대조   → ADR-007
-4. throttling 을 NPU 클럭만으로 판정            → CPU 가 꺾이고 있었음 → ADR-013
+1. reading run_duration as NPU occupancy time      -> it included queue wait
+2. sampling NPU load with delayms=3000 still set   -> it was reading a 3-second average
+3. judging thread-safety by API return codes only  -> results never compared   -> ADR-007
+4. judging throttling by NPU clock alone           -> the CPU was the one bending -> ADR-013
 ```
 
-여기서 나온 장치들이 따로 있다.
+The devices that came out of those are kept separately.
 
-| ADR | 막는 것 |
+| ADR | What it blocks |
 |---|---|
-| [015](#adr-015) | 전제가 틀린 채로 측정을 시작하는 것 |
-| [016](#adr-016) | 재부팅을 "성능 저하" 로 읽는 것 |
-| [017](#adr-017) | 원격 명령이 실패했는데 종료 코드 0 인 것 |
-| [019](#adr-019) | 엉뚱한 보드의 결과를 다른 노드에 귀속시키는 것 |
-| [028](#adr-028) | 무효한 run 의 숫자가 결과 표로 넘어가는 것 |
+| [015](#adr-015) | starting a measurement on a false premise |
+| [016](#adr-016) | reading a reboot as "performance degradation" |
+| [017](#adr-017) | a remote command failing with exit code 0 |
+| [019](#adr-019) | attributing one board's results to another node |
+| [028](#adr-028) | an invalid run's numbers reaching the result tables |
 
 ---
 
-## 새 ADR 을 쓸 때
+## Writing a new ADR
 
-1. [TEMPLATE.md](#template) 를 복사한다
-2. 파일 이름은 `NNN-ascii-kebab-slug.md`. 번호는 **029 부터** 이어 붙인다
-3. 번호는 **재사용하지 않는다.** 폐기된 결정도 번호를 그대로 유지한다
-4. 이 README 의 목록과 상태를 같이 갱신한다
+1. Copy [TEMPLATE.md](#template)
+2. The filename is `NNN-ascii-kebab-slug.md`. Numbering continues **from 029**
+3. Numbers are **not reused.** A discarded decision keeps its number
+4. Update this README's list and statuses alongside
 
-### 쓸 때 지키는 것
+### What to hold to when writing
 
-- **수치에는 측정 조건을 반드시 붙인다.** 노드, 스레드 수, 지속 시간,
-  governor, 모델. 조건 없는 숫자는 3개월 뒤에 쓸모가 없다는 것을 이미 겪었다
-- **버린 대안을 적는다.** 무엇을 골랐는지보다 무엇을 왜 버렸는지가 오래 간다
-- **모르는 것은 모른다고 적는다.** 「잠정」 상태와 「뒤집힌다면」 절이 그 자리다
-- **재검증 방법에 "무엇을 보면 안 되는지" 를 적는다.** 틀린 지표로 통과
-  판정을 낸 적이 네 번 있다
+- **Always attach the measurement conditions to a number.** Nodes, thread count,
+  duration, governor, model. We have already experienced that a number without
+  conditions is useless three months later
+- **Write down the rejected alternatives.** What was rejected and why lasts
+  longer than what was chosen
+- **Write down what is not known.** The "provisional" status and the "what would
+  overturn this" section are where that goes
+- **In the re-verification method, write what must not be looked at.** A pass
+  verdict has been reached from the wrong metric four times
 
 ---
 
 <a id="overview"></a>
 
-# NPUDure 아키텍처 개요
+# NPUDure architecture overview
 
-ADR 을 읽기 전에 보는 문서다. **시스템 전체가 어떻게 생겼는지** 한 번에
-훑는 것이 목적이고, 개별 선택의 근거는 각 ADR 로 넘긴다.
+*[한국어 원문](OVERVIEW.ko.md)*
+
+The document to read before the ADRs. Its purpose is a single pass over **what
+the whole system looks like**; the rationale for individual choices is left to
+each ADR.
 
 ---
 
-## 1. 한 문장
+## 1. One sentence
 
-저렴한 엣지 NPU 보드 세 대에 추론 요청을 나눠 던지고,
-**세 대가 정말 세 배가 되는지 측정하는** Rust 런타임이다.
+A Rust runtime that spreads inference requests across three cheap edge NPU
+boards and **measures whether three really becomes three times.**
 
-## 2. 무엇을 하고 무엇을 안 하나
-
-```text
-하는 것                          하지 않는 것
-─────────────────────────       ─────────────────────────
-독립 요청을 여러 노드에 분산     모델 하나를 여러 노드에 쪼개기
-노드 부하를 보고 고르기          단일 요청을 3배 빠르게
-죽은 노드 빼고 살아나면 넣기     Kubernetes 급 범용 오케스트레이션
-단계별로 시간 쪼개서 재기        NPU 세 개를 한 개처럼 보이게
-```
-
-오른쪽 열이 **명시적 비목표**다. 특히 첫 두 개는 "그럼 그건 왜 안 하냐"는
-질문을 계속 받는 항목이라 [ADR-001](#adr-001) 에 따로
-근거를 적어 두었다.
-
-핵심만 말하면 이렇다. **이 시스템은 요청 하나를 빠르게 만들지 못한다.**
-요청이 많을 때 전체를 많이 처리하게 만들 뿐이다.
-
-## 3. 세 층
+## 2. What it does and does not do
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│  Client                                                 │
-│  벤치마크 CLI · 데모 웹 · 직접 호출하는 API 클라이언트  │
-└───────────────────────────┬─────────────────────────────┘
-                            │  gRPC : Infer(model, image)
-                            ▼
-┌─────────────────────────────────────────────────────────┐
-│  Scheduler   (보드가 아닌 별도 호스트에서 돈다)         │
-│                                                         │
-│   Node Registry   누가 살아 있나                        │
-│   Scheduler       이번 요청은 누구에게                  │
-│   Retry Manager   실패하면 다른 노드로                  │
-│   Health Monitor  하트비트가 끊기면 후보에서 뺀다       │
-└──────────┬──────────────┬──────────────┬────────────────┘
-           │              │              │  gRPC
-           ▼              ▼              ▼
-    ┌───────────┐  ┌───────────┐  ┌───────────┐
-    │  king     │  │  queen    │  │  jack     │
-    │  RK3576   │  │  RK3576   │  │  RK3576   │
-    │  NPU 6TOPS│  │  NPU 6TOPS│  │  NPU 6TOPS│
-    └───────────┘  └───────────┘  └───────────┘
-      각 노드가 같은 모델 전체를 갖고 있다
+does                                does not
+─────────────────────────────       ─────────────────────────────
+spread independent requests         split one model across nodes
+choose by node load                 make a single request 3x faster
+drop dead nodes, readmit revived    Kubernetes-class orchestration
+break the time down by stage        make three NPUs look like one
 ```
 
-**세 노드는 완전히 대등하다.** 같은 바이너리, 같은 모델 파일, 같은 설정을
-쓰고 `[node]` 섹션의 `id` 와 주소만 다르다. 노드 사이에는 통신이 없다 —
-서로의 존재조차 모른다.
+The right column is the **explicit non-goals**. The first two in particular keep
+attracting "so why not do that?", so the rationale is written separately in
+[ADR-001](#adr-001).
 
-스케줄러를 보드에서 돌리지 않는 이유는, 한 노드에만 스케줄러 부하가 실리면
-1/2/3노드 비교가 그 순간 오염되기 때문이다.
+The core of it: **this system cannot make one request fast.** It only makes the
+whole get through more when there are many requests.
 
-## 4. 요청 하나의 일생
+## 3. Three layers
 
 ```text
- ① Client ──────────────► Scheduler      이미지 1장 (640×640×3 = 1.23 MB)
- ② Scheduler                             후보 노드 추리기 (죽은 노드 제외)
- ③ Scheduler                             정책 실행 → 노드 선택
- ④ Scheduler ───────────► Node           선택된 노드로 전달
- ⑤ Node                                  로컬 큐에 넣기
- ⑥ Node                                  워커가 집어서 전처리
- ⑦ Node                                  NPU 추론  ← 여기만 NPU, 나머지는 CPU
- ⑧ Node ───────────────► Scheduler       원시 텐서 9개를 blob 하나로
- ⑨ Scheduler ──────────► Client          결과 + 단계별 소요시간
++---------------------------------------------------------+
+|  Client                                                 |
+|  benchmark CLI . demo web . API clients calling directly |
++---------------------------+-----------------------------+
+                            |  gRPC : Infer(model, image)
+                            v
++---------------------------------------------------------+
+|  Scheduler   (runs on a separate host, not a board)     |
+|                                                         |
+|   Node Registry   who is alive                          |
+|   Scheduler       who gets this request                 |
+|   Retry Manager   another node on failure               |
+|   Health Monitor  drop from candidates when heartbeats stop |
++----------+--------------+--------------+----------------+
+           |              |              |  gRPC
+           v              v              v
+    +-----------+  +-----------+  +-----------+
+    |  king     |  |  queen    |  |  jack     |
+    |  RK3576   |  |  RK3576   |  |  RK3576   |
+    |  NPU 6TOPS|  |  NPU 6TOPS|  |  NPU 6TOPS|
+    +-----------+  +-----------+  +-----------+
+      each node holds the entire same model
 ```
 
-각 화살표와 각 상자에서 걸린 시간을 **따로따로 기록**한다.
+**The three nodes are completely equivalent.** They use the same binary, the
+same model file and the same configuration, differing only in the `id` and
+address in the `[node]` section. There is no communication between nodes — they
+do not even know the others exist.
+
+The scheduler does not run on a board because loading the scheduler onto one
+node contaminates the 1/2/3-node comparison the moment it happens.
+
+## 4. The life of one request
+
+```text
+ 1. Client ------------> Scheduler      one image (640x640x3 = 1.23 MB)
+ 2. Scheduler                           shortlist candidate nodes (exclude dead ones)
+ 3. Scheduler                           run the policy -> select a node
+ 4. Scheduler ---------> Node           forward to the selected node
+ 5. Node                                put on the local queue
+ 6. Node                                a worker picks it up and preprocesses
+ 7. Node                                NPU inference  <- only here is the NPU; the rest is CPU
+ 8. Node --------------> Scheduler      9 raw tensors as a single blob
+ 9. Scheduler ---------> Client         result + per-stage timings
+```
+
+The time taken at each arrow and each box is **recorded separately**.
 
 ```rust
 scheduler_queue_us   scheduler_route_us   network_to_node_us
@@ -292,109 +305,111 @@ npu_input_us         inference_us         postprocess_us
 network_to_client_us end_to_end_us
 ```
 
-이 분해가 프로젝트의 존재 이유에 가깝다. "3노드가 2.4배밖에 안 나왔다"는
-답이 아니고, **어느 칸에서 새는지**가 답이다.
+This breakdown is close to the project's reason for existing. "Three nodes only
+reached 2.4×" is not an answer; **which field it leaks from** is.
 
-> ⑦ 이 NPU 구간이고 나머지는 전부 CPU 다. 그리고 실측에서 **먼저 무너지는
-> 쪽은 NPU 가 아니라 CPU** 였다 — 지속 부하 300초에 처리량이 -27% 떨어지는데
-> NPU 클럭은 950MHz 로 고정이고 CPU 가 A72 2208 → 816MHz 로 강등된다.
+> Step 7 is the NPU section and everything else is CPU. And in measurement,
+> **what collapses first is the CPU, not the NPU** — throughput falls 27% over
+> 300 seconds of sustained load while the NPU clock stays pinned at 950 MHz and
+> the CPU is downgraded from A72 2208 to 816 MHz.
 
-### 실패하면
+### On failure
 
 ```text
-④ 에서 실패 ─► 원인 분류 ─► 재시도 가능? ─► 그 노드를 후보에서 빼고
-                                              ─► 다른 노드로 재시도
-                                              ─► 다 실패하면 NPF-1302
+failure at 4 --> classify cause --> retryable? --> drop that node from candidates
+                                                --> retry on another node
+                                                --> NPF-1302 if all fail
 ```
 
-같은 노드로 다시 던지지 않는다. 방금 실패한 노드는 다음 시도에서도 실패할
-가능성이 높다.
+It never throws the request back at the same node. A node that just failed is
+likely to fail on the next attempt too.
 
-## 5. 크레이트 지도
+## 5. Crate map
 
 ```text
                     npuforge-common
-                    타입 · 오류코드 · 설정 · InferenceBackend 인터페이스
-                            │ 전부가 이걸 참조
-        ┌───────────────────┼───────────────────┐
-        │                   │                   │
+                    types . error codes . config . InferenceBackend interface
+                            | everything references this
+        +-------------------+-------------------+
+        |                   |                   |
  npuforge-scheduler   npuforge-node      npuforge-bench
- 정책 3종 · 레지스트리  워커풀 · 큐 · 등록   부하 생성 · 집계
-        │                   │
-        └──── npuforge-proto ┘          gRPC 정의 (.proto → tonic)
-                            │
-                 ┌──────────┴──────────┐
-                 │                     │
+ 3 policies . registry worker pool . queue  load generation . aggregation
+        |                   |
+        +---- npuforge-proto +          gRPC definitions (.proto -> tonic)
+                            |
+                 +----------+----------+
+                 |                     |
         npuforge-rknn          npuforge-mock-backend
-        실제 NPU. unsafe 는     하드웨어 없이 도는 가짜 백엔드
-        전부 여기에만 있다      결정적 시드 · 지연/오류율 주입
+        the real NPU. all of      a fake backend that runs without hardware
+        the unsafe lives here     deterministic seed . latency/error injection
 ```
 
-| 크레이트 | 한 줄 |
+| Crate | One line |
 |---|---|
-| `npuforge-common` | 모두가 공유하는 타입과 인터페이스. 여기가 계약서다 |
-| `npuforge-proto` | gRPC 서비스 정의 |
-| `npuforge-scheduler` | 어느 노드로 보낼지 정하고, 실패하면 다시 보낸다 |
-| `npuforge-node` | 보드 위에서 도는 에이전트. 큐 + 워커 풀 |
-| `npuforge-rknn` | RKNN Runtime FFI. **`unsafe` 격리 구역** |
-| `npuforge-mock-backend` | NPU 흉내. 하드웨어 없이 전체를 돌리기 위한 것 |
-| `npuforge-bench` | 부하 걸고 통계 내고 **이 run 이 유효한지 판정**한다 |
+| `npuforge-common` | The types and interfaces everyone shares. This is the contract |
+| `npuforge-proto` | gRPC service definitions |
+| `npuforge-scheduler` | Decides which node to send to, and resends on failure |
+| `npuforge-node` | The agent running on a board. Queue + worker pool |
+| `npuforge-rknn` | RKNN Runtime FFI. **The `unsafe` containment zone** |
+| `npuforge-mock-backend` | An NPU imitation. For running everything without hardware |
+| `npuforge-bench` | Applies load, produces statistics and **judges whether this run is valid** |
 
-두 백엔드는 같은 `InferenceBackend` 인터페이스를 구현한다. 그래서
-**RK3576 보드가 한 대도 없어도** `cargo test --workspace` 가 통과하고 3노드
-클러스터가 로컬에서 돈다. 이건 편의 기능이 아니라 설계 원칙이다.
+The two backends implement the same `InferenceBackend` interface. So **without a
+single RK3576 board**, `cargo test --workspace` passes and a 3-node cluster runs
+locally. This is a design principle, not a convenience feature.
 
-## 6. 물리 구성
+## 6. Physical setup
 
 ```text
-현재 (측정 불가)                    계획 (M3)
+current (cannot measure)             planned (M3)
 
- 관리망 1GbE                          Scheduler 서버
-   ├── king                              │ 10GbE  ← aggregation
-   ├── queen                             │
-   ├── jack                        2.5G/10G 스위치
-   └── dealer (스케줄러, 노트북)      ├─2.5G─ king
-                                       ├─2.5G─ queen
- 추론망 없음. 스위치 미구매            └─2.5G─ jack
+ management 1GbE                      Scheduler server
+   |-- king                              | 10GbE  <- aggregation
+   |-- queen                             |
+   |-- jack                        2.5G/10G switch
+   \-- dealer (scheduler, laptop)     |-2.5G- king
+                                      |-2.5G- queen
+ no inference network. switch not bought  \-2.5G- jack
 ```
 
-**worker 링크는 2.5G 로 충분한데 aggregation 만 10G 가 필요하다.** 세 노드의
-트래픽이 한 점에서 합쳐지기 때문이다. 지금 측정하면 NPU 확장 효율이 아니라
-링크 포화를 재게 되므로 M3 는 시작하지 않은 상태다.
+**The worker links are fine at 2.5G and only aggregation needs 10G**, because
+the three nodes' traffic converges at one point. Measuring now would measure
+link saturation rather than NPU scaling efficiency, so M3 has not started.
 
-현재 스케줄러 호스트인 `dealer` 는 노트북이라 PCIe 슬롯이 없어 10G NIC 을
-꽂을 수 없다. 별도 서버가 필요하다.
+The current scheduler host, `dealer`, is a laptop with no PCIe slot and cannot
+take a 10G NIC. A separate server is needed.
 
-## 7. 지금 어디까지 되어 있나
+## 7. Where things stand
 
-| | 상태 |
+| | Status |
 |---|---|
-| 소프트웨어 골격 | ✅ 209 tests, clippy `-D warnings`, fmt clean |
-| 단일 노드 실측 | ✅ INT8 157.2 inf/s / FP16 84.3 inf/s (8스레드, 120초) |
-| Mock 3노드 클러스터 | ✅ 실제 gRPC 로 붙는다. 하드웨어 없이 |
-| 실장비 3노드 | ⬜ **네트워크 장비 대기로 중단** |
-| Prometheus · 대시보드 | ⬜ |
+| Software skeleton | ✅ 209 tests, clippy `-D warnings`, fmt clean |
+| Single-node measurement | ✅ INT8 157.2 inf/s / FP16 84.3 inf/s (8 threads, 120 s) |
+| Mock 3-node cluster | ✅ connects over real gRPC. Without hardware |
+| Real 3-node hardware | ⬜ **halted, waiting on network equipment** |
+| Prometheus and dashboard | ⬜ |
 
-막힌 이유는 코드가 아니라 장비다. 자세한 재개 절차는 `docs/TODO.md` 최상단.
+What blocks it is equipment, not code. The detailed resumption procedure is at
+the top of `docs/TODO.md`.
 
-## 8. 더 읽을 곳
+## 8. Where to read more
 
-| 궁금한 것 | 갈 곳 |
+| Question | Where |
 |---|---|
-| **결정 전체 목록** | **[README.md](#index)** |
-| 왜 모델을 쪼개지 않나 | [ADR-001](#adr-001) |
-| 왜 스케줄러가 하나뿐인가 | [ADR-003](#adr-003) |
-| 왜 하드웨어 없이 전부 돌아가나 | [ADR-004](#adr-004) |
-| 왜 NPU 컨텍스트를 스레드마다 만드나 | [ADR-007](#adr-007) |
-| 왜 INT8 인가 | [ADR-011](#adr-011) |
-| 왜 노드가 float 이 아니라 정수를 보내나 | [ADR-012](#adr-012) |
-| 왜 팬을 안 다나 | [ADR-013](#adr-013) |
-| 왜 지금 측정을 안 하고 기다리나 | [ADR-014](#adr-014) |
-| 왜 측정 전에 preflight 를 돌리나 | [ADR-015](#adr-015) |
-| 무엇이 어떻게 동작하나 (전체 명세) | `docs/01-TECHSPEC.md` |
-| 어떤 수치가 나왔나 | `docs/RESULTS.md` |
-| 지금 뭘 해야 하나 | `docs/TODO.md` |
-| 값의 최종 기준 | `docs/environment-matrix.md` |
+| **The full list of decisions** | **[README.md](#index)** |
+| Why is the model not split | [ADR-001](#adr-001) |
+| Why is there only one scheduler | [ADR-003](#adr-003) |
+| Why does everything run without hardware | [ADR-004](#adr-004) |
+| Why an NPU context per thread | [ADR-007](#adr-007) |
+| Why INT8 | [ADR-011](#adr-011) |
+| Why does the node send integers rather than floats | [ADR-012](#adr-012) |
+| Why no fan | [ADR-013](#adr-013) |
+| Why wait instead of measuring now | [ADR-014](#adr-014) |
+| Why run preflight before measuring | [ADR-015](#adr-015) |
+| What does what (the full specification) | `docs/01-TECHSPEC.md` |
+| What numbers came out | `docs/RESULTS.md` |
+| What to do now | `docs/TODO.md` |
+| The final authority for values | `docs/environment-matrix.md` |
 
 ---
 
@@ -2871,177 +2886,190 @@ time a new failure mode is encountered is this script's design intent.
 
 <a id="adr-016"></a>
 
-# ADR-016. `boot_id` 로 측정 중 재부팅을 감지해 run 을 무효화한다
+# ADR-016. Detect mid-measurement reboots with `boot_id` and invalidate the run
+
+*[한국어 원문](016-boot-id-run-invalidation.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-015](#adr-015), [ADR-028](#adr-028), [ADR-027](#adr-027) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-015](#adr-015), [ADR-028](#adr-028), [ADR-027](#adr-027) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 보드가 측정 도중 리셋되면 그 run 의 수치는 무효다. 그런데 **겉으로는
-> "성능이 떨어진 노드"로 보인다.** Linux 의 `boot_id` 를 하트비트로 받아
-> 값이 바뀌면 run 을 무효 처리한다.
+> If a board resets mid-measurement, that run's figures are void. But **from the
+> outside it looks like "a node whose performance dropped".** Linux's `boot_id`
+> is carried in the heartbeat, and a change in it invalidates the run.
 
-## 배경
+## Context
 
-이 프로젝트는 실제로 보드가 재부팅되는 것을 겪었다. 원인을 세 번 오판했다.
-
-```text
-공용 PSU 문제로 추정  →  아니었다
-부트로더 펌웨어 문제  →  일부만 맞았다
-12V 입력 문제        →  아니었다
-실제 원인: 전원 어댑터 전류 부족
-```
-
-문제는 원인 규명이 아니라 **그동안 나온 측정값을 어떻게 다룰 것인가** 였다.
-
-부하 중 보드가 리셋되면 이렇게 보인다.
+This project actually experienced boards rebooting. The cause was misdiagnosed
+three times.
 
 ```text
-처리량이 뚝 떨어진다        → "thermal throttling 인가?"
-응답이 한동안 없다          → "네트워크 지연인가?"
-그러다 다시 정상으로 돌아온다 → "회복됐네"
+suspected the shared PSU        ->  it was not
+bootloader firmware problem     ->  partly right
+12V input problem               ->  it was not
+actual cause: insufficient power adapter current
 ```
 
-**전부 그럴듯한 해석이 붙는다.** 재부팅됐다는 사실을 모르면 이 데이터를
-"고온에서의 성능 저하" 로 읽고 그래프에 그린다.
+The problem was not identifying the cause but **what to do with the
+measurements taken in the meantime.**
 
-## 결정
+A board resetting under load looks like this.
 
-**1. 노드가 `boot_id` 를 하트비트로 보고한다.**
+```text
+throughput drops sharply         -> "thermal throttling?"
+no response for a while          -> "network latency?"
+then it returns to normal        -> "it recovered"
+```
 
-Linux 는 부팅할 때마다 새 UUID 를 만든다.
+**Every one of those gets a plausible interpretation.** Not knowing it rebooted,
+this data gets read as "performance degradation at high temperature" and drawn
+on a graph.
+
+## Decision
+
+**1. The node reports `boot_id` in the heartbeat.**
+
+Linux generates a new UUID at every boot.
 
 ```text
 /proc/sys/kernel/random/boot_id
 ```
 
-이 값은 재부팅하면 반드시 바뀌고, 그 외에는 절대 안 바뀐다.
+The value always changes on reboot, and never changes otherwise.
 
-**2. 스케줄러가 변화를 감지하면 경고한다.** 노드가 같은 `node_id` 로
-돌아왔는데 `boot_id` 가 다르면, 그건 "잠깐 끊긴 노드" 가 아니라 **다른
-인스턴스**다.
+**2. The scheduler warns when it detects a change.** A node returning under the
+same `node_id` with a different `boot_id` is not "a node that dropped briefly"
+but **a different instance**.
 
-**3. 벤치 도구가 run 유효성 판정에 쓴다.** run 시작 시점의 `boot_id` 를
-기록해 두고, 끝날 때 달라져 있으면 그 run 을 무효로 표시한다.
+**3. The bench tool uses it in run-validity judgement.** The `boot_id` at the
+start of a run is recorded, and if it differs at the end, the run is marked
+invalid.
 
-**4. preflight 가 기준값을 남긴다.** 측정 직전 세 노드의 `boot_id` 를 찍어
-둔다.
+**4. Preflight records the reference values.** The three nodes' `boot_id`s are
+captured immediately before measuring.
 
-**5. 무효 run 을 삭제하지 않는다.** 사유와 함께 남긴다. 재부팅이 반복되면
-그 자체가 발견이다 — 실제로 어댑터 문제를 그렇게 찾았다.
+**5. Invalid runs are not deleted.** They are kept with the reason. Repeated
+reboots are themselves a finding — that is in fact how the adapter problem was
+found.
 
-## 근거
+## Rationale
 
-### 왜 다른 지표로는 안 되나
+### Why no other signal works
 
-| 후보 | 왜 안 되나 |
+| Candidate | Why it fails |
 |---|---|
-| uptime 이 작아짐 | 폴링 간격 사이에 리셋되고 다시 올라오면 놓친다 |
-| 연결이 끊김 | 네트워크 순단과 구분되지 않는다 |
-| 처리량 급락 | throttling 과 구분되지 않는다. **이게 정확히 우리가 겪은 문제** |
-| 프로세스 PID 변화 | 노드 프로세스만 재시작해도 바뀐다. 보드 리셋과 다른 사건이다 |
+| uptime becoming small | Missed if it resets and comes back between polls |
+| Connection dropping | Indistinguishable from a network blip |
+| A sharp throughput drop | Indistinguishable from throttling. **This is exactly the problem we hit** |
+| A change in process PID | Changes when only the node process restarts. That is a different event from a board reset |
 
-`boot_id` 는 **커널이 부팅을 셌다는 사실 그 자체**다. 해석의 여지가 없다.
+`boot_id` is **the fact that the kernel counted a boot**, and nothing else.
+There is no room for interpretation.
 
-### 의도된 장애와 하드 리셋을 구분해야 한다
+### Intentional failures and hard resets have to be distinguished
 
-시나리오 S4 는 **일부러 노드를 죽이고** 복구를 관찰하는 실험이다. 이때
-"노드가 사라졌다" 는 정상 동작이다.
+Scenario S4 is an experiment that **deliberately kills nodes** and observes
+recovery. "The node disappeared" is normal behaviour there.
 
-그런데 전원 문제로 보드가 죽는 것도 똑같이 보인다. 둘을 구분하지 못하면
-S4 의 결과와 장비 결함을 섞어서 보고하게 된다.
+But a board dying from a power problem looks identical. Without distinguishing
+the two, S4's results get reported mixed with equipment defects.
 
-`boot_id` 가 바뀌었으면 하드 리셋, 안 바뀌었으면 프로세스 수준 장애다.
+If `boot_id` changed it is a hard reset; if not, it is a process-level failure.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 재부팅을 안 나게 만든다 | 그렇게 했다(어댑터 교체). 그래도 **감지 장치는 필요하다** — 다음 원인은 다른 것일 수 있다 |
-| 사람이 로그를 보고 판단 | 야간 무인 실행(146 run, 23.4시간)에서는 불가능하다 |
-| dmesg 를 파싱 | 무겁고 권한이 필요하다. 한 줄 읽으면 되는 값이 있다 |
-| 무효 run 을 자동 삭제 | 원인 추적이 불가능해진다. 반복 패턴 자체가 정보다 |
+| Just stop the reboots happening | That was done (the adapter was replaced). **The detection still has to exist** — the next cause may be something else |
+| Have a human read the logs and judge | Impossible in unattended overnight runs (146 runs, 23.4 hours) |
+| Parse dmesg | Heavy and needs permissions. There is a value that can be read in one line |
+| Delete invalid runs automatically | Cause tracing becomes impossible. The pattern of repetition is itself information |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- "성능 저하" 로 위장한 재부팅을 잡는다
-- 무인 야간 실행에서도 데이터 유효성이 자동 판정된다
-- 의도된 장애와 장비 결함이 구분된다
+- Catches reboots disguised as "performance degradation"
+- Data validity is judged automatically even in unattended overnight runs
+- Intentional failures are distinguished from equipment defects
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 하트비트 메시지에 필드가 하나 늘었다 (사실상 무시할 수 있는 비용)
-- `boot_id` 는 재부팅만 잡는다. **커널이 살아 있는 채로 생기는 문제는 못
-  잡는다** — 그건 다른 검사의 몫이다
+- One more field in the heartbeat message (an effectively negligible cost)
+- `boot_id` catches only reboots. **It cannot catch problems that arise with the
+  kernel still alive** — that is other checks' job
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- 노드 프로세스만 재시작한 경우와 보드 리셋은 다르게 취급해야 한다. 둘 다
-  재등록을 유발하므로([ADR-025](#adr-025))
-  재등록 이벤트만으로는 구분되지 않는다
+- A node-process-only restart and a board reset have to be treated differently.
+  Both trigger re-registration
+  ([ADR-025](#adr-025)), so a re-registration event
+  alone does not distinguish them
 
-## 뒤집힌다면
+## What would overturn this
 
-이 검사가 불필요해지는 상황은 "보드가 절대 리셋되지 않는다" 가 증명될 때인데,
-증명할 방법이 없다. **유지한다.**
+The check becomes unnecessary when "boards never reset" is proven, and there is
+no way to prove it. **It stays.**
 
 ---
 
 <a id="adr-017"></a>
 
-# ADR-017. 원격 실행 함정을 라이브러리 함수로 굳힌다
+# ADR-017. Harden the remote-execution pitfalls into library functions
+
+*[한국어 원문](017-remote-exec-pitfalls-library.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-015](#adr-015), [ADR-019](#adr-019) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-015](#adr-015), [ADR-019](#adr-019) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> `ssh` 로 원격 명령을 돌릴 때 **실패가 성공처럼 보이는** 함정이 셋 있다.
-> 셋 다 종료 코드 0 에 stderr 가 비어 있다. 매번 조심하는 대신
-> `scripts/lib/remote.sh` 의 함수로 굳혔다.
+> There are three pitfalls in running remote commands over `ssh` where
+> **failure looks like success**. All three give exit code 0 with empty stderr.
+> Rather than being careful every time, they are hardened into functions in
+> `scripts/lib/remote.sh`.
 
-## 배경
+## Context
 
-`preflight-check.sh` 를 만들다가 발견했다. **검사가 조용히 작동하지 않았다.**
-부하가 도는데 "남은 부하 없음" 으로 통과시켰다.
+Found while building `preflight-check.sh`. **A check was silently not working.**
+It passed with "no residual load" while load was running.
 
-파고들었더니 함정이 셋이었고, 전부 같은 성질을 갖는다 — **틀렸다는 신호가
-전혀 없다.**
+Digging in, there were three pitfalls, and all of them share one property —
+**there is no signal at all that something is wrong.**
 
-## 함정 1. `pgrep -f` 는 자기 자신을 센다
+## Pitfall 1. `pgrep -f` counts itself
 
-`pgrep -f` 는 명령줄 전체를 매칭한다. 그런데 ssh 가 보내는 래퍼의 명령줄에
-**패턴 문자열 자체가 들어 있다.**
+`pgrep -f` matches the whole command line. And the command line of the wrapper
+ssh sends **contains the pattern string itself.**
 
 ```text
 bash -c "... pgrep -f \"[s]ustained_load_test|...\" | wc -l"
-                       ^^^^^^^^^^^^^^^^^^^^^^^^ 이게 매칭된다
+                       ^^^^^^^^^^^^^^^^^^^^^^^^ this matches
 ```
 
-대괄호 트릭(`[s]ustained`)도 같은 명령줄에 괄호 없는 형태가 섞이면 무력하다.
+The bracket trick (`[s]ustained`) is also neutralised once a form without the
+brackets appears on the same command line.
 
-**양방향으로 틀렸다.**
+**It is wrong in both directions.**
 
-| 상황 | 실제 | pgrep 보고 |
+| Situation | Actual | pgrep reports |
 |---|---|---|
-| 부하 실행 중 | 1개 | **0 (놓침)** |
-| 부하 없음 | 0개 | **2 (자기 셸을 셈)** |
+| Load running | 1 | **0 (missed)** |
+| No load | 0 | **2 (counting its own shell)** |
 
-**해결**: `/proc/PID/exe` 심볼릭 링크를 읽는다. 실제 실행 파일을 가리키므로
-셸이 끼어들 여지가 없다.
+**The fix**: read the `/proc/PID/exe` symlink. It points at the actual
+executable, leaving no room for a shell to get involved.
 
 ```bash
 n=0
@@ -3052,261 +3080,279 @@ for p in /proc/[0-9]*; do
 done
 ```
 
-## 함정 2. `cd DIR && setsid nohup ... &` 는 뜨지 않는다
+## Pitfall 2. `cd DIR && setsid nohup ... &` does not come up
 
-| 형태 | 결과 |
+| Form | Result |
 |---|---|
-| `ssh -n H "cd $DIR && setsid nohup ./prog ... &"` | **실행 안 됨** |
-| `ssh -n H "setsid nohup $DIR/prog ... &"` | 실행됨 |
+| `ssh -n H "cd $DIR && setsid nohup ./prog ... &"` | **does not run** |
+| `ssh -n H "setsid nohup $DIR/prog ... &"` | runs |
 
-`&` 는 `cd && prog` **리스트 전체**에 걸린다. ssh 가 명령을 보내고 즉시
-끊는데, 백그라운드 서브셸이 `cd` 를 거쳐 `setsid` 에 닿기 전에 세션이
-사라지면 그대로 죽는다.
+The `&` applies to the **whole `cd && prog` list**. ssh sends the command and
+disconnects immediately, and if the session disappears before the background
+subshell gets through `cd` and reaches `setsid`, it dies right there.
 
-절대경로를 쓰면 중간 단계가 없어 경합이 생기지 않는다.
+Using an absolute path removes the intermediate step, so no race arises.
 
-**대가가 크다.** 실패해도 종료 코드는 0 이고 stderr 도 비어 있다. 확인하지
-않으면 **"부하 없는 상태의 온도" 를 15분 동안 측정**하게 된다.
+**The cost is large.** Even on failure the exit code is 0 and stderr is empty.
+Without checking, you end up **measuring "the temperature with no load" for
+fifteen minutes.**
 
-## 함정 3. ssh 안 heredoc + sudo 중첩은 파일을 만들지 않는다
+## Pitfall 3. A heredoc inside ssh nested with sudo does not create the file
 
-systemd 유닛을 배포하다 겪었다. 이것도 **종료 코드 0** 이었다.
+Encountered while deploying a systemd unit. This too gave **exit code 0.**
 
-## 결정
+## Decision
 
-**1. 세 함정의 회피 형태를 `scripts/lib/remote.sh` 의 함수로 만든다.**
-스크립트가 ssh 를 직접 부르지 않고 이 함수를 쓴다.
+**1. Make the avoidance form of all three pitfalls into functions in
+`scripts/lib/remote.sh`.** Scripts use those functions rather than calling ssh
+directly.
 
-**2. 원격 프로세스를 셀 때는 `/proc/PID/exe` 를 읽는다.** `pgrep -f` 를
-쓰지 않는다.
+**2. Read `/proc/PID/exe` when counting remote processes.** Do not use
+`pgrep -f`.
 
-**3. 백그라운드 기동은 절대경로 + `setsid nohup` 형태로만 한다.**
+**3. Background startup uses only the absolute path + `setsid nohup` form.**
 
-**4. 띄운 뒤 실제로 도는지 확인하는 단계를 넣는다.** 기동 명령의 종료
-코드를 신뢰하지 않는다.
+**4. Add a step that confirms it is actually running after starting it.** Do not
+trust the startup command's exit code.
 
-**5. 새 검사를 만들면 일부러 깨뜨려 보고 실제로 잡히는지 확인한다.**
+**5. When adding a new check, break it deliberately and confirm it actually
+catches.**
 
-## 근거
+## Rationale
 
-### 5번이 이 ADR 의 핵심이다
+### Point 5 is the heart of this ADR
 
-함정 1 을 발견한 것이 정확히 그 절차 덕분이다. **통과만 보고 믿었다면
-preflight 는 아무것도 걸러내지 못하는 채로 남았을 것이다.**
+Pitfall 1 was found precisely because of that procedure. **Had a pass been
+trusted at face value, preflight would have remained in place filtering
+nothing.**
 
-검사 코드는 특히 위험하다. 평소에는 "통과" 만 출력하므로, 고장 나도 아무도
-모른다. 오히려 **더 조용해질 뿐**이다.
+Check code is especially dangerous. It normally prints only "pass", so nobody
+notices when it breaks. It just **gets quieter.**
 
-### 왜 문서가 아니라 코드인가
+### Why code rather than documentation
 
-이 세 함정은 전부 "알고 있으면 피할 수 있는" 것들이다. 그런데 이 프로젝트는
-알면서 당한 사례가 이미 여러 건이다. 원격 명령을 새로 짤 때마다 세 가지를
-기억해 내야 한다면 언젠가 빠뜨린다.
+All three pitfalls are the kind you can avoid if you know about them. And yet
+this project already has several cases of being caught while knowing better. If
+three things have to be recalled every time a remote command is written, one
+will eventually be missed.
 
-함수로 만들면 **기본 경로가 안전한 형태**가 된다.
+Making them functions makes **the default path the safe form.**
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 주석과 문서로 남긴다 | 통하지 않는다는 것이 이미 확인됨 |
-| Ansible 같은 도구 도입 | 의존이 늘고, 세 대짜리 실험 환경에 과하다. 함정 2 같은 문제는 여전히 남는다 |
-| ssh 대신 에이전트를 상주 | 그게 `npuforge-node` 다. 다만 측정 스크립트는 노드 프로세스와 무관하게 돌아야 한다 |
-| 종료 코드만 확인 | **세 함정 모두 종료 코드가 0 이다.** 근본적으로 안 통한다 |
+| Leave it in comments and documentation | Already confirmed not to work |
+| Introduce a tool like Ansible | Adds a dependency, and is excessive for a three-machine experimental setup. Problems like pitfall 2 remain regardless |
+| Keep a resident agent instead of ssh | That is what `npuforge-node` is. But the measurement scripts have to run independently of the node process |
+| Just check the exit code | **All three pitfalls give exit code 0.** Fundamentally does not work |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 새 스크립트가 기본적으로 안전한 형태를 쓴다
-- 함정을 겪은 기록이 코드 옆에 남는다
+- New scripts use the safe form by default
+- The record of having hit these pitfalls lives next to the code
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 스크립트가 `lib/remote.sh` 에 의존한다. 단독 실행이 어려워진다
-- `/proc` 순회는 `pgrep` 보다 느리다 (검사 빈도를 생각하면 무시 가능)
+- Scripts depend on `lib/remote.sh`. Running them standalone gets harder
+- Walking `/proc` is slower than `pgrep` (negligible given how often the checks
+  run)
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- **원격 실행을 새로 짤 때 이 라이브러리를 거쳐야 한다.** 직접 `ssh` 를
-  부르면 함정이 다시 열린다
+- **New remote execution has to go through this library.** Calling `ssh`
+  directly reopens the pitfalls
 
-## 뒤집힌다면
+## What would overturn this
 
-함정이 넷째로 늘어나면 여기에 추가된다. **줄어들 이유는 없다.**
+If a fourth pitfall appears, it gets added here. **There is no reason for the
+list to shrink.**
 
 ---
 
 <a id="adr-018"></a>
 
-# ADR-018. 모델은 한 번만 변환해 같은 파일을 세 노드에 배포한다
+# ADR-018. Convert the model once and deploy the same file to all three nodes
+
+*[한국어 원문](018-convert-model-once-deploy.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-011](#adr-011), [ADR-015](#adr-015) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-011](#adr-011), [ADR-015](#adr-015) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> **INT8 변환은 바이트 재현성이 없다.** 같은 입력으로 3회 변환하니 해시가
-> 매번 달랐다. 추론 결과는 완전히 같은데도 그렇다. 그래서 노드마다
-> 변환하지 않고, **한 번 변환한 파일 하나**를 세 노드에 배포한다.
+> **INT8 conversion is not byte-reproducible.** Converting three times from the
+> same input gave a different hash each time — even though the inference results
+> are completely identical. So the model is not converted per node; **one file,
+> converted once**, is deployed to all three.
 
-## 배경
+## Context
 
-노드가 세 대이므로 모델을 준비하는 방법이 둘이다.
-
-```text
-방법 A. 노드마다 변환한다     각 보드에서 ONNX → .rknn
-방법 B. 한 번 변환해 배포한다  한 곳에서 만든 .rknn 을 복사
-```
-
-A 가 자연스러워 보인다. 변환 스크립트가 결정적이면 세 노드에 같은 파일이
-생길 테니까.
-
-**그런데 결정적이지 않았다.**
-
-## 근거
-
-### 실측: 같은 입력, 다른 바이트
-
-같은 ONNX 와 같은 calibration 목록으로 **3회 변환**했다.
+With three nodes there are two ways to prepare the model.
 
 ```text
-파일 크기   같음
-해시        3회 모두 다름
-바이트 차이 1.8%
+approach A. convert per node        ONNX -> .rknn on each board
+approach B. convert once and deploy copy a .rknn built in one place
 ```
 
-그런데 추론 결과는 이랬다.
+A looks natural. If the conversion script is deterministic, the same file should
+appear on all three nodes.
+
+**But it was not deterministic.**
+
+## Rationale
+
+### Measured: same input, different bytes
+
+**Converted three times** from the same ONNX with the same calibration list.
 
 ```text
-출력 텐서 9개 전부 cosine 1.000000, 오차 0.0
+file size    identical
+hash         different all three times
+byte diff    1.8%
 ```
 
-**차이는 직렬화·레이아웃에 있고 수치 계산에는 없다.** 그래도 파일이 다르면
-"세 노드가 같은 모델을 쓴다" 를 해시로 증명할 수 없게 된다.
-
-### 왜 그게 문제인가
-
-이 프로젝트는 **세 노드의 조건이 같다는 것**이 전제다. 1/2/3노드 확장 효율을
-재려면 노드가 대칭이어야 한다.
-
-preflight 는 세 노드의 모델 해시가 같은지 검사한다. 노드마다 변환하면 이
-검사가 **항상 실패**한다. 그렇다고 검사를 빼면 "정말 같은 모델인가" 를
-확인할 수단이 사라진다.
-
-## 결정
-
-**1. 모델은 한 곳에서 한 번만 변환한다.** 변환 환경은 Docker 로 고정한다
-(rknn-toolkit2 2.3.0).
-
-**2. 생성된 `.rknn` 파일을 세 노드에 복사한다.**
-
-**3. `model.toml` 의 `sha256` 으로 배포 무결성을 검증한다.** 노드가 모델을
-로딩할 때 해시를 확인한다.
-
-**4. 그 해시가 무엇을 보장하는지 명시한다.**
+And the inference results were:
 
 ```text
-sha256 이 보장하는 것      배포 무결성 — 세 노드가 같은 파일을 갖는다
-sha256 이 보장하지 않는 것  변환 레시피의 동일성 — 같은 절차로 만들었는지
+all 9 output tensors at cosine 1.000000, error 0.0
 ```
 
-**5. calibration 이미지 선택을 결정적으로 만든다.** COCO val2017 에서
-seed 를 고정해 200장을 고른다(`fetch_calibration.py`). 이미지 자체는
-라이선스 때문에 저장소에 넣지 않고 **manifest 만** 남긴다.
+**The difference is in serialization and layout, not in numerical computation.**
+But with different files, "the three nodes use the same model" can no longer be
+proved by hash.
 
-**6. 같은 원칙을 노드 바이너리에도 적용한다.** `king` 에만 Rust 툴체인이
-있고, 거기서 한 번 빌드해 `queen`·`jack` 에 배포한다. 노드마다 빌드하지
-않는다.
+### Why that matters
 
-## 대안과 버린 이유
+This project's premise is **that the three nodes' conditions are identical.**
+Measuring 1/2/3-node scaling efficiency requires the nodes to be symmetric.
 
-| 대안 | 버린 이유 |
+Preflight checks that the three nodes' model hashes match. Converting per node
+makes that check **fail always**. Removing the check instead loses the means to
+confirm "is it really the same model".
+
+## Decision
+
+**1. The model is converted once, in one place.** The conversion environment is
+pinned with Docker (rknn-toolkit2 2.3.0).
+
+**2. The resulting `.rknn` file is copied to all three nodes.**
+
+**3. Deployment integrity is verified via `sha256` in `model.toml`.** The node
+checks the hash when loading the model.
+
+**4. State explicitly what that hash guarantees.**
+
+```text
+what sha256 guarantees      deployment integrity - the three nodes hold the same file
+what sha256 does not        identity of the conversion recipe - that it was made the same way
+```
+
+**5. Make calibration image selection deterministic.** 200 images are chosen
+from COCO val2017 with a fixed seed (`fetch_calibration.py`). The images
+themselves are not put in the repository for licensing reasons; **only the
+manifest** is kept.
+
+**6. Apply the same principle to the node binary.** Only `king` has a Rust
+toolchain; it builds once there and deploys to `queen` and `jack`. There is no
+per-node build.
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
 |---|---|
-| 노드마다 변환 | 해시가 달라져 "같은 모델" 검사가 불가능해진다 |
-| 변환을 결정적으로 만든다 | rknn-toolkit2 내부 동작이라 우리가 통제할 수 없다 |
-| 해시 대신 추론 결과로 동일성 검증 | 그것도 한다(`preflight --with-inference`). 다만 배포 시점 검증으로는 무겁다 |
-| 해시 검사를 뺀다 | 파일이 깨지거나 다른 버전이 섞여도 모른다. 실제로 방지하려던 사고다 |
+| Convert per node | The hashes differ and the "same model" check becomes impossible |
+| Make the conversion deterministic | That is internal to rknn-toolkit2 and outside our control |
+| Verify identity by inference results instead of hash | That is also done (`preflight --with-inference`). But it is heavy as a deploy-time check |
+| Drop the hash check | A corrupted file or a mixed-in different version would go unnoticed. That is exactly the accident it was meant to prevent |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 세 노드가 **바이트 단위로 같은 모델**을 갖는다
-- preflight 의 모델 해시 일치 검사가 의미를 갖는다
-- 변환 환경 문제가 세 배로 늘어나지 않는다
+- The three nodes hold **a byte-identical model**
+- Preflight's model hash match check becomes meaningful
+- Conversion environment problems do not multiply by three
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 배포 단계가 하나 늘어난다
-- 변환 환경(Docker, rknn-toolkit2 버전)이 재현성의 일부가 된다.
-  `environment-matrix.md` 에 고정한다
+- One more deployment step
+- The conversion environment (Docker, rknn-toolkit2 version) becomes part of
+  reproducibility. It is pinned in `environment-matrix.md`
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **`sha256` 을 변환 레시피 검증으로 착각하면 안 된다.** 같은 해시는 같은
-  파일을 뜻할 뿐, 같은 절차로 만들었다는 뜻이 아니다. 재현하려면 변환
-  명령·데이터셋·툴킷 버전을 따로 기록해야 한다
-- 모델을 다시 변환하면 **모든 노드에 다시 배포**해야 한다. 한 노드만 갱신하면
-  preflight 가 막는다 (의도한 동작)
+- **Do not mistake `sha256` for verification of the conversion recipe.** The
+  same hash means the same file, not that it was made by the same procedure.
+  Reproducing it requires recording the conversion command, dataset and toolkit
+  version separately
+- Re-converting the model means **redeploying to every node.** Updating one node
+  alone gets blocked by preflight (intended behaviour)
 
-## 뒤집힌다면
+## What would overturn this
 
-- **rknn-toolkit2 가 결정적 변환을 보장하게 되면** 노드별 변환도 가능해진다.
-  다만 그래도 한 번 변환해 배포하는 쪽이 단순하다
-- **모델이 노드마다 달라야 하는 실험**이 생기면(예: 노드별 다른 정밀도)
-  전제가 바뀐다. 그 경우 "노드 대칭" 자체가 실험 변수가 된다
+- **If rknn-toolkit2 comes to guarantee deterministic conversion**, per-node
+  conversion becomes possible. Though converting once and deploying is still
+  simpler
+- **If an experiment requires the model to differ per node** (different
+  precision per node, say), the premise changes. In that case "node symmetry"
+  itself becomes an experimental variable
 
 ---
 
 <a id="adr-019"></a>
 
-# ADR-019. 보드는 IP 가 아니라 SSH 별칭으로 접근한다
+# ADR-019. Reach the boards by SSH alias, not by IP
+
+*[한국어 원문](019-ssh-alias-not-ip.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-015](#adr-015), [ADR-017](#adr-017) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-015](#adr-015), [ADR-017](#adr-017) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 문서에 박아 둔 IP 가 낡아서 **노드가 죽었다고 오판**하고 서브넷 전체를
-> 스캔했다. `~/.ssh/config` 에는 처음부터 올바른 값이 있었다.
-> 접근은 `npuforge-k` / `-q` / `-j` 별칭으로만 한다.
+> An IP pinned into a document went stale, so **a node was misdiagnosed as dead**
+> and the whole subnet got scanned. `~/.ssh/config` had the correct value all
+> along. Access goes only through the `npuforge-k` / `-q` / `-j` aliases.
 
-## 배경
+## Context
 
-2026-08-11 에 `king` 에 접속이 안 됐다.
-
-```text
-문서에 적힌 IP     10.20.0.22
-실제 IP            10.20.0.12
-```
-
-노드가 죽은 줄 알고 서브넷을 훑었다. 그런데 `~/.ssh/config` 에는 **처음부터
-올바른 IP 가 있었다.** 낡은 것은 문서뿐이었다.
-
-이게 왜 위험한가. 접속이 아예 안 되면 그나마 낫다 — 즉시 알 수 있으니까.
-**진짜 위험한 경우는 그 IP 에 다른 보드가 있을 때다.**
+On 2026-08-11 `king` could not be reached.
 
 ```text
-npuforge-k 로 측정 → 실제로는 queen 에 붙음 → 측정은 정상 종료
-                                            → 결과가 king 것으로 기록됨
+IP written in the document   10.20.0.22
+actual IP                    10.20.0.12
 ```
 
-조용히 틀린다. 이 프로젝트에서 가장 경계하는 실패 형태다.
+Believing the node was dead, the subnet was swept. But `~/.ssh/config` had had
+**the correct IP from the beginning.** Only the document was stale.
 
-## 결정
+Why this is dangerous. Being unable to connect at all is the better case — you
+find out immediately. **The genuinely dangerous case is when another board is at
+that IP.**
 
-**1. 보드 접근은 SSH 별칭으로만 한다.**
+```text
+measure via npuforge-k -> actually attaches to queen -> the measurement finishes normally
+                                                     -> the result is recorded as king's
+```
+
+It fails quietly. The failure mode this project guards against most.
+
+## Decision
+
+**1. Boards are reached only by SSH alias.**
 
 ```text
 npuforge-k   king
@@ -3314,83 +3360,87 @@ npuforge-q   queen
 npuforge-j   jack
 ```
 
-**2. 문서와 스크립트에 IP 를 직접 쓰지 않는다.** IP 는 `~/.ssh/config`
-한 곳에만 있다.
+**2. Do not write IPs directly in documents or scripts.** The IP lives in one
+place, `~/.ssh/config`.
 
-**3. preflight 의 **첫 번째** 검사가 별칭 ↔ hostname 일치다.** 붙은 곳이
-정말 그 보드인지 확인한다.
+**3. Preflight's **first** check is alias ↔ hostname agreement.** It confirms
+that what you attached to really is that board.
 
-**4. SSH host key 를 노드마다 다르게 유지한다.**
+**4. Keep the SSH host keys distinct per node.**
 
-## 근거
+## Rationale
 
-### 단일 출처
+### A single source
 
-IP 는 바뀐다. DHCP 임대가 갱신되거나, 네트워크를 재구성하거나, 스위치를
-바꾸면 달라진다. 그때마다 문서 여러 곳을 고쳐야 한다면 반드시 하나가 남는다.
+IPs change. A DHCP lease renews, the network gets reconfigured, a switch gets
+replaced. If several documents have to be fixed each time, one will inevitably
+be left behind.
 
-`~/.ssh/config` 는 **접속에 실제로 쓰이는 값**이라 틀리면 바로 드러난다.
-문서의 IP 는 아무도 안 쓰기 때문에 틀린 채로 오래 남는다.
+`~/.ssh/config` is **the value actually used to connect**, so being wrong shows
+up immediately. An IP in a document is used by nobody and stays wrong for a long
+time.
 
-### 별칭도 틀릴 수 있다 — 그래서 검사한다
+### An alias can be wrong too — hence the check
 
-별칭 자체는 IP 를 가리키므로, IP 가 재배치되면 별칭이 엉뚱한 보드를 가리킬
-수 있다. 그래서 preflight 1번 검사가 필요하다.
+The alias points at an IP, so a reassigned IP can leave the alias pointing at
+the wrong board. That is why preflight's check 1 is needed.
 
 ```text
-ssh npuforge-k hostname   →  "king" 이어야 한다
+ssh npuforge-k hostname   ->  must be "king"
 ```
 
-이 검사가 **연결 실패 검사보다 우선**이다. 연결 실패는 시끄럽게 실패하지만,
-잘못된 매핑은 조용히 성공하기 때문이다.
+That check comes **before the connection-failure check**, because a connection
+failure fails loudly while a wrong mapping succeeds quietly.
 
-### host key 가 같으면 구분이 안 된다
+### Identical host keys make them indistinguishable
 
-현재 `queen` 과 `jack` 의 SSH host key 가 동일하다. 클론하거나 이미지를
-복사해서 생긴 문제로 보인다.
+`queen` and `jack` currently have identical SSH host keys — apparently from
+cloning or copying an image.
 
-이 상태에서는 **IP 가 바뀌어 다른 보드에 붙어도 SSH 가 경고하지 않는다.**
-host key 는 "이 서버가 아까 그 서버가 맞는가" 를 확인하는 장치인데, 둘이
-같으면 그 기능이 죽는다.
+In that state, **SSH raises no warning even if a changed IP attaches you to a
+different board.** A host key is the device for confirming "is this server the
+same server as before", and when two are identical that function is dead.
 
-이미 노드 오판을 한 번 겪었으므로 방치하면 안 된다. **미해결 과제로
-`docs/TODO.md` 에 남아 있다.**
+Having already misdiagnosed a node once, this must not be left alone. **It
+remains as an open item in `docs/TODO.md`.**
 
 ```bash
 ssh npuforge-j 'sudo rm -f /etc/ssh/ssh_host_* && sudo ssh-keygen -A && sudo systemctl restart ssh'
-ssh-keygen -R npuforge-j   # PC 의 known_hosts 정리
+ssh-keygen -R npuforge-j   # clean up known_hosts on the PC
 ```
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 문서의 IP 를 잘 관리한다 | 이미 실패했다. 쓰이지 않는 값은 낡는다 |
-| 고정 IP 를 부여한다 | 그래도 문서에 복제되면 같은 문제. 별칭은 그 위에서도 유효하다 |
-| mDNS / hostname 으로 접근 | 환경에 따라 안 되는 경우가 있고, 별칭이 그 위 계층이라 함께 쓸 수 있다 |
-| 별칭만 쓰고 검사는 생략 | 별칭이 엉뚱한 보드를 가리키는 경우를 못 잡는다 |
+| Just manage the IPs in the documents well | Already failed. A value nobody uses goes stale |
+| Assign static IPs | Copied into documents it is the same problem again. The alias remains valid on top of static IPs anyway |
+| Reach by mDNS / hostname | Does not work in some environments, and the alias is a layer above it so they can coexist |
+| Use aliases but skip the check | Does not catch an alias pointing at the wrong board |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- IP 의 단일 출처가 생겼다
-- 잘못된 노드에 측정이 귀속되는 사고를 preflight 가 잡는다
+- A single source for the IPs
+- Preflight catches the accident of a measurement being attributed to the wrong
+  node
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 새 사람이 저장소를 받으면 `~/.ssh/config` 를 직접 만들어야 한다.
-  재현 절차에 전제로 명시했다
+- Someone new taking the repository has to create `~/.ssh/config` themselves.
+  Stated as a prerequisite in the reproduction procedure
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **문서에서 IP 를 보면 의심한다.** 남아 있다면 그건 낡았을 가능성이 높다
-- `queen`·`jack` host key 재생성 전까지는 IP 재배치 시 경고 없이 엉뚱한
-  보드에 붙을 수 있다. **알려진 위험**이다
+- **Treat any IP seen in a document with suspicion.** If one is still there, it
+  is likely stale
+- Until `queen` and `jack`'s host keys are regenerated, an IP reassignment can
+  attach you to the wrong board without a warning. **A known risk**
 
-## 뒤집힌다면
+## What would overturn this
 
-없다. IP 를 문서에 다시 박을 이유가 생기지 않는다.
+Nothing. No reason will arise to pin IPs back into documents.
 
 ---
 
@@ -3672,262 +3722,275 @@ on the node. Do not judge from response size alone.
 
 <a id="adr-022"></a>
 
-# ADR-022. 문서마다 규범 영역을 정하고, 값이 다르면 규범 문서를 따른다
+# ADR-022. Assign each document a normative domain, and follow the normative one when values disagree
+
+*[한국어 원문](022-document-authority-order.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-05 |
-| **관련** | [ADR-002](#adr-002), `docs/00-PRD.md` §0 |
+| **Status** | accepted |
+| **Date** | 2026-08-05 |
+| **Related** | [ADR-002](#adr-002), `docs/00-PRD.md` §0 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 같은 값이 여러 문서에 적히면 반드시 하나가 낡는다. 그래서 **영역마다
-> 규범 문서를 하나씩** 정하고, 값이 다르면 그 문서를 따른다. 나머지 문서는
-> 복제하지 말고 참조한다.
+> When the same value is written in several documents, one of them inevitably
+> goes stale. So **each domain gets one normative document**, and when values
+> disagree, that document wins. Other documents reference rather than duplicate.
 
-## 배경
+## Context
 
-이 저장소는 문서가 많다. PRD, TECHSPEC, 하드웨어, 개발요구사항,
-environment-matrix, RESULTS, TODO, discuss, board-worklog.
+This repository has many documents: PRD, TECHSPEC, hardware, development
+requirements, environment-matrix, RESULTS, TODO, discuss, board-worklog.
 
-같은 숫자가 여러 곳에 나온다. 예를 들어 "노드당 처리량 157.2 inf/s" 는
-RESULTS 에도, TODO 에도, board-worklog 에도, environment-matrix 에도 나온다.
+The same number appears in several places. "157.2 inf/s per node", for example,
+appears in RESULTS, in TODO, in board-worklog and in environment-matrix.
 
-**하나를 고치면 나머지가 낡는다.** 실제로 겪었다.
-
-```text
-want_float=0 전환 후
-  RESULTS §2.2  갱신됨       "INT8 +17.3%"
-  RESULTS §5    안 갱신됨    "INT8 처리량 영향은 미측정"   ← 같은 문서 안에서 모순
-  TECHSPEC §3.2 안 갱신됨    폐기된 네트워크 계산이 그대로
-```
-
-## 결정
-
-**1. 영역마다 규범 문서를 하나씩 정한다.**
-
-| 영역 | 규범 문서 |
-|---|---|
-| 목표, 비목표, 기능 요구사항, 성공 기준 | `00-PRD.md` |
-| 저장소 구조, 프로토콜, 설정 스키마, 스케줄링 알고리즘, 오류 코드 | `01-TECHSPEC.md` |
-| 물리 구성, 네트워크, 전원, 냉각, 실험 조건 | `02-HARDWARE-SETUP.md` |
-| 개발환경, 도구, 배포 자동화, 라이선스 | `03-DEVELOPMENT-REQUIREMENTS.md` |
-| 버전 조합 및 해시 고정 | `environment-matrix.md` |
-
-**2. 값이 서로 다르면 규범 문서를 따른다.**
-
-**3. 복제하지 말고 참조한다.** PRD 는 "왜" 와 "무엇을" 만 다룬다. 계산식,
-크레이트 이름, 설정 키, 식별자 문자열은 PRD 에 쓰지 않고 TECHSPEC 을
-가리킨다.
-
-**4. 성격이 다른 문서는 규범 대상이 아니다.**
-
-| 문서 | 성격 |
-|---|---|
-| `discuss.md` | 시간순 논의. 뒤 절이 앞 절을 정정한다 |
-| `board-worklog.md` | 작업 이력. 틀린 가설도 보존한다 |
-| `RESULTS.md` | 결과 모음. 값의 최종 기준은 environment-matrix |
-| `TODO.md` | 현재 할 일 |
-| `adrs/` | 결정과 근거 |
-
-## 근거
-
-### 복제하지 않는 것이 유일한 방법이다
-
-정합성을 유지하는 방법은 둘뿐이다.
+**Fix one and the rest go stale.** This actually happened.
 
 ```text
-1. 복제해 놓고 고칠 때마다 전부 찾아 고친다   → 반드시 하나를 빠뜨린다
-2. 애초에 한 곳에만 둔다                      → 낡을 곳이 없다
+after the switch to want_float=0
+  RESULTS §2.2  updated       "INT8 +17.3%"
+  RESULTS §5    not updated   "INT8 throughput impact unmeasured"   <- contradictory within one document
+  TECHSPEC §3.2 not updated   the discarded network calculation left as-is
 ```
 
-이 프로젝트는 1번으로 이미 실패했다. `want_float=0` 전환 하나에
-`RESULTS.md`·`TECHSPEC`·`environment-matrix`·`TODO`·`board-worklog` 다섯
-문서가 관련됐고, 한 번의 sync 로 다 잡히지 않았다.
+## Decision
 
-### 시간순 문서를 규범에서 뺀 이유
+**1. Each domain gets one normative document.**
 
-`discuss.md` 는 **틀린 결론을 일부러 남긴다.** 5절의 "+5.4%" 는 지금 기준으로
-낡았지만, 12절이 왜 그것을 정정했는지 이해하려면 5절이 그대로 있어야 한다.
-
-이런 문서를 규범으로 삼으면 앞 절을 읽은 사람이 폐기된 값을 인용하게 된다.
-그래서 **시간순 문서는 근거 자료지 기준이 아니다.**
-
-### ADR 이 이 구조를 보완한다
-
-규범 문서는 "지금 값이 무엇인가" 에 답한다. 시간순 문서는 "무슨 일이
-있었나" 에 답한다. **"왜 그렇게 정했나" 에 답하는 자리가 비어 있었다.**
-
-`adrs/` 가 그 자리다. 규범 문서에서 값을 가져오고, 시간순 문서에서 경위를
-가져와 결정 단위로 다시 묶는다.
-
-## 대안과 버린 이유
-
-| 대안 | 버린 이유 |
+| Domain | Normative document |
 |---|---|
-| 문서를 하나로 합친다 | 만 줄이 넘는다. 용도가 다른 독자를 한 문서로 감당할 수 없다 |
-| 우선순위 없이 관리 | 값이 충돌했을 때 무엇이 맞는지 판정할 방법이 없다 |
-| 값을 자동 생성 | 일부는 가능하지만(테스트 수 등) 측정값은 사람이 조건과 함께 판단해 적어야 한다 |
+| Goals, non-goals, functional requirements, success criteria | `00-PRD.md` |
+| Repository structure, protocol, config schema, scheduling algorithm, error codes | `01-TECHSPEC.md` |
+| Physical setup, network, power, cooling, experimental conditions | `02-HARDWARE-SETUP.md` |
+| Development environment, tooling, deployment automation, licensing | `03-DEVELOPMENT-REQUIREMENTS.md` |
+| Version combinations and hash pinning | `environment-matrix.md` |
 
-## 결과
+**2. When values disagree, the normative document wins.**
 
-**얻은 것**
+**3. Reference rather than duplicate.** The PRD covers only "why" and "what".
+Formulas, crate names, configuration keys and identifier strings are not written
+in the PRD; it points at TECHSPEC.
 
-- 값이 충돌했을 때 판정 기준이 있다
-- 각 문서의 역할이 명확하다
-- 고칠 곳을 특정할 수 있다
+**4. Documents of a different nature are not normative.**
 
-**잃은 것 / 대가**
+| Document | Nature |
+|---|---|
+| `discuss.md` | Chronological discussion. Later sections correct earlier ones |
+| `board-worklog.md` | Work history. Wrong hypotheses are preserved |
+| `RESULTS.md` | A collection of results. The final authority for values is environment-matrix |
+| `TODO.md` | What is to be done now |
+| `adrs/` | Decisions and their rationale |
 
-- 한 주제를 알려면 문서를 오가야 한다. **이 불편함이 `adrs/` 를 만든 직접적
-  이유다**
-- 규범 문서가 어디인지 기억해야 한다
+## Rationale
 
-**새로 생긴 제약**
+### Not duplicating is the only method
 
-- **복제를 발견하면 지우고 참조로 바꾼다.** 편의상 값을 옮겨 적고 싶은
-  순간이 계속 온다
-- ADR 도 값을 인용한다. 인용한 값이 낡을 수 있으므로 **측정 조건과 출처를
-  함께** 적는다
+There are only two ways to maintain consistency.
 
-## 뒤집힌다면
+```text
+1. duplicate, and find and fix every copy on each change   -> one will always be missed
+2. keep it in one place from the start                     -> there is nowhere to go stale
+```
 
-문서가 더 늘어나면 규범 영역을 추가한다. 줄어들면 통합한다. 원칙 자체는
-바뀌지 않는다.
+This project already failed with option 1. The single switch to `want_float=0`
+involved five documents — `RESULTS.md`, `TECHSPEC`, `environment-matrix`, `TODO`
+and `board-worklog` — and one sync pass did not catch them all.
+
+### Why chronological documents are excluded from normativity
+
+`discuss.md` **deliberately keeps wrong conclusions.** Section 5's "+5.4%" is
+stale by current standards, but section 5 has to stay as-is for anyone to
+understand why section 12 corrected it.
+
+Making such a document normative means a reader who got as far as the earlier
+section quotes a discarded value. So **chronological documents are supporting
+material, not authority.**
+
+## ADRs complement this structure
+
+Normative documents answer "what is the value now". Chronological documents
+answer "what happened". **The place answering "why was it decided that way" was
+empty.**
+
+`adrs/` is that place. It takes values from the normative documents and the
+story from the chronological ones, and re-bundles them by decision.
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
+|---|---|
+| Merge into a single document | It runs past ten thousand lines. Readers with different purposes cannot be served by one document |
+| Manage without priority | No way to decide which is right when values conflict |
+| Generate values automatically | Possible for some (test counts and the like), but measured values have to be written by a person along with their conditions |
+
+## Consequences
+
+**Gained**
+
+- There is a rule for deciding when values conflict
+- Each document's role is clear
+- Where to make a change can be pinpointed
+
+**Lost / the cost**
+
+- Learning about one topic means moving between documents. **That inconvenience
+  is the direct reason `adrs/` exists**
+- You have to remember which document is normative
+
+**New constraints introduced**
+
+- **When duplication is found, delete it and replace with a reference.** The
+  urge to copy a value over for convenience keeps arriving
+- ADRs quote values too. A quoted value can go stale, so **the measurement
+  conditions and the source are written alongside**
+
+## What would overturn this
+
+As documents grow, normative domains get added. As they shrink, they get merged.
+The principle itself does not change.
 
 ---
 
 <a id="adr-023"></a>
 
-# ADR-023. CPU governor 를 `performance` 로 고정한다 — 단, 근거의 범위를 명시한다
+# ADR-023. Fix the CPU governor to `performance` — but state the scope of the evidence
+
+*[한국어 원문](023-cpu-governor-performance-scoped.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 잠정 |
-| **날짜** | 2026-08-12 |
-| **관련** | [ADR-013](#adr-013), [ADR-002](#adr-002), `docs/discuss.md` §11·§12 |
+| **Status** | provisional |
+| **Date** | 2026-08-12 |
+| **Related** | [ADR-013](#adr-013), [ADR-002](#adr-002), `docs/discuss.md` §11, §12 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> `ondemand` → `performance` 로 바꾸니 **+7%** 다. 그래서 고정했다.
-> **그런데 그 +7% 는 120초 측정이다.** 지속 부하에서는 `performance` 가 더
-> 빨리 뜨거워져 불리할 수 있고, **아직 확인하지 않았다.**
+> Switching `ondemand` → `performance` gives **+7%**, so it is fixed there.
+> **But that +7% is a 120-second measurement.** Under sustained load
+> `performance` heats up faster and may be worse, and **that has not been
+> checked yet.**
 
-## 배경
+## Context
 
-Linux 의 CPU governor 는 부하에 따라 클럭을 조절하는 정책이다.
+Linux's CPU governor is the policy that adjusts clock speed with load.
 
-| governor | 동작 |
+| governor | Behaviour |
 |---|---|
-| `ondemand` | 부하가 있을 때만 클럭을 올린다. 기본값 |
-| `performance` | 항상 최대 클럭을 유지한다 |
+| `ondemand` | raises the clock only under load. The default |
+| `performance` | always holds the maximum clock |
 
-추론 한 건은 `입력 설정(CPU) → NPU → 출력 취득(CPU)` 이라 CPU 클럭이
-처리량에 직접 반영된다. 그래서 governor 가 변수가 된다.
+One inference is `set input (CPU) → NPU → get output (CPU)`, so CPU clock feeds
+directly into throughput. That makes the governor a variable.
 
-## 결정
+## Decision
 
-**1. 세 노드의 governor 를 `performance` 로 고정한다.** systemd 유닛으로
-영구화해 재부팅해도 유지된다 (`scripts/set-cpu-governor.sh`).
+**1. Fix all three nodes' governor to `performance`.** Made permanent with a
+systemd unit so it survives reboots (`scripts/set-cpu-governor.sh`).
 
-**2. preflight 가 매 측정 전에 확인한다.**
+**2. Preflight verifies it before every measurement.**
 
-**3. 기존 수치의 기준을 명시한다.** 2026-08-11 이전 측정은 전부 `ondemand`
-기준이다.
+**3. State the basis of the existing figures.** Every measurement before
+2026-08-11 is on `ondemand`.
 
 ```text
 ondemand      FP16 79.0 / INT8 146.2 inf/s
 performance   FP16 84.3 / INT8 157.2 inf/s
 ```
 
-**4. +7% 라는 결론의 범위를 문서에 못 박는다.** "짧은 측정에서의 이득" 으로만
-읽는다.
+**4. Pin down the scope of the "+7%" conclusion in the documents.** Read only as
+"a gain in short measurements".
 
-## 근거
+## Rationale
 
-### 왜 고정하는가
+### Why fix it
 
-값 자체보다 **조건을 통일하는 것**이 중요하다. governor 가 노드마다 다르거나
-run 마다 다르면 3노드 비교가 무의미해진다.
+More than the value itself, **unifying the condition** is what matters. A
+governor that differs per node or per run makes three-node comparison
+meaningless.
 
-`performance` 를 고른 이유는 두 가지다.
+`performance` was chosen for two reasons.
 
-- 120초 측정에서 +7%
-- **동작이 단순하다.** `ondemand` 는 부하 패턴에 따라 클럭이 오르내려서,
-  측정값의 분산이 governor 의 판단에서 오는지 다른 데서 오는지 분리하기
-  어렵다
+- +7% in a 120-second measurement
+- **Its behaviour is simple.** With `ondemand` the clock rises and falls with
+  the load pattern, making it hard to separate whether variance in the
+  measurements comes from the governor's decisions or from somewhere else
 
-두 번째가 더 중요하다. 재현성 관점에서 예측 가능한 쪽이 낫다.
+The second matters more. For reproducibility, the predictable option is better.
 
-## ⚠️ 이 결정의 근거가 약한 부분
+## ⚠️ Where this decision's evidence is weak
 
-**+7% 는 120초 측정이다.** 그 구간은 CPU 가 아직 완전히 강등되기 전이다.
+**The +7% is a 120-second measurement.** That window is before the CPU has been
+fully downgraded.
 
-지속 부하에서 실제로 일어나는 일은 이렇다.
+What actually happens under sustained load:
 
 ```text
-        NPU온도   cpu4(A72)   cpu0(A53)
- +15s   86.8°C    2208 MHz    2016 MHz
- +30s   90.4°C    1416 MHz    1200 MHz
- +60s   87.8°C     816 MHz     600 MHz   ← 63~70% 강등
-+120s   87.8°C     816 MHz     600 MHz
+        NPU temp   cpu4(A72)   cpu0(A53)
+ +15s   86.8 C     2208 MHz    2016 MHz
+ +30s   90.4 C     1416 MHz    1200 MHz
+ +60s   87.8 C      816 MHz     600 MHz   <- 63-70% downgrade
++120s   87.8 C      816 MHz     600 MHz
 ```
 
-**`performance` 는 유휴 상태에서도 최대 클럭을 유지한다.** 그래서 부하
-시작 시점의 열 여유가 `ondemand` 보다 적다. 더 빨리 뜨거워지고 더 일찍
-강등될 수 있다.
+**`performance` holds the maximum clock even at idle.** So it has less thermal
+headroom at the moment load starts. It may heat up faster and be downgraded
+earlier.
 
-즉 **짧게 재면 `performance` 가 이기고, 길게 재면 질 수도 있다.**
-그리고 우리가 재려는 것은 **지속 처리량**이다.
+That is, **measure short and `performance` wins; measure long and it may lose.**
+And what we are trying to measure is **sustained throughput.**
 
-**측정하지 않았다.** `ondemand` 와 `performance` 를 동일한 300초 조건에서
-비교해야 한다. 그 전까지 이 ADR 의 상태는 **「잠정」**이다.
+**It has not been measured.** `ondemand` and `performance` have to be compared
+under identical 300-second conditions. Until then this ADR's status is
+**"provisional"**.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| `ondemand` 유지 | 클럭이 오르내려 측정 분산의 원인을 분리하기 어렵다 |
-| governor 를 실험 변수로 둔다 | **결국 그렇게 해야 한다.** 다만 지금은 다른 조건을 고정해야 해서 하나를 골랐다 |
-| `powersave` 나 고정 주파수 | 이 프로젝트가 재려는 것은 "가능한 최대" 에 가깝다 |
-| 온도에 따라 governor 를 바꾼다 | 측정 대상을 측정 중에 바꾸는 것. 해석 불가능해진다 |
+| Stay on `ondemand` | The clock rises and falls, making it hard to isolate the source of measurement variance |
+| Treat the governor as an experimental variable | **That is what has to happen eventually.** But for now other conditions had to be fixed, so one was chosen |
+| `powersave` or a fixed frequency | What this project measures is close to "the maximum achievable" |
+| Change governor according to temperature | Changing the subject of measurement mid-measurement. It becomes uninterpretable |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 세 노드의 조건이 통일됐다
-- 재부팅해도 유지된다
-- 기존 수치의 기준(`ondemand`)이 명시적으로 기록됐다
+- The three nodes' conditions are unified
+- It survives reboots
+- The basis of the existing figures (`ondemand`) is explicitly recorded
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **2026-08-11 이전 수치와 직접 비교할 수 없다.** 문서에 경고를 달아 두었다
-- 지속 부하에서 불리할 가능성을 안고 간다
+- **Figures from before 2026-08-11 cannot be compared directly.** A warning is
+  attached in the documents
+- The possibility of being worse under sustained load is carried along
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- 측정값을 인용할 때 **governor 를 반드시 함께 적는다**. "84.3 inf/s" 는
-  조건 없이는 무의미한 숫자다
-- preflight 가 governor 를 검사한다. 한 노드만 다르면 하드 실패
+- **Always write the governor alongside** when quoting a measurement. "84.3
+  inf/s" is a meaningless number without its conditions
+- Preflight checks the governor. One node differing is a hard failure
 
-## 뒤집힌다면
+## What would overturn this
 
-**재검증 계획이 이미 정해져 있다.**
+**The re-verification plan is already set.**
 
 ```text
-ondemand vs performance, 동일한 300초 조건, 3노드
-비교 항목: 정상 상태 처리량, CPU 강등 시점, 평균 온도
+ondemand vs performance, identical 300-second conditions, 3 nodes
+compared on: steady-state throughput, timing of CPU downgrade, mean temperature
 ```
 
-`performance` 의 300초 처리량이 `ondemand` 보다 낮으면 이 결정을 뒤집는다.
-그 결과 자체도 유효한 산출물이다 —
-**"엣지에서는 최대 클럭 고정이 오히려 손해"** 는 공개 가치가 있는 결론이다.
+If `performance`'s 300-second throughput is lower than `ondemand`'s, this
+decision is overturned. That result is itself a valid output —
+**"pinning the maximum clock is actually a loss at the edge"** is a conclusion
+worth publishing.
 
 ---
 
@@ -4697,57 +4760,61 @@ cannot be seen. If both are needed, that is added in M7.
 
 <a id="template"></a>
 
-# ADR-NNN. 결정을 한 문장으로 (동사로 끝낸다)
+# ADR-NNN. The decision in one sentence (end with a verb)
+
+*[한국어 원문](TEMPLATE.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 / 잠정 / 대체됨 |
-| **날짜** | YYYY-MM-DD |
-| **대체** | ADR-NNN 을 대체함 (없으면 지운다) |
-| **관련** | ADR-NNN, `docs/xxx.md` §N |
+| **Status** | accepted / provisional / superseded |
+| **Date** | YYYY-MM-DD |
+| **Supersedes** | ADR-NNN (delete this row if none) |
+| **Related** | ADR-NNN, `docs/xxx.md` §N |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 이 줄만 읽고 덮어도 결론이 남아야 한다.
+> The conclusion has to survive reading this line alone and closing the file.
 
-## 배경
+## Context
 
-무슨 상황이었나. **이 분야를 모르는 사람 기준**으로 쓴다. 용어가 나오면
-그 자리에서 한 문장으로 푼다.
+What the situation was. Write it **for someone who does not know this field**.
+When a term appears, explain it in one sentence on the spot.
 
-이전에 다른 결정이 있었고 그것을 뒤집는 거라면, 여기에 경위를 적는다.
-무엇을 믿었고, 왜 그렇게 믿었고, 무엇이 그 믿음을 깼는지.
+If there was an earlier decision and this overturns it, put the story here.
+What was believed, why it was believed, and what broke that belief.
 
-## 결정
+## Decision
 
-무엇을 하기로 했나. 여러 개면 번호를 붙인다.
+What was decided. Number them if there are several.
 
-## 근거
+## Rationale
 
-왜 그렇게 했나. **측정값이 있으면 조건과 함께** 적는다.
+Why it was done that way. **If there are measurements, give them with their
+conditions.**
 
 ```text
-측정 조건: 노드, 스레드 수, 지속 시간, governor, 모델
+conditions: nodes, thread count, duration, governor, model
 ```
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
 | | |
 
-## 결과
+## Consequences
 
-- **얻은 것**
-- **잃은 것 / 대가**
-- **새로 생긴 제약** — 이 결정 때문에 앞으로 조심해야 하는 것
+- **Gained**
+- **Lost / the cost**
+- **New constraints introduced** — what has to be watched from now on because of
+  this decision
 
-## 뒤집힌다면
+## What would overturn this
 
-어떤 관측이나 조건이 나오면 이 결정을 다시 봐야 하나.
+What observation or condition would require revisiting this decision.
 
-재검증 방법도 적는다. 특히 **무엇을 보면 안 되는지**가 중요하다 —
-이 프로젝트는 "API 오류 0건" 이나 "NPU 클럭 고정" 처럼 **틀린 지표로
-통과 판정**을 낸 적이 네 번 있다.
+Write the re-verification method too. **What must not be looked at** matters in
+particular — this project has reached a pass verdict **from the wrong metric**
+four times, on things like "0 API errors" and "the NPU clock is pinned".

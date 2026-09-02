@@ -1,54 +1,58 @@
-# ADR-NNN. 결정을 한 문장으로 (동사로 끝낸다)
+# ADR-NNN. The decision in one sentence (end with a verb)
+
+*[한국어 원문](TEMPLATE.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 / 잠정 / 대체됨 |
-| **날짜** | YYYY-MM-DD |
-| **대체** | ADR-NNN 을 대체함 (없으면 지운다) |
-| **관련** | ADR-NNN, `docs/xxx.md` §N |
+| **Status** | accepted / provisional / superseded |
+| **Date** | YYYY-MM-DD |
+| **Supersedes** | ADR-NNN (delete this row if none) |
+| **Related** | ADR-NNN, `docs/xxx.md` §N |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 이 줄만 읽고 덮어도 결론이 남아야 한다.
+> The conclusion has to survive reading this line alone and closing the file.
 
-## 배경
+## Context
 
-무슨 상황이었나. **이 분야를 모르는 사람 기준**으로 쓴다. 용어가 나오면
-그 자리에서 한 문장으로 푼다.
+What the situation was. Write it **for someone who does not know this field**.
+When a term appears, explain it in one sentence on the spot.
 
-이전에 다른 결정이 있었고 그것을 뒤집는 거라면, 여기에 경위를 적는다.
-무엇을 믿었고, 왜 그렇게 믿었고, 무엇이 그 믿음을 깼는지.
+If there was an earlier decision and this overturns it, put the story here.
+What was believed, why it was believed, and what broke that belief.
 
-## 결정
+## Decision
 
-무엇을 하기로 했나. 여러 개면 번호를 붙인다.
+What was decided. Number them if there are several.
 
-## 근거
+## Rationale
 
-왜 그렇게 했나. **측정값이 있으면 조건과 함께** 적는다.
+Why it was done that way. **If there are measurements, give them with their
+conditions.**
 
 ```text
-측정 조건: 노드, 스레드 수, 지속 시간, governor, 모델
+conditions: nodes, thread count, duration, governor, model
 ```
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
 | | |
 
-## 결과
+## Consequences
 
-- **얻은 것**
-- **잃은 것 / 대가**
-- **새로 생긴 제약** — 이 결정 때문에 앞으로 조심해야 하는 것
+- **Gained**
+- **Lost / the cost**
+- **New constraints introduced** — what has to be watched from now on because of
+  this decision
 
-## 뒤집힌다면
+## What would overturn this
 
-어떤 관측이나 조건이 나오면 이 결정을 다시 봐야 하나.
+What observation or condition would require revisiting this decision.
 
-재검증 방법도 적는다. 특히 **무엇을 보면 안 되는지**가 중요하다 —
-이 프로젝트는 "API 오류 0건" 이나 "NPU 클럭 고정" 처럼 **틀린 지표로
-통과 판정**을 낸 적이 네 번 있다.
+Write the re-verification method too. **What must not be looked at** matters in
+particular — this project has reached a pass verdict **from the wrong metric**
+four times, on things like "0 API errors" and "the NPU clock is pinned".

@@ -1,44 +1,47 @@
-# ADR-019. 보드는 IP 가 아니라 SSH 별칭으로 접근한다
+# ADR-019. Reach the boards by SSH alias, not by IP
+
+*[한국어 원문](019-ssh-alias-not-ip.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-015](015-preflight-hard-fail.md), [ADR-017](017-remote-exec-pitfalls-library.md) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-015](015-preflight-hard-fail.md), [ADR-017](017-remote-exec-pitfalls-library.md) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 문서에 박아 둔 IP 가 낡아서 **노드가 죽었다고 오판**하고 서브넷 전체를
-> 스캔했다. `~/.ssh/config` 에는 처음부터 올바른 값이 있었다.
-> 접근은 `npuforge-k` / `-q` / `-j` 별칭으로만 한다.
+> An IP pinned into a document went stale, so **a node was misdiagnosed as dead**
+> and the whole subnet got scanned. `~/.ssh/config` had the correct value all
+> along. Access goes only through the `npuforge-k` / `-q` / `-j` aliases.
 
-## 배경
+## Context
 
-2026-08-11 에 `king` 에 접속이 안 됐다.
-
-```text
-문서에 적힌 IP     10.20.0.22
-실제 IP            10.20.0.12
-```
-
-노드가 죽은 줄 알고 서브넷을 훑었다. 그런데 `~/.ssh/config` 에는 **처음부터
-올바른 IP 가 있었다.** 낡은 것은 문서뿐이었다.
-
-이게 왜 위험한가. 접속이 아예 안 되면 그나마 낫다 — 즉시 알 수 있으니까.
-**진짜 위험한 경우는 그 IP 에 다른 보드가 있을 때다.**
+On 2026-08-11 `king` could not be reached.
 
 ```text
-npuforge-k 로 측정 → 실제로는 queen 에 붙음 → 측정은 정상 종료
-                                            → 결과가 king 것으로 기록됨
+IP written in the document   10.20.0.22
+actual IP                    10.20.0.12
 ```
 
-조용히 틀린다. 이 프로젝트에서 가장 경계하는 실패 형태다.
+Believing the node was dead, the subnet was swept. But `~/.ssh/config` had had
+**the correct IP from the beginning.** Only the document was stale.
 
-## 결정
+Why this is dangerous. Being unable to connect at all is the better case — you
+find out immediately. **The genuinely dangerous case is when another board is at
+that IP.**
 
-**1. 보드 접근은 SSH 별칭으로만 한다.**
+```text
+measure via npuforge-k -> actually attaches to queen -> the measurement finishes normally
+                                                     -> the result is recorded as king's
+```
+
+It fails quietly. The failure mode this project guards against most.
+
+## Decision
+
+**1. Boards are reached only by SSH alias.**
 
 ```text
 npuforge-k   king
@@ -46,80 +49,84 @@ npuforge-q   queen
 npuforge-j   jack
 ```
 
-**2. 문서와 스크립트에 IP 를 직접 쓰지 않는다.** IP 는 `~/.ssh/config`
-한 곳에만 있다.
+**2. Do not write IPs directly in documents or scripts.** The IP lives in one
+place, `~/.ssh/config`.
 
-**3. preflight 의 **첫 번째** 검사가 별칭 ↔ hostname 일치다.** 붙은 곳이
-정말 그 보드인지 확인한다.
+**3. Preflight's **first** check is alias ↔ hostname agreement.** It confirms
+that what you attached to really is that board.
 
-**4. SSH host key 를 노드마다 다르게 유지한다.**
+**4. Keep the SSH host keys distinct per node.**
 
-## 근거
+## Rationale
 
-### 단일 출처
+### A single source
 
-IP 는 바뀐다. DHCP 임대가 갱신되거나, 네트워크를 재구성하거나, 스위치를
-바꾸면 달라진다. 그때마다 문서 여러 곳을 고쳐야 한다면 반드시 하나가 남는다.
+IPs change. A DHCP lease renews, the network gets reconfigured, a switch gets
+replaced. If several documents have to be fixed each time, one will inevitably
+be left behind.
 
-`~/.ssh/config` 는 **접속에 실제로 쓰이는 값**이라 틀리면 바로 드러난다.
-문서의 IP 는 아무도 안 쓰기 때문에 틀린 채로 오래 남는다.
+`~/.ssh/config` is **the value actually used to connect**, so being wrong shows
+up immediately. An IP in a document is used by nobody and stays wrong for a long
+time.
 
-### 별칭도 틀릴 수 있다 — 그래서 검사한다
+### An alias can be wrong too — hence the check
 
-별칭 자체는 IP 를 가리키므로, IP 가 재배치되면 별칭이 엉뚱한 보드를 가리킬
-수 있다. 그래서 preflight 1번 검사가 필요하다.
+The alias points at an IP, so a reassigned IP can leave the alias pointing at
+the wrong board. That is why preflight's check 1 is needed.
 
 ```text
-ssh npuforge-k hostname   →  "king" 이어야 한다
+ssh npuforge-k hostname   ->  must be "king"
 ```
 
-이 검사가 **연결 실패 검사보다 우선**이다. 연결 실패는 시끄럽게 실패하지만,
-잘못된 매핑은 조용히 성공하기 때문이다.
+That check comes **before the connection-failure check**, because a connection
+failure fails loudly while a wrong mapping succeeds quietly.
 
-### host key 가 같으면 구분이 안 된다
+### Identical host keys make them indistinguishable
 
-현재 `queen` 과 `jack` 의 SSH host key 가 동일하다. 클론하거나 이미지를
-복사해서 생긴 문제로 보인다.
+`queen` and `jack` currently have identical SSH host keys — apparently from
+cloning or copying an image.
 
-이 상태에서는 **IP 가 바뀌어 다른 보드에 붙어도 SSH 가 경고하지 않는다.**
-host key 는 "이 서버가 아까 그 서버가 맞는가" 를 확인하는 장치인데, 둘이
-같으면 그 기능이 죽는다.
+In that state, **SSH raises no warning even if a changed IP attaches you to a
+different board.** A host key is the device for confirming "is this server the
+same server as before", and when two are identical that function is dead.
 
-이미 노드 오판을 한 번 겪었으므로 방치하면 안 된다. **미해결 과제로
-`docs/TODO.md` 에 남아 있다.**
+Having already misdiagnosed a node once, this must not be left alone. **It
+remains as an open item in `docs/TODO.md`.**
 
 ```bash
 ssh npuforge-j 'sudo rm -f /etc/ssh/ssh_host_* && sudo ssh-keygen -A && sudo systemctl restart ssh'
-ssh-keygen -R npuforge-j   # PC 의 known_hosts 정리
+ssh-keygen -R npuforge-j   # clean up known_hosts on the PC
 ```
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 문서의 IP 를 잘 관리한다 | 이미 실패했다. 쓰이지 않는 값은 낡는다 |
-| 고정 IP 를 부여한다 | 그래도 문서에 복제되면 같은 문제. 별칭은 그 위에서도 유효하다 |
-| mDNS / hostname 으로 접근 | 환경에 따라 안 되는 경우가 있고, 별칭이 그 위 계층이라 함께 쓸 수 있다 |
-| 별칭만 쓰고 검사는 생략 | 별칭이 엉뚱한 보드를 가리키는 경우를 못 잡는다 |
+| Just manage the IPs in the documents well | Already failed. A value nobody uses goes stale |
+| Assign static IPs | Copied into documents it is the same problem again. The alias remains valid on top of static IPs anyway |
+| Reach by mDNS / hostname | Does not work in some environments, and the alias is a layer above it so they can coexist |
+| Use aliases but skip the check | Does not catch an alias pointing at the wrong board |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- IP 의 단일 출처가 생겼다
-- 잘못된 노드에 측정이 귀속되는 사고를 preflight 가 잡는다
+- A single source for the IPs
+- Preflight catches the accident of a measurement being attributed to the wrong
+  node
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 새 사람이 저장소를 받으면 `~/.ssh/config` 를 직접 만들어야 한다.
-  재현 절차에 전제로 명시했다
+- Someone new taking the repository has to create `~/.ssh/config` themselves.
+  Stated as a prerequisite in the reproduction procedure
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **문서에서 IP 를 보면 의심한다.** 남아 있다면 그건 낡았을 가능성이 높다
-- `queen`·`jack` host key 재생성 전까지는 IP 재배치 시 경고 없이 엉뚱한
-  보드에 붙을 수 있다. **알려진 위험**이다
+- **Treat any IP seen in a document with suspicion.** If one is still there, it
+  is likely stale
+- Until `queen` and `jack`'s host keys are regenerated, an IP reassignment can
+  attach you to the wrong board without a warning. **A known risk**
 
-## 뒤집힌다면
+## What would overturn this
 
-없다. IP 를 문서에 다시 박을 이유가 생기지 않는다.
+Nothing. No reason will arise to pin IPs back into documents.

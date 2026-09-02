@@ -1,126 +1,134 @@
-# ADR-023. CPU governor 를 `performance` 로 고정한다 — 단, 근거의 범위를 명시한다
+# ADR-023. Fix the CPU governor to `performance` — but state the scope of the evidence
+
+*[한국어 원문](023-cpu-governor-performance-scoped.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 잠정 |
-| **날짜** | 2026-08-12 |
-| **관련** | [ADR-013](013-fanless-thermal-as-measurement.md), [ADR-002](002-success-criteria-measurability.md), `docs/discuss.md` §11·§12 |
+| **Status** | provisional |
+| **Date** | 2026-08-12 |
+| **Related** | [ADR-013](013-fanless-thermal-as-measurement.md), [ADR-002](002-success-criteria-measurability.md), `docs/discuss.md` §11, §12 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> `ondemand` → `performance` 로 바꾸니 **+7%** 다. 그래서 고정했다.
-> **그런데 그 +7% 는 120초 측정이다.** 지속 부하에서는 `performance` 가 더
-> 빨리 뜨거워져 불리할 수 있고, **아직 확인하지 않았다.**
+> Switching `ondemand` → `performance` gives **+7%**, so it is fixed there.
+> **But that +7% is a 120-second measurement.** Under sustained load
+> `performance` heats up faster and may be worse, and **that has not been
+> checked yet.**
 
-## 배경
+## Context
 
-Linux 의 CPU governor 는 부하에 따라 클럭을 조절하는 정책이다.
+Linux's CPU governor is the policy that adjusts clock speed with load.
 
-| governor | 동작 |
+| governor | Behaviour |
 |---|---|
-| `ondemand` | 부하가 있을 때만 클럭을 올린다. 기본값 |
-| `performance` | 항상 최대 클럭을 유지한다 |
+| `ondemand` | raises the clock only under load. The default |
+| `performance` | always holds the maximum clock |
 
-추론 한 건은 `입력 설정(CPU) → NPU → 출력 취득(CPU)` 이라 CPU 클럭이
-처리량에 직접 반영된다. 그래서 governor 가 변수가 된다.
+One inference is `set input (CPU) → NPU → get output (CPU)`, so CPU clock feeds
+directly into throughput. That makes the governor a variable.
 
-## 결정
+## Decision
 
-**1. 세 노드의 governor 를 `performance` 로 고정한다.** systemd 유닛으로
-영구화해 재부팅해도 유지된다 (`scripts/set-cpu-governor.sh`).
+**1. Fix all three nodes' governor to `performance`.** Made permanent with a
+systemd unit so it survives reboots (`scripts/set-cpu-governor.sh`).
 
-**2. preflight 가 매 측정 전에 확인한다.**
+**2. Preflight verifies it before every measurement.**
 
-**3. 기존 수치의 기준을 명시한다.** 2026-08-11 이전 측정은 전부 `ondemand`
-기준이다.
+**3. State the basis of the existing figures.** Every measurement before
+2026-08-11 is on `ondemand`.
 
 ```text
 ondemand      FP16 79.0 / INT8 146.2 inf/s
 performance   FP16 84.3 / INT8 157.2 inf/s
 ```
 
-**4. +7% 라는 결론의 범위를 문서에 못 박는다.** "짧은 측정에서의 이득" 으로만
-읽는다.
+**4. Pin down the scope of the "+7%" conclusion in the documents.** Read only as
+"a gain in short measurements".
 
-## 근거
+## Rationale
 
-### 왜 고정하는가
+### Why fix it
 
-값 자체보다 **조건을 통일하는 것**이 중요하다. governor 가 노드마다 다르거나
-run 마다 다르면 3노드 비교가 무의미해진다.
+More than the value itself, **unifying the condition** is what matters. A
+governor that differs per node or per run makes three-node comparison
+meaningless.
 
-`performance` 를 고른 이유는 두 가지다.
+`performance` was chosen for two reasons.
 
-- 120초 측정에서 +7%
-- **동작이 단순하다.** `ondemand` 는 부하 패턴에 따라 클럭이 오르내려서,
-  측정값의 분산이 governor 의 판단에서 오는지 다른 데서 오는지 분리하기
-  어렵다
+- +7% in a 120-second measurement
+- **Its behaviour is simple.** With `ondemand` the clock rises and falls with
+  the load pattern, making it hard to separate whether variance in the
+  measurements comes from the governor's decisions or from somewhere else
 
-두 번째가 더 중요하다. 재현성 관점에서 예측 가능한 쪽이 낫다.
+The second matters more. For reproducibility, the predictable option is better.
 
-## ⚠️ 이 결정의 근거가 약한 부분
+## ⚠️ Where this decision's evidence is weak
 
-**+7% 는 120초 측정이다.** 그 구간은 CPU 가 아직 완전히 강등되기 전이다.
+**The +7% is a 120-second measurement.** That window is before the CPU has been
+fully downgraded.
 
-지속 부하에서 실제로 일어나는 일은 이렇다.
+What actually happens under sustained load:
 
 ```text
-        NPU온도   cpu4(A72)   cpu0(A53)
- +15s   86.8°C    2208 MHz    2016 MHz
- +30s   90.4°C    1416 MHz    1200 MHz
- +60s   87.8°C     816 MHz     600 MHz   ← 63~70% 강등
-+120s   87.8°C     816 MHz     600 MHz
+        NPU temp   cpu4(A72)   cpu0(A53)
+ +15s   86.8 C     2208 MHz    2016 MHz
+ +30s   90.4 C     1416 MHz    1200 MHz
+ +60s   87.8 C      816 MHz     600 MHz   <- 63-70% downgrade
++120s   87.8 C      816 MHz     600 MHz
 ```
 
-**`performance` 는 유휴 상태에서도 최대 클럭을 유지한다.** 그래서 부하
-시작 시점의 열 여유가 `ondemand` 보다 적다. 더 빨리 뜨거워지고 더 일찍
-강등될 수 있다.
+**`performance` holds the maximum clock even at idle.** So it has less thermal
+headroom at the moment load starts. It may heat up faster and be downgraded
+earlier.
 
-즉 **짧게 재면 `performance` 가 이기고, 길게 재면 질 수도 있다.**
-그리고 우리가 재려는 것은 **지속 처리량**이다.
+That is, **measure short and `performance` wins; measure long and it may lose.**
+And what we are trying to measure is **sustained throughput.**
 
-**측정하지 않았다.** `ondemand` 와 `performance` 를 동일한 300초 조건에서
-비교해야 한다. 그 전까지 이 ADR 의 상태는 **「잠정」**이다.
+**It has not been measured.** `ondemand` and `performance` have to be compared
+under identical 300-second conditions. Until then this ADR's status is
+**"provisional"**.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| `ondemand` 유지 | 클럭이 오르내려 측정 분산의 원인을 분리하기 어렵다 |
-| governor 를 실험 변수로 둔다 | **결국 그렇게 해야 한다.** 다만 지금은 다른 조건을 고정해야 해서 하나를 골랐다 |
-| `powersave` 나 고정 주파수 | 이 프로젝트가 재려는 것은 "가능한 최대" 에 가깝다 |
-| 온도에 따라 governor 를 바꾼다 | 측정 대상을 측정 중에 바꾸는 것. 해석 불가능해진다 |
+| Stay on `ondemand` | The clock rises and falls, making it hard to isolate the source of measurement variance |
+| Treat the governor as an experimental variable | **That is what has to happen eventually.** But for now other conditions had to be fixed, so one was chosen |
+| `powersave` or a fixed frequency | What this project measures is close to "the maximum achievable" |
+| Change governor according to temperature | Changing the subject of measurement mid-measurement. It becomes uninterpretable |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 세 노드의 조건이 통일됐다
-- 재부팅해도 유지된다
-- 기존 수치의 기준(`ondemand`)이 명시적으로 기록됐다
+- The three nodes' conditions are unified
+- It survives reboots
+- The basis of the existing figures (`ondemand`) is explicitly recorded
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **2026-08-11 이전 수치와 직접 비교할 수 없다.** 문서에 경고를 달아 두었다
-- 지속 부하에서 불리할 가능성을 안고 간다
+- **Figures from before 2026-08-11 cannot be compared directly.** A warning is
+  attached in the documents
+- The possibility of being worse under sustained load is carried along
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- 측정값을 인용할 때 **governor 를 반드시 함께 적는다**. "84.3 inf/s" 는
-  조건 없이는 무의미한 숫자다
-- preflight 가 governor 를 검사한다. 한 노드만 다르면 하드 실패
+- **Always write the governor alongside** when quoting a measurement. "84.3
+  inf/s" is a meaningless number without its conditions
+- Preflight checks the governor. One node differing is a hard failure
 
-## 뒤집힌다면
+## What would overturn this
 
-**재검증 계획이 이미 정해져 있다.**
+**The re-verification plan is already set.**
 
 ```text
-ondemand vs performance, 동일한 300초 조건, 3노드
-비교 항목: 정상 상태 처리량, CPU 강등 시점, 평균 온도
+ondemand vs performance, identical 300-second conditions, 3 nodes
+compared on: steady-state throughput, timing of CPU downgrade, mean temperature
 ```
 
-`performance` 의 300초 처리량이 `ondemand` 보다 낮으면 이 결정을 뒤집는다.
-그 결과 자체도 유효한 산출물이다 —
-**"엣지에서는 최대 클럭 고정이 오히려 손해"** 는 공개 가치가 있는 결론이다.
+If `performance`'s 300-second throughput is lower than `ondemand`'s, this
+decision is overturned. That result is itself a valid output —
+**"pinning the maximum clock is actually a loss at the edge"** is a conclusion
+worth publishing.

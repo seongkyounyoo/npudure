@@ -1,125 +1,130 @@
-# ADR-022. 문서마다 규범 영역을 정하고, 값이 다르면 규범 문서를 따른다
+# ADR-022. Assign each document a normative domain, and follow the normative one when values disagree
+
+*[한국어 원문](022-document-authority-order.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-05 |
-| **관련** | [ADR-002](002-success-criteria-measurability.md), `docs/00-PRD.md` §0 |
+| **Status** | accepted |
+| **Date** | 2026-08-05 |
+| **Related** | [ADR-002](002-success-criteria-measurability.md), `docs/00-PRD.md` §0 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 같은 값이 여러 문서에 적히면 반드시 하나가 낡는다. 그래서 **영역마다
-> 규범 문서를 하나씩** 정하고, 값이 다르면 그 문서를 따른다. 나머지 문서는
-> 복제하지 말고 참조한다.
+> When the same value is written in several documents, one of them inevitably
+> goes stale. So **each domain gets one normative document**, and when values
+> disagree, that document wins. Other documents reference rather than duplicate.
 
-## 배경
+## Context
 
-이 저장소는 문서가 많다. PRD, TECHSPEC, 하드웨어, 개발요구사항,
-environment-matrix, RESULTS, TODO, discuss, board-worklog.
+This repository has many documents: PRD, TECHSPEC, hardware, development
+requirements, environment-matrix, RESULTS, TODO, discuss, board-worklog.
 
-같은 숫자가 여러 곳에 나온다. 예를 들어 "노드당 처리량 157.2 inf/s" 는
-RESULTS 에도, TODO 에도, board-worklog 에도, environment-matrix 에도 나온다.
+The same number appears in several places. "157.2 inf/s per node", for example,
+appears in RESULTS, in TODO, in board-worklog and in environment-matrix.
 
-**하나를 고치면 나머지가 낡는다.** 실제로 겪었다.
-
-```text
-want_float=0 전환 후
-  RESULTS §2.2  갱신됨       "INT8 +17.3%"
-  RESULTS §5    안 갱신됨    "INT8 처리량 영향은 미측정"   ← 같은 문서 안에서 모순
-  TECHSPEC §3.2 안 갱신됨    폐기된 네트워크 계산이 그대로
-```
-
-## 결정
-
-**1. 영역마다 규범 문서를 하나씩 정한다.**
-
-| 영역 | 규범 문서 |
-|---|---|
-| 목표, 비목표, 기능 요구사항, 성공 기준 | `00-PRD.md` |
-| 저장소 구조, 프로토콜, 설정 스키마, 스케줄링 알고리즘, 오류 코드 | `01-TECHSPEC.md` |
-| 물리 구성, 네트워크, 전원, 냉각, 실험 조건 | `02-HARDWARE-SETUP.md` |
-| 개발환경, 도구, 배포 자동화, 라이선스 | `03-DEVELOPMENT-REQUIREMENTS.md` |
-| 버전 조합 및 해시 고정 | `environment-matrix.md` |
-
-**2. 값이 서로 다르면 규범 문서를 따른다.**
-
-**3. 복제하지 말고 참조한다.** PRD 는 "왜" 와 "무엇을" 만 다룬다. 계산식,
-크레이트 이름, 설정 키, 식별자 문자열은 PRD 에 쓰지 않고 TECHSPEC 을
-가리킨다.
-
-**4. 성격이 다른 문서는 규범 대상이 아니다.**
-
-| 문서 | 성격 |
-|---|---|
-| `discuss.md` | 시간순 논의. 뒤 절이 앞 절을 정정한다 |
-| `board-worklog.md` | 작업 이력. 틀린 가설도 보존한다 |
-| `RESULTS.md` | 결과 모음. 값의 최종 기준은 environment-matrix |
-| `TODO.md` | 현재 할 일 |
-| `adrs/` | 결정과 근거 |
-
-## 근거
-
-### 복제하지 않는 것이 유일한 방법이다
-
-정합성을 유지하는 방법은 둘뿐이다.
+**Fix one and the rest go stale.** This actually happened.
 
 ```text
-1. 복제해 놓고 고칠 때마다 전부 찾아 고친다   → 반드시 하나를 빠뜨린다
-2. 애초에 한 곳에만 둔다                      → 낡을 곳이 없다
+after the switch to want_float=0
+  RESULTS §2.2  updated       "INT8 +17.3%"
+  RESULTS §5    not updated   "INT8 throughput impact unmeasured"   <- contradictory within one document
+  TECHSPEC §3.2 not updated   the discarded network calculation left as-is
 ```
 
-이 프로젝트는 1번으로 이미 실패했다. `want_float=0` 전환 하나에
-`RESULTS.md`·`TECHSPEC`·`environment-matrix`·`TODO`·`board-worklog` 다섯
-문서가 관련됐고, 한 번의 sync 로 다 잡히지 않았다.
+## Decision
 
-### 시간순 문서를 규범에서 뺀 이유
+**1. Each domain gets one normative document.**
 
-`discuss.md` 는 **틀린 결론을 일부러 남긴다.** 5절의 "+5.4%" 는 지금 기준으로
-낡았지만, 12절이 왜 그것을 정정했는지 이해하려면 5절이 그대로 있어야 한다.
-
-이런 문서를 규범으로 삼으면 앞 절을 읽은 사람이 폐기된 값을 인용하게 된다.
-그래서 **시간순 문서는 근거 자료지 기준이 아니다.**
-
-### ADR 이 이 구조를 보완한다
-
-규범 문서는 "지금 값이 무엇인가" 에 답한다. 시간순 문서는 "무슨 일이
-있었나" 에 답한다. **"왜 그렇게 정했나" 에 답하는 자리가 비어 있었다.**
-
-`adrs/` 가 그 자리다. 규범 문서에서 값을 가져오고, 시간순 문서에서 경위를
-가져와 결정 단위로 다시 묶는다.
-
-## 대안과 버린 이유
-
-| 대안 | 버린 이유 |
+| Domain | Normative document |
 |---|---|
-| 문서를 하나로 합친다 | 만 줄이 넘는다. 용도가 다른 독자를 한 문서로 감당할 수 없다 |
-| 우선순위 없이 관리 | 값이 충돌했을 때 무엇이 맞는지 판정할 방법이 없다 |
-| 값을 자동 생성 | 일부는 가능하지만(테스트 수 등) 측정값은 사람이 조건과 함께 판단해 적어야 한다 |
+| Goals, non-goals, functional requirements, success criteria | `00-PRD.md` |
+| Repository structure, protocol, config schema, scheduling algorithm, error codes | `01-TECHSPEC.md` |
+| Physical setup, network, power, cooling, experimental conditions | `02-HARDWARE-SETUP.md` |
+| Development environment, tooling, deployment automation, licensing | `03-DEVELOPMENT-REQUIREMENTS.md` |
+| Version combinations and hash pinning | `environment-matrix.md` |
 
-## 결과
+**2. When values disagree, the normative document wins.**
 
-**얻은 것**
+**3. Reference rather than duplicate.** The PRD covers only "why" and "what".
+Formulas, crate names, configuration keys and identifier strings are not written
+in the PRD; it points at TECHSPEC.
 
-- 값이 충돌했을 때 판정 기준이 있다
-- 각 문서의 역할이 명확하다
-- 고칠 곳을 특정할 수 있다
+**4. Documents of a different nature are not normative.**
 
-**잃은 것 / 대가**
+| Document | Nature |
+|---|---|
+| `discuss.md` | Chronological discussion. Later sections correct earlier ones |
+| `board-worklog.md` | Work history. Wrong hypotheses are preserved |
+| `RESULTS.md` | A collection of results. The final authority for values is environment-matrix |
+| `TODO.md` | What is to be done now |
+| `adrs/` | Decisions and their rationale |
 
-- 한 주제를 알려면 문서를 오가야 한다. **이 불편함이 `adrs/` 를 만든 직접적
-  이유다**
-- 규범 문서가 어디인지 기억해야 한다
+## Rationale
 
-**새로 생긴 제약**
+### Not duplicating is the only method
 
-- **복제를 발견하면 지우고 참조로 바꾼다.** 편의상 값을 옮겨 적고 싶은
-  순간이 계속 온다
-- ADR 도 값을 인용한다. 인용한 값이 낡을 수 있으므로 **측정 조건과 출처를
-  함께** 적는다
+There are only two ways to maintain consistency.
 
-## 뒤집힌다면
+```text
+1. duplicate, and find and fix every copy on each change   -> one will always be missed
+2. keep it in one place from the start                     -> there is nowhere to go stale
+```
 
-문서가 더 늘어나면 규범 영역을 추가한다. 줄어들면 통합한다. 원칙 자체는
-바뀌지 않는다.
+This project already failed with option 1. The single switch to `want_float=0`
+involved five documents — `RESULTS.md`, `TECHSPEC`, `environment-matrix`, `TODO`
+and `board-worklog` — and one sync pass did not catch them all.
+
+### Why chronological documents are excluded from normativity
+
+`discuss.md` **deliberately keeps wrong conclusions.** Section 5's "+5.4%" is
+stale by current standards, but section 5 has to stay as-is for anyone to
+understand why section 12 corrected it.
+
+Making such a document normative means a reader who got as far as the earlier
+section quotes a discarded value. So **chronological documents are supporting
+material, not authority.**
+
+## ADRs complement this structure
+
+Normative documents answer "what is the value now". Chronological documents
+answer "what happened". **The place answering "why was it decided that way" was
+empty.**
+
+`adrs/` is that place. It takes values from the normative documents and the
+story from the chronological ones, and re-bundles them by decision.
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
+|---|---|
+| Merge into a single document | It runs past ten thousand lines. Readers with different purposes cannot be served by one document |
+| Manage without priority | No way to decide which is right when values conflict |
+| Generate values automatically | Possible for some (test counts and the like), but measured values have to be written by a person along with their conditions |
+
+## Consequences
+
+**Gained**
+
+- There is a rule for deciding when values conflict
+- Each document's role is clear
+- Where to make a change can be pinpointed
+
+**Lost / the cost**
+
+- Learning about one topic means moving between documents. **That inconvenience
+  is the direct reason `adrs/` exists**
+- You have to remember which document is normative
+
+**New constraints introduced**
+
+- **When duplication is found, delete it and replace with a reference.** The
+  urge to copy a value over for convenience keeps arriving
+- ADRs quote values too. A quoted value can go stale, so **the measurement
+  conditions and the source are written alongside**
+
+## What would overturn this
+
+As documents grow, normative domains get added. As they shrink, they get merged.
+The principle itself does not change.

@@ -1,48 +1,52 @@
-# ADR-017. 원격 실행 함정을 라이브러리 함수로 굳힌다
+# ADR-017. Harden the remote-execution pitfalls into library functions
+
+*[한국어 원문](017-remote-exec-pitfalls-library.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-015](015-preflight-hard-fail.md), [ADR-019](019-ssh-alias-not-ip.md) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-015](015-preflight-hard-fail.md), [ADR-019](019-ssh-alias-not-ip.md) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> `ssh` 로 원격 명령을 돌릴 때 **실패가 성공처럼 보이는** 함정이 셋 있다.
-> 셋 다 종료 코드 0 에 stderr 가 비어 있다. 매번 조심하는 대신
-> `scripts/lib/remote.sh` 의 함수로 굳혔다.
+> There are three pitfalls in running remote commands over `ssh` where
+> **failure looks like success**. All three give exit code 0 with empty stderr.
+> Rather than being careful every time, they are hardened into functions in
+> `scripts/lib/remote.sh`.
 
-## 배경
+## Context
 
-`preflight-check.sh` 를 만들다가 발견했다. **검사가 조용히 작동하지 않았다.**
-부하가 도는데 "남은 부하 없음" 으로 통과시켰다.
+Found while building `preflight-check.sh`. **A check was silently not working.**
+It passed with "no residual load" while load was running.
 
-파고들었더니 함정이 셋이었고, 전부 같은 성질을 갖는다 — **틀렸다는 신호가
-전혀 없다.**
+Digging in, there were three pitfalls, and all of them share one property —
+**there is no signal at all that something is wrong.**
 
-## 함정 1. `pgrep -f` 는 자기 자신을 센다
+## Pitfall 1. `pgrep -f` counts itself
 
-`pgrep -f` 는 명령줄 전체를 매칭한다. 그런데 ssh 가 보내는 래퍼의 명령줄에
-**패턴 문자열 자체가 들어 있다.**
+`pgrep -f` matches the whole command line. And the command line of the wrapper
+ssh sends **contains the pattern string itself.**
 
 ```text
 bash -c "... pgrep -f \"[s]ustained_load_test|...\" | wc -l"
-                       ^^^^^^^^^^^^^^^^^^^^^^^^ 이게 매칭된다
+                       ^^^^^^^^^^^^^^^^^^^^^^^^ this matches
 ```
 
-대괄호 트릭(`[s]ustained`)도 같은 명령줄에 괄호 없는 형태가 섞이면 무력하다.
+The bracket trick (`[s]ustained`) is also neutralised once a form without the
+brackets appears on the same command line.
 
-**양방향으로 틀렸다.**
+**It is wrong in both directions.**
 
-| 상황 | 실제 | pgrep 보고 |
+| Situation | Actual | pgrep reports |
 |---|---|---|
-| 부하 실행 중 | 1개 | **0 (놓침)** |
-| 부하 없음 | 0개 | **2 (자기 셸을 셈)** |
+| Load running | 1 | **0 (missed)** |
+| No load | 0 | **2 (counting its own shell)** |
 
-**해결**: `/proc/PID/exe` 심볼릭 링크를 읽는다. 실제 실행 파일을 가리키므로
-셸이 끼어들 여지가 없다.
+**The fix**: read the `/proc/PID/exe` symlink. It points at the actual
+executable, leaving no room for a shell to get involved.
 
 ```bash
 n=0
@@ -53,85 +57,92 @@ for p in /proc/[0-9]*; do
 done
 ```
 
-## 함정 2. `cd DIR && setsid nohup ... &` 는 뜨지 않는다
+## Pitfall 2. `cd DIR && setsid nohup ... &` does not come up
 
-| 형태 | 결과 |
+| Form | Result |
 |---|---|
-| `ssh -n H "cd $DIR && setsid nohup ./prog ... &"` | **실행 안 됨** |
-| `ssh -n H "setsid nohup $DIR/prog ... &"` | 실행됨 |
+| `ssh -n H "cd $DIR && setsid nohup ./prog ... &"` | **does not run** |
+| `ssh -n H "setsid nohup $DIR/prog ... &"` | runs |
 
-`&` 는 `cd && prog` **리스트 전체**에 걸린다. ssh 가 명령을 보내고 즉시
-끊는데, 백그라운드 서브셸이 `cd` 를 거쳐 `setsid` 에 닿기 전에 세션이
-사라지면 그대로 죽는다.
+The `&` applies to the **whole `cd && prog` list**. ssh sends the command and
+disconnects immediately, and if the session disappears before the background
+subshell gets through `cd` and reaches `setsid`, it dies right there.
 
-절대경로를 쓰면 중간 단계가 없어 경합이 생기지 않는다.
+Using an absolute path removes the intermediate step, so no race arises.
 
-**대가가 크다.** 실패해도 종료 코드는 0 이고 stderr 도 비어 있다. 확인하지
-않으면 **"부하 없는 상태의 온도" 를 15분 동안 측정**하게 된다.
+**The cost is large.** Even on failure the exit code is 0 and stderr is empty.
+Without checking, you end up **measuring "the temperature with no load" for
+fifteen minutes.**
 
-## 함정 3. ssh 안 heredoc + sudo 중첩은 파일을 만들지 않는다
+## Pitfall 3. A heredoc inside ssh nested with sudo does not create the file
 
-systemd 유닛을 배포하다 겪었다. 이것도 **종료 코드 0** 이었다.
+Encountered while deploying a systemd unit. This too gave **exit code 0.**
 
-## 결정
+## Decision
 
-**1. 세 함정의 회피 형태를 `scripts/lib/remote.sh` 의 함수로 만든다.**
-스크립트가 ssh 를 직접 부르지 않고 이 함수를 쓴다.
+**1. Make the avoidance form of all three pitfalls into functions in
+`scripts/lib/remote.sh`.** Scripts use those functions rather than calling ssh
+directly.
 
-**2. 원격 프로세스를 셀 때는 `/proc/PID/exe` 를 읽는다.** `pgrep -f` 를
-쓰지 않는다.
+**2. Read `/proc/PID/exe` when counting remote processes.** Do not use
+`pgrep -f`.
 
-**3. 백그라운드 기동은 절대경로 + `setsid nohup` 형태로만 한다.**
+**3. Background startup uses only the absolute path + `setsid nohup` form.**
 
-**4. 띄운 뒤 실제로 도는지 확인하는 단계를 넣는다.** 기동 명령의 종료
-코드를 신뢰하지 않는다.
+**4. Add a step that confirms it is actually running after starting it.** Do not
+trust the startup command's exit code.
 
-**5. 새 검사를 만들면 일부러 깨뜨려 보고 실제로 잡히는지 확인한다.**
+**5. When adding a new check, break it deliberately and confirm it actually
+catches.**
 
-## 근거
+## Rationale
 
-### 5번이 이 ADR 의 핵심이다
+### Point 5 is the heart of this ADR
 
-함정 1 을 발견한 것이 정확히 그 절차 덕분이다. **통과만 보고 믿었다면
-preflight 는 아무것도 걸러내지 못하는 채로 남았을 것이다.**
+Pitfall 1 was found precisely because of that procedure. **Had a pass been
+trusted at face value, preflight would have remained in place filtering
+nothing.**
 
-검사 코드는 특히 위험하다. 평소에는 "통과" 만 출력하므로, 고장 나도 아무도
-모른다. 오히려 **더 조용해질 뿐**이다.
+Check code is especially dangerous. It normally prints only "pass", so nobody
+notices when it breaks. It just **gets quieter.**
 
-### 왜 문서가 아니라 코드인가
+### Why code rather than documentation
 
-이 세 함정은 전부 "알고 있으면 피할 수 있는" 것들이다. 그런데 이 프로젝트는
-알면서 당한 사례가 이미 여러 건이다. 원격 명령을 새로 짤 때마다 세 가지를
-기억해 내야 한다면 언젠가 빠뜨린다.
+All three pitfalls are the kind you can avoid if you know about them. And yet
+this project already has several cases of being caught while knowing better. If
+three things have to be recalled every time a remote command is written, one
+will eventually be missed.
 
-함수로 만들면 **기본 경로가 안전한 형태**가 된다.
+Making them functions makes **the default path the safe form.**
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 주석과 문서로 남긴다 | 통하지 않는다는 것이 이미 확인됨 |
-| Ansible 같은 도구 도입 | 의존이 늘고, 세 대짜리 실험 환경에 과하다. 함정 2 같은 문제는 여전히 남는다 |
-| ssh 대신 에이전트를 상주 | 그게 `npuforge-node` 다. 다만 측정 스크립트는 노드 프로세스와 무관하게 돌아야 한다 |
-| 종료 코드만 확인 | **세 함정 모두 종료 코드가 0 이다.** 근본적으로 안 통한다 |
+| Leave it in comments and documentation | Already confirmed not to work |
+| Introduce a tool like Ansible | Adds a dependency, and is excessive for a three-machine experimental setup. Problems like pitfall 2 remain regardless |
+| Keep a resident agent instead of ssh | That is what `npuforge-node` is. But the measurement scripts have to run independently of the node process |
+| Just check the exit code | **All three pitfalls give exit code 0.** Fundamentally does not work |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 새 스크립트가 기본적으로 안전한 형태를 쓴다
-- 함정을 겪은 기록이 코드 옆에 남는다
+- New scripts use the safe form by default
+- The record of having hit these pitfalls lives next to the code
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 스크립트가 `lib/remote.sh` 에 의존한다. 단독 실행이 어려워진다
-- `/proc` 순회는 `pgrep` 보다 느리다 (검사 빈도를 생각하면 무시 가능)
+- Scripts depend on `lib/remote.sh`. Running them standalone gets harder
+- Walking `/proc` is slower than `pgrep` (negligible given how often the checks
+  run)
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- **원격 실행을 새로 짤 때 이 라이브러리를 거쳐야 한다.** 직접 `ssh` 를
-  부르면 함정이 다시 열린다
+- **New remote execution has to go through this library.** Calling `ssh`
+  directly reopens the pitfalls
 
-## 뒤집힌다면
+## What would overturn this
 
-함정이 넷째로 늘어나면 여기에 추가된다. **줄어들 이유는 없다.**
+If a fourth pitfall appears, it gets added here. **There is no reason for the
+list to shrink.**

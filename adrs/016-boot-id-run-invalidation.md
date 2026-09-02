@@ -1,121 +1,130 @@
-# ADR-016. `boot_id` 로 측정 중 재부팅을 감지해 run 을 무효화한다
+# ADR-016. Detect mid-measurement reboots with `boot_id` and invalidate the run
+
+*[한국어 원문](016-boot-id-run-invalidation.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-015](015-preflight-hard-fail.md), [ADR-028](028-bench-run-validity.md), [ADR-027](027-node-state-machine-drain-disable.md) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-015](015-preflight-hard-fail.md), [ADR-028](028-bench-run-validity.md), [ADR-027](027-node-state-machine-drain-disable.md) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 보드가 측정 도중 리셋되면 그 run 의 수치는 무효다. 그런데 **겉으로는
-> "성능이 떨어진 노드"로 보인다.** Linux 의 `boot_id` 를 하트비트로 받아
-> 값이 바뀌면 run 을 무효 처리한다.
+> If a board resets mid-measurement, that run's figures are void. But **from the
+> outside it looks like "a node whose performance dropped".** Linux's `boot_id`
+> is carried in the heartbeat, and a change in it invalidates the run.
 
-## 배경
+## Context
 
-이 프로젝트는 실제로 보드가 재부팅되는 것을 겪었다. 원인을 세 번 오판했다.
-
-```text
-공용 PSU 문제로 추정  →  아니었다
-부트로더 펌웨어 문제  →  일부만 맞았다
-12V 입력 문제        →  아니었다
-실제 원인: 전원 어댑터 전류 부족
-```
-
-문제는 원인 규명이 아니라 **그동안 나온 측정값을 어떻게 다룰 것인가** 였다.
-
-부하 중 보드가 리셋되면 이렇게 보인다.
+This project actually experienced boards rebooting. The cause was misdiagnosed
+three times.
 
 ```text
-처리량이 뚝 떨어진다        → "thermal throttling 인가?"
-응답이 한동안 없다          → "네트워크 지연인가?"
-그러다 다시 정상으로 돌아온다 → "회복됐네"
+suspected the shared PSU        ->  it was not
+bootloader firmware problem     ->  partly right
+12V input problem               ->  it was not
+actual cause: insufficient power adapter current
 ```
 
-**전부 그럴듯한 해석이 붙는다.** 재부팅됐다는 사실을 모르면 이 데이터를
-"고온에서의 성능 저하" 로 읽고 그래프에 그린다.
+The problem was not identifying the cause but **what to do with the
+measurements taken in the meantime.**
 
-## 결정
+A board resetting under load looks like this.
 
-**1. 노드가 `boot_id` 를 하트비트로 보고한다.**
+```text
+throughput drops sharply         -> "thermal throttling?"
+no response for a while          -> "network latency?"
+then it returns to normal        -> "it recovered"
+```
 
-Linux 는 부팅할 때마다 새 UUID 를 만든다.
+**Every one of those gets a plausible interpretation.** Not knowing it rebooted,
+this data gets read as "performance degradation at high temperature" and drawn
+on a graph.
+
+## Decision
+
+**1. The node reports `boot_id` in the heartbeat.**
+
+Linux generates a new UUID at every boot.
 
 ```text
 /proc/sys/kernel/random/boot_id
 ```
 
-이 값은 재부팅하면 반드시 바뀌고, 그 외에는 절대 안 바뀐다.
+The value always changes on reboot, and never changes otherwise.
 
-**2. 스케줄러가 변화를 감지하면 경고한다.** 노드가 같은 `node_id` 로
-돌아왔는데 `boot_id` 가 다르면, 그건 "잠깐 끊긴 노드" 가 아니라 **다른
-인스턴스**다.
+**2. The scheduler warns when it detects a change.** A node returning under the
+same `node_id` with a different `boot_id` is not "a node that dropped briefly"
+but **a different instance**.
 
-**3. 벤치 도구가 run 유효성 판정에 쓴다.** run 시작 시점의 `boot_id` 를
-기록해 두고, 끝날 때 달라져 있으면 그 run 을 무효로 표시한다.
+**3. The bench tool uses it in run-validity judgement.** The `boot_id` at the
+start of a run is recorded, and if it differs at the end, the run is marked
+invalid.
 
-**4. preflight 가 기준값을 남긴다.** 측정 직전 세 노드의 `boot_id` 를 찍어
-둔다.
+**4. Preflight records the reference values.** The three nodes' `boot_id`s are
+captured immediately before measuring.
 
-**5. 무효 run 을 삭제하지 않는다.** 사유와 함께 남긴다. 재부팅이 반복되면
-그 자체가 발견이다 — 실제로 어댑터 문제를 그렇게 찾았다.
+**5. Invalid runs are not deleted.** They are kept with the reason. Repeated
+reboots are themselves a finding — that is in fact how the adapter problem was
+found.
 
-## 근거
+## Rationale
 
-### 왜 다른 지표로는 안 되나
+### Why no other signal works
 
-| 후보 | 왜 안 되나 |
+| Candidate | Why it fails |
 |---|---|
-| uptime 이 작아짐 | 폴링 간격 사이에 리셋되고 다시 올라오면 놓친다 |
-| 연결이 끊김 | 네트워크 순단과 구분되지 않는다 |
-| 처리량 급락 | throttling 과 구분되지 않는다. **이게 정확히 우리가 겪은 문제** |
-| 프로세스 PID 변화 | 노드 프로세스만 재시작해도 바뀐다. 보드 리셋과 다른 사건이다 |
+| uptime becoming small | Missed if it resets and comes back between polls |
+| Connection dropping | Indistinguishable from a network blip |
+| A sharp throughput drop | Indistinguishable from throttling. **This is exactly the problem we hit** |
+| A change in process PID | Changes when only the node process restarts. That is a different event from a board reset |
 
-`boot_id` 는 **커널이 부팅을 셌다는 사실 그 자체**다. 해석의 여지가 없다.
+`boot_id` is **the fact that the kernel counted a boot**, and nothing else.
+There is no room for interpretation.
 
-### 의도된 장애와 하드 리셋을 구분해야 한다
+### Intentional failures and hard resets have to be distinguished
 
-시나리오 S4 는 **일부러 노드를 죽이고** 복구를 관찰하는 실험이다. 이때
-"노드가 사라졌다" 는 정상 동작이다.
+Scenario S4 is an experiment that **deliberately kills nodes** and observes
+recovery. "The node disappeared" is normal behaviour there.
 
-그런데 전원 문제로 보드가 죽는 것도 똑같이 보인다. 둘을 구분하지 못하면
-S4 의 결과와 장비 결함을 섞어서 보고하게 된다.
+But a board dying from a power problem looks identical. Without distinguishing
+the two, S4's results get reported mixed with equipment defects.
 
-`boot_id` 가 바뀌었으면 하드 리셋, 안 바뀌었으면 프로세스 수준 장애다.
+If `boot_id` changed it is a hard reset; if not, it is a process-level failure.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 재부팅을 안 나게 만든다 | 그렇게 했다(어댑터 교체). 그래도 **감지 장치는 필요하다** — 다음 원인은 다른 것일 수 있다 |
-| 사람이 로그를 보고 판단 | 야간 무인 실행(146 run, 23.4시간)에서는 불가능하다 |
-| dmesg 를 파싱 | 무겁고 권한이 필요하다. 한 줄 읽으면 되는 값이 있다 |
-| 무효 run 을 자동 삭제 | 원인 추적이 불가능해진다. 반복 패턴 자체가 정보다 |
+| Just stop the reboots happening | That was done (the adapter was replaced). **The detection still has to exist** — the next cause may be something else |
+| Have a human read the logs and judge | Impossible in unattended overnight runs (146 runs, 23.4 hours) |
+| Parse dmesg | Heavy and needs permissions. There is a value that can be read in one line |
+| Delete invalid runs automatically | Cause tracing becomes impossible. The pattern of repetition is itself information |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- "성능 저하" 로 위장한 재부팅을 잡는다
-- 무인 야간 실행에서도 데이터 유효성이 자동 판정된다
-- 의도된 장애와 장비 결함이 구분된다
+- Catches reboots disguised as "performance degradation"
+- Data validity is judged automatically even in unattended overnight runs
+- Intentional failures are distinguished from equipment defects
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 하트비트 메시지에 필드가 하나 늘었다 (사실상 무시할 수 있는 비용)
-- `boot_id` 는 재부팅만 잡는다. **커널이 살아 있는 채로 생기는 문제는 못
-  잡는다** — 그건 다른 검사의 몫이다
+- One more field in the heartbeat message (an effectively negligible cost)
+- `boot_id` catches only reboots. **It cannot catch problems that arise with the
+  kernel still alive** — that is other checks' job
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- 노드 프로세스만 재시작한 경우와 보드 리셋은 다르게 취급해야 한다. 둘 다
-  재등록을 유발하므로([ADR-025](025-heartbeat-failure-reregister.md))
-  재등록 이벤트만으로는 구분되지 않는다
+- A node-process-only restart and a board reset have to be treated differently.
+  Both trigger re-registration
+  ([ADR-025](025-heartbeat-failure-reregister.md)), so a re-registration event
+  alone does not distinguish them
 
-## 뒤집힌다면
+## What would overturn this
 
-이 검사가 불필요해지는 상황은 "보드가 절대 리셋되지 않는다" 가 증명될 때인데,
-증명할 방법이 없다. **유지한다.**
+The check becomes unnecessary when "boards never reset" is proven, and there is
+no way to prove it. **It stays.**
