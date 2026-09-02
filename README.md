@@ -196,9 +196,9 @@ We would rather you find these here than in the comments.
   unverified. This is scoped for a trusted private network, not a hostile one --
   a boundary, not a defect.
 - **Documentation is English-first; the Korean original sits beside it as
-  `X.ko.md`.** The READMEs, the FAQ, the experiment reports and the ADRs are
-  English. The core specifications and the internal working notes are still
-  Korean-only.
+  `X.ko.md`.** The READMEs, the FAQ, the experiment reports, the ADRs and the
+  core specifications are English. The PRD and the internal working notes are
+  still Korean-only.
 
 ---
 
@@ -351,9 +351,9 @@ visible.
 
 English is the primary language for documentation. Where a Korean original
 exists it is kept next to its English counterpart as `X.ko.md` — the English
-file is authoritative. The core specifications (PRD, TECHSPEC, hardware setup)
-and the internal working notes are still Korean-only; they lead with tables and
-figures, which survive machine translation reasonably well.
+file is authoritative. The PRD and the internal working notes (discuss,
+board-worklog, TODO) are still Korean-only; they lead with tables and figures,
+which survive machine translation reasonably well.
 
 ---
 

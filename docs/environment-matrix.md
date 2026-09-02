@@ -1,888 +1,1010 @@
 # NPUDure Environment Matrix
 
-- 문서명: `environment-matrix.md`
-- 프로젝트명: NPUDure
-- 대상 릴리스: NPUDure v0.1
-- 작성일: 2026-08-06
-- 상태: **확정.** S0 열 특성까지 닫혔다 (§9). 미해결 목록은 `experiments/README.md` §7
-- 관련 문서:
-  - `01-TECHSPEC.md` §2.5 재현성
+*[한국어 원문](environment-matrix.ko.md)*
+
+- Document: `environment-matrix.md`
+- Project: NPUDure
+- Target release: NPUDure v0.1
+- Written: 2026-08-06
+- Status: **settled.** Closed through the S0 thermal characterisation (§9). The open list is in `experiments/README.md` §7
+- Related documents:
+  - `01-TECHSPEC.md` §2.5 reproducibility
   - `03-DEVELOPMENT-REQUIREMENTS.md` §2.1, §9
 
 ---
 
-# 1. 문서 목적
+# 1. Purpose
 
-본 문서는 NPUDure v0.1의 **버전 조합과 해시를 고정**하기 위한 단일 출처다.
+This document is the single source for **pinning NPUDure v0.1's version
+combination and hashes.**
 
-여기에 기록하는 값은 소스코드, 설정 파일, git 이력 어디에서도 유도할 수 없다. RKNN Toolkit과 Runtime, 커널 드라이버의 조합은 외부에서 주어지는 사실이며, 조합이 바뀌면 이전 벤치마크 결과와 비교할 수 없게 된다.
+The values recorded here cannot be derived from the source code, the
+configuration files or the git history. The combination of RKNN Toolkit, Runtime
+and kernel driver is a fact given from outside, and when the combination changes
+previous benchmark results become incomparable.
 
-`03-DEVELOPMENT-REQUIREMENTS.md` §9의 즉시 수행 항목 1번이 본 문서를 채우는 작업이다.
+Item 1 of `03-DEVELOPMENT-REQUIREMENTS.md` §9's immediate actions is filling in
+this document.
 
-**이 표가 채워지기 전에 기록한 성능 수치는 공식 결과로 사용하지 않는다.**
-
----
-
-# 2. 확정 상태
-
-| 항목 | 상태 | 값 |
-|---|---|---|
-| 보드 및 SoC | **확정 (2026-08-06)** | RK3576, NPU 2코어 — §2.1 |
-| RKNN 버전 조합 | **확정 (2026-08-07)** | Runtime 2.3.0 / Driver v0.9.8 / Toolkit2 2.3.0 — §3 |
-| 커널 및 드라이버 | **확정 (2026-08-07)** | 6.1.141, 3노드 동일 — §4 |
-| 기준 모델 해시 | **확정 (2026-08-12)** | FP16 `459602ea…` / INT8 `dba155d2…` — §6 |
-| 데이터 세트 해시 | **확정 (2026-08-11)** | COCO val2017 200장 `224b8beb…` — §7 |
-| Rust 툴체인 | **확정 (2026-08-12)** | 1.97.1 / edition 2024 / MSRV 1.85 — §8 |
-| 노드 인벤토리 | **확정 (2026-08-07)** | serial·MAC — §8.1 |
-| RKNN 동시성 계약 | **확정 (2026-08-11)** | 컨텍스트 공유 금지 — §3.1 정정 |
-| CPU governor | **확정 (2026-08-12)** | `performance` 고정 + 영구화 — §4 |
-| 열 특성 및 온도 임계치 | **확정** — degraded 80 / disable 90°C | S0 결과. §9.2 |
-| OS 패치 레벨 동일성 | **확정 (2026-08-12)** | 3노드 모두 24.04.4 — §4 |
-| SSH host key 고유성 | ⚠️ **미해결** | queen·jack 이 동일 — §8.1 |
-
-확정 시점에 각 행의 상태를 `확정 (YYYY-MM-DD)`으로 변경하고 값을 채운다.
-
-값을 변경할 경우 이전 값을 §11 변경 이력에 남긴다.
+**Performance figures recorded before this table is filled in are not used as
+official results.**
 
 ---
 
-# 2.1 보드 및 SoC (확정)
+# 2. Settled status
 
-2026-08-07 세 노드 실측으로 확정했다. 수집 방법은 `scripts/collect-node-info.sh`, 원본은 `benchmarks/node-info/{k,q,j}.txt`.
-
-| 항목 | 값 | 확인 방법 |
+| Item | Status | Value |
 |---|---|---|
-| 보드 | FriendlyElec NanoPi R76S | `/proc/device-tree/model` |
+| Board and SoC | **settled (2026-08-06)** | RK3576, 2-core NPU — §2.1 |
+| RKNN version combination | **settled (2026-08-07)** | Runtime 2.3.0 / Driver v0.9.8 / Toolkit2 2.3.0 — §3 |
+| Kernel and driver | **settled (2026-08-07)** | 6.1.141, identical across 3 nodes — §4 |
+| Reference model hashes | **settled (2026-08-12)** | FP16 `459602ea…` / INT8 `dba155d2…` — §6 |
+| Dataset hash | **settled (2026-08-11)** | 200 COCO val2017 images `224b8beb…` — §7 |
+| Rust toolchain | **settled (2026-08-12)** | 1.97.1 / edition 2024 / MSRV 1.85 — §8 |
+| Node inventory | **settled (2026-08-07)** | serials and MACs — §8.1 |
+| RKNN concurrency contract | **settled (2026-08-11)** | context sharing forbidden — the correction in §3.1 |
+| CPU governor | **settled (2026-08-12)** | fixed to `performance` and made permanent — §4 |
+| Thermal characteristics and temperature thresholds | **settled** — degraded 80 / disable 90 °C | S0 results. §9.2 |
+| OS patch level uniformity | **settled (2026-08-12)** | all three nodes on 24.04.4 — §4 |
+| SSH host key uniqueness | ⚠️ **unresolved** | queen and jack are identical — §8.1 |
+
+At the point of settling, each row's status changes to `settled (YYYY-MM-DD)`
+and the value is filled in.
+
+When a value changes, the previous value is recorded in §11's change history.
+
+---
+
+# 2.1 Board and SoC (settled)
+
+Settled by measurement on all three nodes on 2026-08-07. Collected with
+`scripts/collect-node-info.sh`; the raw output is in
+`benchmarks/node-info/{k,q,j}.txt`.
+
+| Item | Value | How verified |
+|---|---|---|
+| Board | FriendlyElec NanoPi R76S | `/proc/device-tree/model` |
 | device-tree compatible | `friendlyelec,nanopi-r76s rockchip,rk3576` | `/proc/device-tree/compatible` |
-| SoC | **Rockchip RK3576** | 위와 동일 |
-| CPU 코어 수 | 8 | `nproc` |
-| CPU little 클러스터 최대 | 2,016,000 kHz (2.016GHz) | `cpufreq/policy0` |
-| CPU big 클러스터 최대 | 2,208,000 kHz (2.208GHz) | `cpufreq/policy4` |
-| GPU | Mali-G52 MC3 | 제품 사양 |
-| NPU | 6 TOPS | 제품 사양 |
-| **NPU 코어 수** | **2 (Core0, Core1)** | `/sys/kernel/debug/rknpu/load` |
-| NPU 주파수 | 300~950 MHz, 기본 950 MHz | `devfreq/27700000.npu` |
-| NPU IOMMU | 활성화 | `dmesg` |
+| SoC | **Rockchip RK3576** | as above |
+| CPU core count | 8 | `nproc` |
+| CPU little cluster maximum | 2,016,000 kHz (2.016 GHz) | `cpufreq/policy0` |
+| CPU big cluster maximum | 2,208,000 kHz (2.208 GHz) | `cpufreq/policy4` |
+| GPU | Mali-G52 MC3 | product specification |
+| NPU | 6 TOPS | product specification |
+| **NPU core count** | **2 (Core0, Core1)** | `/sys/kernel/debug/rknpu/load` |
+| NPU frequency | 300–950 MHz, default 950 MHz | `devfreq/27700000.npu` |
+| NPU IOMMU | enabled | `dmesg` |
 | RAM | **4GB LPDDR4X** (3,997,848 kB) | `/proc/meminfo` |
 | eMMC | **64GB** (122,142,720 × 512B ≈ 62.5GB) | `/sys/block/mmcblk2/size` |
-| rootfs 여유 | 50GB | `df -h /` |
-| 네트워크 | **2.5GbE × 2** (`eth0`, `eth1`) — 드라이버 `r8125`, 별도 PCIe 버스 | `ethtool` |
-| M.2 | SDIO (Wi-Fi 전용, NVMe 불가) | 제품 사양 |
-| 냉각 | 팬리스 | 제품 사양 |
+| rootfs free | 50GB | `df -h /` |
+| Network | **2.5GbE × 2** (`eth0`, `eth1`) — driver `r8125`, separate PCIe buses | `ethtool` |
+| M.2 | SDIO (Wi-Fi only, no NVMe) | product specification |
+| Cooling | fanless | product specification |
 
-**NPU가 2코어다.** RK3588의 3코어와 다르므로, RK3588 기준의 `core_mask` 예제를 그대로 쓸 수 없다. `worker_count` 결정에 직접 영향을 준다(§3.1).
+**The NPU has 2 cores.** That differs from the RK3588's 3, so RK3588-based
+`core_mask` examples cannot be used as-is. It directly affects the
+`worker_count` decision (§3.1).
 
-RAM 4GB는 워커 여러 개를 띄우기에 충분하다. 2GB 변형이었다면 제약이 있었을 것이다.
+4GB of RAM is enough to run several workers. A 2GB variant would have been a
+constraint.
 
-문서 초안은 RK3588/NanoPi R6C를 전제했으나 2026-08-06에 정정했다. 상세 영향은 `02-HARDWARE-SETUP.md` §16.1 참조.
+The draft assumed RK3588/NanoPi R6C and was corrected on 2026-08-06. Detailed
+effects in `02-HARDWARE-SETUP.md` §16.1.
 
-## 2.2 열 센서
+## 2.2 Thermal sensors
 
-thermal zone이 6개다. NPU 전용 센서가 있어 §9의 열 특성 측정에 그대로 쓸 수 있다.
+There are 6 thermal zones. A dedicated NPU sensor exists and can be used
+directly for §9's thermal characterisation.
 
-| zone | type | idle 온도 (2026-08-07) |
+| zone | type | idle temperature (2026-08-07) |
 |---|---|---|
-| 0 | `soc-thermal` | 44.4 ~ 46.2°C |
-| 1 | `bigcore-thermal` | 45.3°C |
-| 2 | `little-core-thermal` | 45.3°C |
-| 3 | `ddr-thermal` | 44.4°C |
-| 4 | **`npu-thermal`** | 42.5 ~ 45.3°C |
-| 5 | `gpu-thermal` | 46.2°C |
+| 0 | `soc-thermal` | 44.4 – 46.2 °C |
+| 1 | `bigcore-thermal` | 45.3 °C |
+| 2 | `little-core-thermal` | 45.3 °C |
+| 3 | `ddr-thermal` | 44.4 °C |
+| 4 | **`npu-thermal`** | 42.5 – 45.3 °C |
+| 5 | `gpu-thermal` | 46.2 °C |
 
-노드 설정의 `temperature_path`는 `soc-thermal`(zone0)을 스케줄링 판단에 사용하고, `npu-thermal`(zone4)을 별도로 기록한다.
+The node configuration's `temperature_path` uses `soc-thermal` (zone0) for
+scheduling decisions and records `npu-thermal` (zone4) separately.
 
-**idle 상태에서 이미 42~46°C다.** 팬리스 보드라 초안 문서의 "시작 온도 45°C 이하" 조건은 idle에서도 아슬아슬하다. §9.2에서 실측 후 재설정한다.
+**It is already 42–46 °C at idle.** On a fanless board the draft document's
+"starting temperature at or below 45 °C" condition is marginal even at idle. It
+is reset from measurement in §9.2.
 
 ---
 
-# 3. RKNN 스택
+# 3. The RKNN stack
 
-세 노드 전체가 동일해야 한다.
+All three nodes have to be identical.
 
-2026-08-07 실측. 세 노드의 `librknnrt.so` SHA-256이 모두 동일함을 확인했다.
+Measured 2026-08-07. The `librknnrt.so` SHA-256 was confirmed identical on all
+three nodes.
 
-| 항목 | 값 | 확인 방법 |
+| Item | Value | How verified |
 |---|---|---|
-| 변환 타깃 플랫폼 | **`rk3576`** | 고정. `rk3588` 아님 |
-| **RKNN Runtime 버전** | **2.3.0** (`c949ad889d@2024-11-07T11:35:33`) | `strings librknnrt.so` |
-| **RKNPU Driver 버전** | **v0.9.8** | `/sys/kernel/debug/rknpu/version` |
-| **NPU 코어 수** | **2** | `/sys/kernel/debug/rknpu/load` |
-| `librknnrt.so` 경로 | `/usr/lib/librknnrt.so` | 3노드 동일 |
-| `librknnrt.so` SHA-256 | `73993ed4b440460825f21611731564503cc1d5a0c123746477da6cd574f34885` | 3노드 동일 |
-| 헤더 | `/usr/include/rknn_api.h` | 설치됨 |
-| RKNN-Toolkit2 버전 | **2.3.0** | `dealer` 의 Docker 이미지 `npuforge-converter:2.3.1`. Runtime 과 일치 |
+| Conversion target platform | **`rk3576`** | fixed. Not `rk3588` |
+| **RKNN Runtime version** | **2.3.0** (`c949ad889d@2024-11-07T11:35:33`) | `strings librknnrt.so` |
+| **RKNPU driver version** | **v0.9.8** | `/sys/kernel/debug/rknpu/version` |
+| **NPU core count** | **2** | `/sys/kernel/debug/rknpu/load` |
+| `librknnrt.so` path | `/usr/lib/librknnrt.so` | identical on 3 nodes |
+| `librknnrt.so` SHA-256 | `73993ed4b440460825f21611731564503cc1d5a0c123746477da6cd574f34885` | identical on 3 nodes |
+| Headers | `/usr/include/rknn_api.h` | installed |
+| RKNN-Toolkit2 version | **2.3.0** | the `npuforge-converter:2.3.1` Docker image on `dealer`. Matches the Runtime |
 
-**Toolkit2는 Runtime 2.3.0에 맞춰야 한다.** Toolkit 버전이 Runtime보다 높으면 변환된 모델이 로딩되지 않을 수 있다. 개발 PC에 설치할 때 `rknn-toolkit2==2.3.0`을 우선 시도한다.
+**Toolkit2 has to match Runtime 2.3.0.** If the Toolkit version is higher than
+the Runtime's, converted models may fail to load. When installing on the
+development PC, try `rknn-toolkit2==2.3.0` first.
 
-NPU가 2코어이므로 core_mask 전략은 RK3588(3코어) 예제와 다르다.
+Since the NPU has 2 cores, core_mask strategy differs from RK3588 (3-core)
+examples.
 
-## 3.1 Thread-safety 검증 결과 (확정 2026-08-07)
+## 3.1 Thread-safety verification results (settled 2026-08-07)
 
-노드 아키텍처가 이 결과에 직접 의존한다. 동시 호출이 불가능하면 모델당 전용 워커 스레드와 mutex가 필요하고, 가능하면 `worker_count`를 1보다 크게 설정할 수 있다.
+The node architecture depends directly on this result. If concurrent calls are
+impossible, a dedicated worker thread and mutex per model are needed; if
+possible, `worker_count` can be set above 1.
 
-**측정 조건.** `king`, FP16 모델(`yolov8n-fp16.rknn`), 스레드당 20회 반복.
-도구는 `crates/npuforge-rknn/native/thread_safety_test.c`.
+**Conditions.** `king`, the FP16 model (`yolov8n-fp16.rknn`), 20 iterations per
+thread. The tool is
+`crates/npuforge-rknn/native/thread_safety_test.c`.
 
-| 구성 | 스레드 | ok / err | 평균 지연 | 처리량 | 기준선 대비 |
+| Configuration | Threads | ok / err | Mean latency | Throughput | vs baseline |
 |---|---:|---:|---:|---:|---:|
-| 기준선 (전용 context) | 1 | 20 / **0** | 62.62 ms | 16.0 inf/s | 1.00× |
-| **context 공유** | 2 | 40 / **0** | 57.28 ms | 34.8 inf/s | 2.18× |
-| 전용 context (`CORE_AUTO`) | 2 | 40 / **0** | 58.77 ms | 33.2 inf/s | 2.08× |
-| 전용 context + 코어 분리 | 2 | 40 / **0** | 62.58 ms | 31.9 inf/s | 1.99× |
-| 전용 context | 4 | 80 / **0** | 76.22 ms | **52.3 inf/s** | **3.27×** |
+| Baseline (dedicated context) | 1 | 20 / **0** | 62.62 ms | 16.0 inf/s | 1.00× |
+| **Shared context** | 2 | 40 / **0** | 57.28 ms | 34.8 inf/s | 2.18× |
+| Dedicated context (`CORE_AUTO`) | 2 | 40 / **0** | 58.77 ms | 33.2 inf/s | 2.08× |
+| Dedicated context + core separation | 2 | 40 / **0** | 62.58 ms | 31.9 inf/s | 1.99× |
+| Dedicated context | 4 | 80 / **0** | 76.22 ms | **52.3 inf/s** | **3.27×** |
 
-### 결론
+### Conclusions
 
-| 항목 | 결과 |
+| Item | Result |
 |---|---|
-| 동일 context 동시 호출 | **가능** (오류 0건) |
-| 서로 다른 context 동시 호출 | **가능** (오류 0건) |
-| 모델당 전용 워커 스레드 직렬화 | **불필요** |
-| 명시적 `core_mask` 분리 | **불필요** — 8스레드에서 +0.1% |
-| 권장 `worker_count` | **8** (4 대비 +27%) |
-| NPU 2코어의 실제 기여 | **1.51배** (단일코어 48.2 → 두코어 73.0 inf/s) |
+| Concurrent calls on the same context | **possible** (0 errors) |
+| Concurrent calls on different contexts | **possible** (0 errors) |
+| Serializing with a dedicated worker thread per model | **unnecessary** |
+| Explicit `core_mask` separation | **unnecessary** — +0.1% at 8 threads |
+| Recommended `worker_count` | **8** (+27% over 4) |
+| Actual contribution of the NPU's 2 cores | **1.51×** (single core 48.2 → two cores 73.0 inf/s) |
 
-**RKNN Runtime 2.3.0은 thread-safe다.** 어떤 조합에서도 오류가 발생하지 않았다.
+**RKNN Runtime 2.3.0 is thread-safe.** No errors occurred in any combination.
 
-> ### ⚠️ 2026-08-11 정정: "오류 0건"은 "결과가 옳다"가 아니다
+> ### ⚠️ Correction 2026-08-11: "0 errors" does not mean "the results are right"
 >
-> 위 표는 **API 반환 코드만 셌고 출력 내용을 대조하지 않았다.**
-> 출력을 실제로 비교하니 결론이 달라진다.
+> The table above **counted only API return codes and never compared output
+> contents.** Actually comparing the outputs changes the conclusion.
 >
-> 추론 한 건은 세 번의 호출이다.
+> One inference is three calls.
 >
 > ```text
-> rknn_inputs_set  →  rknn_run  →  rknn_outputs_get
+> rknn_inputs_set  ->  rknn_run  ->  rknn_outputs_get
 > ```
 >
-> 개별 호출이 thread-safe 여도 **이 시퀀스는 원자적이지 않다.**
-> 두 스레드가 같은 컨텍스트에서 겹쳐 실행하면 서로의 결과를 가져간다.
+> Even with each call thread-safe, **this sequence is not atomic.** Two threads
+> overlapping on the same context take each other's results.
 >
-> `native/shared_context_test.c` 로 확인했다. 스레드마다 다른 입력을 주고
-> 단독 실행 결과와 대조했다(4스레드 × 50회, `king`).
+> Verified with `native/shared_context_test.c`. Each thread was given a
+> different input and compared against its standalone result (4 threads × 50,
+> `king`).
 >
-> | 구성 | API 오류 | **결과 불일치** |
+> | Configuration | API errors | **Result mismatches** |
 > |---|---:|---:|
-> | 컨텍스트 공유 | 0 | **200 / 200 (100%)** |
-> | 스레드별 전용 컨텍스트 | 0 | 0 / 200 (0%) |
+> | Shared context | 0 | **200 / 200 (100%)** |
+> | Per-thread dedicated context | 0 | 0 / 200 (0%) |
 >
-> **공유 컨텍스트는 오류 없이 100% 틀린 답을 낸다.**
+> **A shared context produces 100% wrong answers with no errors.**
 >
-> 따라서 `supports_concurrent_infer = true` 는 유지하되, 그 근거는
-> "런타임이 알아서 해준다"가 아니라 **"백엔드가 컨텍스트 풀로 직렬화한다"**
-> 이다. `crates/npuforge-rknn/src/context.rs` 참조.
+> So `supports_concurrent_infer = true` stays, but its basis is not "the runtime
+> handles it" but **"the backend serializes through a context pool"**. See
+> `crates/npuforge-rknn/src/context.rs`.
 >
-> 위 표의 처리량 수치 중 "context 공유" 행(2스레드 34.8 inf/s)은 **틀린
-> 결과를 낸 상태의 속도**이므로 성능 비교에 쓰지 않는다.
+> Among the throughput figures in the table above, the "shared context" row
+> (2 threads, 34.8 inf/s) is **the speed of a state producing wrong results**
+> and is not used for performance comparison.
 
-### NPU가 2코어인데 4스레드가 더 빠른 이유
+### Why 4 threads is faster than a 2-core NPU would suggest
 
-추론 한 건은 NPU 실행만이 아니라 **입력 설정 → NPU 실행 → 출력 취득**으로 구성되며, 앞뒤 구간은 CPU가 처리한다. 스레드가 코어 수보다 많으면 한 스레드가 CPU 구간에 있는 동안 다른 스레드가 NPU를 점유할 수 있어 파이프라이닝 효과가 생긴다.
+One inference is not just NPU execution but **set input → NPU execution → get
+output**, and the sections either side are handled by the CPU. With more threads
+than cores, one thread can occupy the NPU while another is in its CPU section,
+producing a pipelining effect.
 
-**지연시간과 처리량이 상충한다.**
+**Latency and throughput trade off.**
 
 ```text
-1 스레드 : 62.6 ms,  16.0 inf/s   지연 최소
-2 스레드 : 58.8 ms,  33.2 inf/s
-4 스레드 : 76.2 ms,  52.3 inf/s   처리량 최대 (측정 범위 내)
+1 thread : 62.6 ms,  16.0 inf/s   minimum latency
+2 threads: 58.8 ms,  33.2 inf/s
+4 threads: 76.2 ms,  52.3 inf/s   maximum throughput (within the measured range)
 ```
 
-**본 프로젝트는 처리량이 목표이므로 스레드를 늘리는 쪽이 맞다.** 단, deadline이 있는 요청에는 지연 증가가 불리하므로 `max_queue_depth`와 함께 조정한다.
+**This project targets throughput, so raising thread count is correct.** But
+latency increases disadvantage requests carrying a deadline, so it is tuned
+alongside `max_queue_depth`.
 
-### 명시적 코어 분리를 쓰지 않는 이유 (2026-08-10 재측정으로 확정)
+### Why explicit core separation is not used (settled by re-measurement 2026-08-10)
 
-대조군(`CORE_0_ONLY`)을 포함한 4가지 모드를 1/2/4/8 스레드에서 비교했다. 상세는 `docs/discuss.md` §4.
+Four modes including a control group (`CORE_0_ONLY`) were compared at 1/2/4/8
+threads. Details in `docs/discuss.md` §4.
 
-| 스레드 | `CORE_AUTO` | `ALTERNATE` | `CORE_0_1` | `CORE_0_ONLY` |
+| Threads | `CORE_AUTO` | `ALTERNATE` | `CORE_0_1` | `CORE_0_ONLY` |
 |---:|---:|---:|---:|---:|
 | 1 | 16.7 | 16.7 | **18.2** | 16.5 |
 | 4 | 52.4 | **57.1** | 48.5 | 38.5 |
 | 8 | **72.9** | 73.0 | 64.5 | 48.2 |
 
-**결론: `core_mask`를 설정하지 않는다.**
+**Conclusion: do not set `core_mask`.**
 
-- `ALTERNATE`의 이득은 4스레드에서 +9%, **8스레드에서 +0.1%로 소멸**한다
-- `CORE_0_1`은 8스레드에서 -11.5%로 오히려 손해다
-- `CORE_AUTO`의 분배가 이미 균등하다 (8스레드에서 Core0 39% / Core1 37%)
+- `ALTERNATE`'s gain is +9% at 4 threads and **vanishes to +0.1% at 8**
+- `CORE_0_1` is actually a loss at −11.5% at 8 threads
+- `CORE_AUTO`'s distribution is already even (Core0 39% / Core1 37% at 8 threads)
 
-8스레드로 가는 편이 코어를 수동 배정하는 것보다 낫고, `rknn_set_core_mask` 호출이 불필요해져 구현이 단순해진다.
+Going to 8 threads beats manual core assignment, and dropping the
+`rknn_set_core_mask` call simplifies the implementation.
 
-**두 번째 코어는 실제로 기여한다.** 대조군 대비 48.2 → 73.0 inf/s로 **1.51배**다. 다만 2배가 아니라는 점이 코어 밖 공유 자원의 직렬화를 시사한다.
+**The second core does contribute.** Against the control group it goes 48.2 →
+73.0 inf/s, **1.51×**. That it is not 2× suggests serialization on a shared
+resource outside the cores.
 
-**예외: 단일 요청 지연이 중요한 경우.** 1스레드에서만 `CORE_0_1`이 +9%로 유리하다(`run` 29.7 → 23.7ms). deadline 요청 처리에 고려할 수 있다.
+**Exception: when single-request latency matters.** Only at 1 thread is
+`CORE_0_1` favourable at +9% (`run` 29.7 → 23.7 ms). Worth considering for
+deadline-carrying requests.
 
-`rknn_api.h`의 `rknn_core_mask`는 코어 3개까지 정의하지만 RK3576은 2코어이므로 `CORE_2`는 사용할 수 없다.
+`rknn_api.h`'s `rknn_core_mask` defines up to three cores, but RK3576 has two,
+so `CORE_2` cannot be used.
 
-### FP16 기준 성능과 그 함의
+### FP16 baseline performance and its implications
 
-FP16 에서 노드당 **84.3 inf/s** (8스레드, governor `performance`), INT8 은 **157.2 inf/s** 다.
-(초기 측정의 16~52 inf/s 는 1~4스레드 · `ondemand` 기준이다. `RESULTS.md` §2.2)
+FP16 gives **84.3 inf/s** per node (8 threads, governor `performance`); INT8
+gives **157.2 inf/s**.
+(The 16–52 inf/s of the initial measurements were at 1–4 threads on `ondemand`.
+`RESULTS.md` §2.2)
 
-3노드 합산 시 네트워크 소요다. **입력과 출력을 함께 본다.**
+The network requirement when summed across three nodes. **Input and output are
+considered together.**
 
 ```text
-                              노드당        3노드
-INT8 입력 (raw RGB 1.23MB)   1.545 Gbps    4.636 Gbps
-INT8 출력 (want_float=1)     6.128 Gbps   18.383 Gbps   ← 10G 도 부족
-INT8 출력 (want_float=0)     1.532 Gbps    4.596 Gbps
-FP16 입력                    0.829 Gbps    2.486 Gbps
-FP16 출력 (want_float=1)     3.286 Gbps    9.858 Gbps
+                                per node      3 nodes
+INT8 input (raw RGB 1.23MB)    1.545 Gbps    4.636 Gbps
+INT8 output (want_float=1)     6.128 Gbps   18.383 Gbps   <- even 10G is insufficient
+INT8 output (want_float=0)     1.532 Gbps    4.596 Gbps
+FP16 input                     0.829 Gbps    2.486 Gbps
+FP16 output (want_float=1)     3.286 Gbps    9.858 Gbps
 ```
 
-**worker 링크(2.5G)가 아니라 aggregation 링크가 먼저 막힌다.**
-스케줄러 쪽에 10G 가 필요하고, 그 위에 출력을 줄이는 조치가 따라와야 한다.
-**출력 축소는 `want_float=0` 전환으로 해결했다 (2026-08-12, 기본값).**
-남은 것은 10G aggregation 확보다. `02-HARDWARE-SETUP.md` §3.3.2.
+**It is the aggregation link, not the worker links (2.5G), that fills up
+first.** 10G is needed on the scheduler side, with a measure to reduce output on
+top of it. **The output reduction was solved by switching to `want_float=0`
+(2026-08-12, the default).** What remains is securing 10G aggregation.
+`02-HARDWARE-SETUP.md` §3.3.2.
 
-> **이전 판은 폐기되었다.** "3노드 156 FPS, Raw RGB 1.5 Gbps, 2.5GbE 는
-> S6 에서만 필요"라고 적혀 있었다. 그 계산은 (a) 4스레드·`ondemand` 기준
-> 52 inf/s 를 썼고 (b) **출력 방향을 보지 않았다.** 실측 후 두 전제가
-> 모두 바뀌었다.
+> **The previous version is discarded.** It said "3 nodes at 156 FPS, raw RGB
+> 1.5 Gbps, 2.5GbE needed only in S6". That calculation (a) used 52 inf/s from
+> 4 threads on `ondemand` and (b) **never looked at the output direction.** Both
+> premises changed after measurement.
 
-### 미확정
+### Not yet settled
 
-- 8스레드에서도 처리량이 꺾이지 않았으므로 `MAX_THREADS`를 넘는 구간은 미탐색
-- S0 열 특성 (30분 × 팬리스/냉각 2조건)
-- `ondemand` vs `performance` 를 **동일한 300초 조건**에서 비교
-  (§3.1 의 +7% 는 120초 값이라 CPU 강등 전 구간만 본 것이다)
+- Throughput had not bent even at 8 threads, so the region past `MAX_THREADS`
+  is unexplored
+- S0 thermal characterisation (30 min × fanless/cooled, 2 conditions)
+- `ondemand` vs `performance` compared under **identical 300-second conditions**
+  (§3.1's +7% is a 120-second value covering only the pre-downgrade region)
 
-> **해소됨 — `want_float=0` 의 INT8 처리량 영향** (2026-08-12).
-> "§5 의 +5.4% 는 FP16 에서 잰 값이라 옮길 수 없다"로 남겨 두었던 항목이다.
-> 8스레드 120초로 측정했다. **INT8 156.7 vs 133.6 inf/s (+17.3%),
-> FP16 66.9 vs 57.8 inf/s (+15.7%).** §5 보다 큰 이유는 §5 가 1스레드 위주
-> 조건이었기 때문이다 — 동시 스레드가 늘수록 출력 변환이 직렬화 구간을
-> 더 오래 붙잡는다. `discuss.md` §12
+> **Resolved — `want_float=0`'s effect on INT8 throughput** (2026-08-12).
+> This had been left as "§5's +5.4% was measured on FP16 and cannot be carried
+> across". Measured at 8 threads for 120 s. **INT8 156.7 vs 133.6 inf/s
+> (+17.3%), FP16 66.9 vs 57.8 inf/s (+15.7%).** It exceeds §5 because §5 was a
+> mostly single-thread condition — the more concurrent threads there are, the
+> longer output conversion holds the serialized section. `discuss.md` §12
 
-### 남은 병목
+### The remaining bottleneck
 
-NPU 40%, CPU 49%로 **둘 다 포화되지 않은 상태에서 `rknn_run` 대기만 늘어난다.** 코어 밖 공유 자원의 직렬화로 추정하며 후보는 다음과 같다.
+With NPU at 40% and CPU at 49%, **neither is saturated and yet `rknn_run` wait
+alone grows.** Serialization on a shared resource outside the cores is the
+presumption, with these candidates:
 
-- RKNN runtime 내부 lock
-- kernel driver ioctl 직렬화
-- IOMMU / buffer mapping 비용
+- A lock inside the RKNN runtime
+- Kernel driver ioctl serialization
+- IOMMU / buffer mapping cost
 - DDR / memory bandwidth
-- output conversion / hidden copy
+- Output conversion / a hidden copy
 
-`perf record`, `strace -c`, off-CPU 분석이 필요하다. `docs/discuss.md` 참조.
+`perf record`, `strace -c` and off-CPU analysis are needed. See
+`docs/discuss.md`.
 
 ---
 
-# 4. 운영체제 및 커널
+# 4. Operating system and kernel
 
-| 항목 | 값 | 상태 |
+| Item | Value | Status |
 |---|---|---|
-| 배포판 | Ubuntu 24.04 LTS (Noble Numbat) | 확정 |
-| **패치 레벨** | **24.04.4 LTS** | ✅ 3노드 동일 (2026-08-12 확인. king 이 24.04.3 → 24.04.4 로 올라옴) |
-| 커널 버전 | 6.1.141 (aarch64) | 3노드 동일 |
-| glibc | 2.39 | 3노드 동일 |
-| gcc | 13.3.0-6ubuntu2~24.04.1 | ✅ 3노드 동일 (2026-08-12 확인) |
-| Python | 3.12.3 | 3노드 동일 |
-| rustc | **`king` 만 1.97.1 설치** | 노드 바이너리 네이티브 빌드용. queen/jack 은 미설치 |
-| **CPU Governor** | **`performance`** | ✅ 2026-08-12 고정. systemd 유닛으로 영구화 (처리량 +7%) |
-| 미적용 패키지 업데이트 | K: 274 / Q: 280 / J: 280 | ⚠️ 측정 전 통일 권장. 커널은 hold 상태라 안전 |
-| OS 이미지 파일명 | 미기록 | 보드 수령 시 기록하지 못했다. 재설치 시 반드시 남길 것 |
-| OS 이미지 SHA-256 | 미기록 | 위와 같음 |
-| io_uring 지원 여부 | **지원** | `/proc/kallsyms` 에 `io_uring_setup` 존재 확인 (2026-08-12) |
+| Distribution | Ubuntu 24.04 LTS (Noble Numbat) | settled |
+| **Patch level** | **24.04.4 LTS** | ✅ identical on 3 nodes (confirmed 2026-08-12. king went 24.04.3 → 24.04.4) |
+| Kernel version | 6.1.141 (aarch64) | identical on 3 nodes |
+| glibc | 2.39 | identical on 3 nodes |
+| gcc | 13.3.0-6ubuntu2~24.04.1 | ✅ identical on 3 nodes (confirmed 2026-08-12) |
+| Python | 3.12.3 | identical on 3 nodes |
+| rustc | **1.97.1 installed on `king` only** | for native node binary builds. Not installed on queen/jack |
+| **CPU Governor** | **`performance`** | ✅ fixed 2026-08-12. Made permanent with a systemd unit (+7% throughput) |
+| Unapplied package updates | K: 274 / Q: 280 / J: 280 | ⚠️ recommended to unify before measuring. The kernel is held, so it is safe |
+| OS image filename | not recorded | not captured when the boards arrived. Record it on reinstallation without fail |
+| OS image SHA-256 | not recorded | as above |
+| io_uring support | **supported** | `io_uring_setup` confirmed present in `/proc/kallsyms` (2026-08-12) |
 
-## 4.0 부트로더 펌웨어 ⚠️
+## 4.0 Bootloader firmware ⚠️
 
-**전력 관리(BL31/ATF)와 DDR 타이밍을 담당하는 계층이다.** 노드 간 버전이 다르면 고부하 안정성이 달라진다.
+**The layer responsible for power management (BL31/ATF) and DDR timings.**
+Differing versions between nodes give differing stability under heavy load.
 
-2026-08-10 실측:
+Measured 2026-08-10:
 
-| 구성요소 | `king` | `queen` | `jack` |
+| Component | `king` | `queen` | `jack` |
 |---|---|---|---|
 | DDR init | **v1.09** | v1.13 | v1.13 |
 | SPL | **v1.07** | v1.09 | v1.09 |
 | **BL31 (ATF)** | **v1.17** | **v1.24** | **v1.24** |
 | BL32 | **v1.05** | v1.10 | v1.10 |
 | U-Boot | **`44f011c4ba` 2025-07-17** | `c5c053fa55` 2026-07-10 | `c5c053fa55` 2026-07-10 |
-| PMIC 초기화 | **`ON:0x20 OFF:0x2`** | `ON:0x40 OFF:0x0` | `ON:0x40 OFF:0x0` |
+| PMIC initialisation | **`ON:0x20 OFF:0x2`** | `ON:0x40 OFF:0x0` | `ON:0x40 OFF:0x0` |
 
-`queen`과 `jack`은 완전히 동일하고 **`king`만 약 1년 낡았다.**
+`queen` and `jack` are completely identical and **only `king` is about a year
+old.**
 
-### 이것이 `king`의 고부하 리셋 원인으로 보인다
+### This appears to be the cause of `king`'s heavy-load resets
 
-`king`은 5스레드 이상에서 하드 리셋된다(`board-worklog.md` §2.17). BL31은 Rockchip에서 DVFS와 전압 조절을 담당하므로, 구버전의 전압 테이블이 고부하를 감당하지 못하면 정확히 이 증상이 나온다. DDR 펌웨어 차이도 메모리 트래픽이 큰 다중 스레드 조건에서 불안정성을 유발할 수 있다.
+`king` hard-resets at 5 threads or more (`board-worklog.md` §2.17). BL31 handles
+DVFS and voltage regulation on Rockchip, so an old version's voltage table
+failing to cope with heavy load produces exactly this symptom. The DDR firmware
+difference can also cause instability under memory-heavy multi-threaded
+conditions.
 
-PMIC 초기화 레지스터가 다른 것도 펌웨어 차이의 결과다.
+The differing PMIC initialisation register is also a consequence of the firmware
+difference.
 
-### 확인 방법
+### How to check
 
 ```bash
 grep -oE 'androidboot\.fwver=[^ ]*' /proc/cmdline
 ```
 
-`scripts/collect-node-info.sh`가 이 값을 수집한다(2026-08-10 추가).
+`scripts/collect-node-info.sh` collects this value (added 2026-08-10).
 
-### 조치
+### Remedy
 
-**`king`의 부트로더를 `queen`/`jack`과 동일한 버전으로 갱신해야 한다.** 갱신 후 5~8스레드 테스트로 재검증한다.
+**`king`'s bootloader has to be updated to the same version as `queen`/`jack`.**
+Re-verify with a 5–8 thread test after updating.
 
-세 노드의 `fwver` 문자열이 완전히 일치해야 "동일한 3대" 전제가 성립한다. 이 항목이 §4.1의 필수 일치 목록에 포함되지 않았던 것은 문서의 누락이었다.
+The three nodes' `fwver` strings have to match exactly for the premise of "three
+identical machines" to hold. That this item was missing from §4.1's list of
+required matches was a documentation omission.
 
-## 4.1 미해결 불일치
+## 4.1 Unresolved mismatches
 
-세 노드는 "동일 OS 이미지"여야 한다(`02-HARDWARE-SETUP.md` §5.1). 현재 다음이 어긋나 있다.
+The three nodes are supposed to be on the "same OS image"
+(`02-HARDWARE-SETUP.md` §5.1). The following are currently out of line.
 
-| 항목 | 내용 | 위험 |
+| Item | Detail | Risk |
 |---|---|---|
-| Ubuntu 패치 레벨 | K만 24.04.3 | 라이브러리 버전 차이가 노드별 성능 편차로 나타날 수 있음 |
-| 보류 중인 업데이트 | 279~374개 | 위와 동일 |
-| SSH 호스트 키 | **queen·jack 동일** (king 은 재설치로 고유) | ⚠️ **미해결.** 이미지 복제 시 재생성 누락. queen 과 jack 을 암호학적으로 구분할 수 없다 — IP 가 바뀌면 경고 없이 엉뚱한 보드에 붙는다 (§2.20 유형)|
-| hostname | K·Q 모두 `NanoPi-R76S`, J는 `localhost.localdomain` | 로그와 대시보드에서 노드 구분 불가 |
-| CPU Governor | **`performance`** | 2026-08-12 고정 + systemd 영구화. `ondemand` 대비 처리량 +7% |
+| Ubuntu patch level | only K on 24.04.3 | library version differences can appear as per-node performance variance |
+| Pending updates | 279–374 | as above |
+| SSH host key | **queen and jack identical** (king is unique after a reinstall) | ⚠️ **unresolved.** Regeneration was missed when cloning the image. queen and jack cannot be told apart cryptographically — a changed IP attaches you to the wrong board without a warning (the §2.20 type) |
+| hostname | K and Q both `NanoPi-R76S`, J `localhost.localdomain` | nodes indistinguishable in logs and the dashboard |
+| CPU Governor | **`performance`** | fixed and made permanent 2026-08-12. +7% throughput over `ondemand` |
 
-**커널 업그레이드 주의.** 커널 6.1.141은 FriendlyElec BSP 커널이며 RKNPU 드라이버 v0.9.8이 여기에 묶여 있다. `apt upgrade`가 커널을 교체하면 NPU가 동작하지 않을 수 있다. 업데이트 시 커널 패키지를 hold 한다.
+**Caution on kernel upgrades.** Kernel 6.1.141 is the FriendlyElec BSP kernel
+and the RKNPU driver v0.9.8 is tied to it. If `apt upgrade` replaces the kernel,
+the NPU may stop working. Hold the kernel package when updating.
 
-## 4.2 Scheduler 호스트
+## 4.2 The scheduler host
 
-2026-08-07 실측. 구형 노트북을 Scheduler / Benchmark / 모델 변환 호스트로 사용한다.
+Measured 2026-08-07. An old laptop serves as the scheduler / benchmark / model
+conversion host.
 
-| 항목 | 값 | 판정 |
+| Item | Value | Verdict |
 |---|---|---|
-| hostname | **`dealer`** | 2026-08-07 설정 (K/Q/J 카드 명칭과 통일) |
-| 기종 | Samsung 370E5J / 380E5Q 계열 | |
-| **배포판** | **Rocky Linux 9.7 (Blue Onyx)** | ⚠️ 보드는 Ubuntu 24.04 |
-| 커널 | 5.14.0-611.13.1.el9_7.x86_64 | |
-| glibc | **2.34** | ⚠️ 보드는 2.39 |
-| 패키지 관리자 | **`dnf`** | ⚠️ 보드는 `apt` |
-| CPU | Intel Core i7-4712MQ @2.30GHz (Haswell, 4C/8T) | 부하 생성에 충분 |
-| RAM | **3.5GB** (가용 약 1.8GB) | ⚠️ 가장 큰 제약 |
-| Swap | 3.9GB | 변환 시 메모리 부족 완화 |
-| 디스크 여유 | **60GB** (`/`, 70GB 중 16% 사용) | Docker 이미지에 충분 |
-| 아키텍처 | x86_64 | RKNN-Toolkit2 구동 가능 |
-| NIC | Realtek RTL8111/8168 (`r8169`), **1GbE 상한** | 2.5G 미지원 |
-| 링크 속도 | **1000 Mb/s** | 정상 |
-| 관리망 IP | `192.168.123.14/24` (`enp3s0`) | 보드와 동일 대역 |
+| hostname | **`dealer`** | set 2026-08-07 (unified with the K/Q/J card naming) |
+| Model | Samsung 370E5J / 380E5Q series | |
+| **Distribution** | **Rocky Linux 9.7 (Blue Onyx)** | ⚠️ the boards are Ubuntu 24.04 |
+| Kernel | 5.14.0-611.13.1.el9_7.x86_64 | |
+| glibc | **2.34** | ⚠️ the boards are 2.39 |
+| Package manager | **`dnf`** | ⚠️ the boards use `apt` |
+| CPU | Intel Core i7-4712MQ @2.30GHz (Haswell, 4C/8T) | sufficient for generating load |
+| RAM | **3.5GB** (about 1.8GB available) | ⚠️ the biggest constraint |
+| Swap | 3.9GB | eases memory pressure during conversion |
+| Disk free | **60GB** (`/`, 16% of 70GB used) | sufficient for the Docker image |
+| Architecture | x86_64 | can run RKNN-Toolkit2 |
+| NIC | Realtek RTL8111/8168 (`r8169`), **1GbE ceiling** | no 2.5G support |
+| Link speed | **1000 Mb/s** | normal |
+| Management IP | `192.168.123.14/24` (`enp3s0`) | the same range as the boards |
 | MAC | `<redacted-mac>` | |
-| USB 3.0 | Bus 004 (`xhci_hcd`, 5000M, 4포트) | 2.5G 어댑터 확장 가능 |
-| Thunderbolt | 없음 | |
-| Docker | **29.2.1**, storage `overlayfs` | 모델 변환 환경 |
-| Python (호스트) | 3.9.23 | 변환은 컨테이너 안에서 하므로 무관 |
-| 계정 | `yoo2` (`wheel`, `docker` 소속) | 2026-08-07 그룹 추가 |
-| root SSH | 차단됨 | 승격은 `su` 사용 |
+| USB 3.0 | Bus 004 (`xhci_hcd`, 5000M, 4 ports) | a 2.5G adapter could be added |
+| Thunderbolt | none | |
+| Docker | **29.2.1**, storage `overlayfs` | the model conversion environment |
+| Python (host) | 3.9.23 | irrelevant, since conversion happens inside the container |
+| Account | `yoo2` (in `wheel` and `docker`) | groups added 2026-08-07 |
+| root SSH | blocked | escalation via `su` |
 
-### ⚠️ 호스트와 노드의 배포판이 다르다
+### ⚠️ The host and the nodes run different distributions
 
-| | Scheduler 호스트 | 노드 3대 |
+| | Scheduler host | The 3 nodes |
 |---|---|---|
-| 배포판 | Rocky Linux 9.7 | Ubuntu 24.04 |
+| Distribution | Rocky Linux 9.7 | Ubuntu 24.04 |
 | glibc | 2.34 | 2.39 |
-| 패키지 관리자 | `dnf` | `apt` |
+| Package manager | `dnf` | `apt` |
 
-**영향 1 — 스크립트.** `scripts/fix-node-consistency.sh`는 `apt` 전용이다. 노드 대상이므로 문제 없으나, 호스트에도 적용하는 스크립트를 쓸 때는 패키지 관리자를 분기해야 한다.
+**Effect 1 — scripts.** `scripts/fix-node-consistency.sh` is `apt`-only. That is
+fine since it targets the nodes, but a script applied to the host too has to
+branch on package manager.
 
-**영향 2 — 바이너리 배포.** 다행히 방향이 안전한 쪽이다.
+**Effect 2 — binary deployment.** Fortunately the direction is the safe one.
 
 ```text
-빌드 호스트 glibc 2.34  →  실행 대상 glibc 2.39   (구 → 신, 호환됨)
+build host glibc 2.34  ->  run target glibc 2.39   (old -> new, compatible)
 ```
 
-낮은 glibc로 빌드한 바이너리는 높은 glibc에서 동작한다. 반대는 성립하지 않는다.
+A binary built against a lower glibc runs on a higher one. The reverse does not
+hold.
 
-다만 **현재 `dealer` 에는 Rust 가 설치되어 있지 않다.** 실제 빌드는 `king` 에서
-네이티브로 하고 결과물을 세 노드에 배포한다. 세 보드의 glibc 가 2.39 로 같으므로
-이 방향에는 문제가 없다.
+But **Rust is not currently installed on `dealer`.** The actual build happens
+natively on `king` and the artefacts are deployed to the three nodes. Since the
+three boards are all on glibc 2.39, that direction is fine.
 
-단, `npuforge-scheduler`(x86_64) 바이너리는 `dealer`에서 직접 빌드하거나 glibc 2.34 이하 환경에서 빌드해야 한다.
+However, the `npuforge-scheduler` (x86_64) binary has to be built on `dealer`
+directly, or in an environment with glibc 2.34 or lower.
 
-**영향 3 — 재현성 기록.** 오픈소스 공개 시 "Ubuntu에서 개발했다"고 쓸 수 없다. 호스트와 노드의 배포판을 각각 명시한다.
+**Effect 3 — recording reproducibility.** On open-source publication we cannot
+write "developed on Ubuntu". The host's and the nodes' distributions are stated
+separately.
 
-### 100Mb/s 링크 문제 (해결됨)
+### The 100 Mb/s link problem (resolved)
 
-최초 측정 시 `Speed: 100Mb/s`로 협상되어 있었다. 포트는 1000baseT를 지원하므로 케이블 문제였고, 교체 후 1000Mb/s로 정상화되었다.
+The initial measurement had negotiated `Speed: 100Mb/s`. The port supports
+1000baseT, so it was a cable problem, and replacement normalised it to
+1000 Mb/s.
 
-이 상태를 방치했다면 JPEG 100KB 기준 약 125 FPS에서 링크가 포화되어, NPU가 아니라 케이블을 측정할 뻔했다. **매 실험 전 링크 속도를 확인하는 절차를 둔다.**
+Left alone, at 100KB JPEGs the link would have saturated at about 125 FPS, and
+we would have measured the cable rather than the NPU. **A procedure for checking
+link speed before every experiment is in place.**
 
 ```bash
 ethtool enp3s0 | grep Speed
 ```
 
-### RAM 제약에 대한 대응
+### Handling the RAM constraint
 
-Scheduler 호스트(3.5GB)가 노드(4GB)보다 메모리가 적다. `npuforge-scheduler` + `npuforge-bench` + Prometheus + Dashboard를 동시에 최대 부하로 돌릴 수 없다.
+The scheduler host (3.5GB) has less memory than a node (4GB).
+`npuforge-scheduler` + `npuforge-bench` + Prometheus + Dashboard cannot all be
+run at maximum load simultaneously.
 
-**대응 방침:**
+**Policy:**
 
-| 상황 | 구성 |
+| Situation | Configuration |
 |---|---|
-| 공식 벤치마크 | Scheduler + bench 만 실행. Prometheus·Dashboard 중지. 원본은 JSONL로 기록 |
-| 발표 데모 | Scheduler + Dashboard. 부하는 낮게 |
-| 개발 | 제한 없음 |
+| Official benchmarks | Scheduler + bench only. Prometheus and Dashboard stopped. Raw data recorded as JSONL |
+| Talk demo | Scheduler + Dashboard. Load kept low |
+| Development | no restriction |
 
-원본 데이터가 결과물이고 대시보드는 데모용이므로 둘을 동시에 최대로 돌릴 필요가 없다. `npuforge-bench`는 실행 중 호스트 CPU·메모리 사용률을 함께 기록해, 클라이언트가 병목이었는지 사후에 판별할 수 있게 한다.
+The raw data is the output and the dashboard is for the demo, so there is no
+need to run both at maximum. `npuforge-bench` records host CPU and memory
+utilisation while running, so whether the client was the bottleneck can be
+determined afterwards.
 
-### 2.5GbE 확장 판단 보류
+### The 2.5GbE upgrade decision is deferred
 
-현재 1GbE다. 2.5G 필요 여부는 **S0/S1에서 노드당 실제 FPS를 측정한 뒤** 결정한다.
+Currently 1GbE. Whether 2.5G is needed is decided **after measuring actual FPS
+per node in S0/S1.**
 
 ```text
-노드당 40 FPS 가정 → 3노드 120 FPS × 100KB ≈ 96 Mbps   → 1GbE로 충분
-Raw RGB 입력 (S6)  → 120 FPS × 1.23MB ≈ 1.2 Gbps        → 1GbE 초과
+assuming 40 FPS per node -> 3 nodes 120 FPS x 100KB ~ 96 Mbps   -> 1GbE suffices
+raw RGB input (S6)       -> 120 FPS x 1.23MB ~ 1.2 Gbps         -> exceeds 1GbE
 ```
 
-~~USB 3.0 2.5GbE 어댑터~~ 로는 부족하다. 3노드 aggregation 에 **10G** 가
-필요하고(위 표), USB 어댑터는 2.5G 가 상한이다. `dealer` 는 PCIe 슬롯이
-없으므로 **스케줄러 호스트를 서버로 교체**해야 한다.
+~~A USB 3.0 2.5GbE adapter~~ is not enough. Three-node aggregation needs **10G**
+(the table above), and a USB adapter tops out at 2.5G. `dealer` has no PCIe
+slot, so **the scheduler host has to be replaced with a server.**
 `02-HARDWARE-SETUP.md` §3.3.2.
 
-USB NIC 사용 시 결과에 그 사실을 명시한다.
+If a USB NIC is used, state that fact in the results.
 
 ---
 
-# 5. Rust 및 빌드 툴체인
+# 5. Rust and the build toolchain
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| Rust 버전 | **1.97.1** (`king` 에만 설치) |
+| Rust version | **1.97.1** (installed on `king` only) |
 | Edition | **2024** |
 | MSRV | **1.85** |
-| 크로스 링커 | `aarch64-linux-gnu-gcc` |
-| 크로스 툴체인 버전 | 미사용 — `king` 네이티브 빌드 (gcc 13.3.0) |
-| protoc 버전 | **libprotoc 3.21.12** (`king`) |
+| Cross linker | `aarch64-linux-gnu-gcc` |
+| Cross toolchain version | not used — native build on `king` (gcc 13.3.0) |
+| protoc version | **libprotoc 3.21.12** (`king`) |
 
-빌드 산출물 해시는 릴리스마다 달라지므로 본 문서가 아니라 릴리스 노트에 기록한다.
+Build artefact hashes differ per release and are recorded in the release notes
+rather than here.
 
 ---
 
-# 6. 기준 모델
+# 6. The reference model
 
-## 6.1 ONNX 원본
+## 6.1 The ONNX original
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 모델 | YOLOv8n (RKNN 최적화판) |
-| 출처 | `airockchip/rknn_model_zoo` → `examples/yolov8` |
-| 원본 프로젝트 | `airockchip/ultralytics_yolov8` |
-| **라이선스** | **AGPL-3.0** (`MODEL_LICENSES.md` §2 참조) |
-| 파일 | `yolov8n.onnx` |
-| 크기 | 12,650,184 bytes |
+| Model | YOLOv8n (the RKNN-optimized version) |
+| Source | `airockchip/rknn_model_zoo` → `examples/yolov8` |
+| Upstream project | `airockchip/ultralytics_yolov8` |
+| **License** | **AGPL-3.0** (see `MODEL_LICENSES.md` §2) |
+| File | `yolov8n.onnx` |
+| Size | 12,650,184 bytes |
 | **SHA-256** | `0c8716701f471067932b797eeb67c8e5db47c693c2557c881d7679ec12e21bc5` |
-| export 도구 | PyTorch 2.0 |
-| 입력 해상도 | 640 × 640 RGB |
+| Export tool | PyTorch 2.0 |
+| Input resolution | 640 × 640 RGB |
 
-### ⚠️ 표준 Ultralytics export를 쓰지 않는 이유
+### ⚠️ Why the standard Ultralytics export is not used
 
-공식 원본은 DFL·NMS 후처리가 ONNX 그래프에 포함되어 있다. 이 연산들은 NPU에 매핑되지 않아 CPU fallback이 대량 발생한다. **그 상태로 측정하면 NPU가 아니라 CPU를 측정하게 된다.**
+The official original includes DFL and NMS postprocessing in the ONNX graph.
+Those operators do not map to the NPU and cause extensive CPU fallback.
+**Measuring in that state measures the CPU, not the NPU.**
 
-Rockchip 최적화판은 decode 이전의 raw 텐서를 출력하고 후처리를 CPU에서 별도 수행한다.
+The Rockchip-optimized version outputs the raw tensors before decoding and
+performs postprocessing separately on the CPU.
 
 ```text
-공식 원본 : 출력 1개 (decode·NMS 포함)
-최적화판  : 출력 3그룹
-            [1,64,80,80]  박스 좌표
-            [1,80,80,80]  80개 클래스별 confidence
-            [1,1,80,80]   confidence 합
+official original : 1 output (decode and NMS included)
+optimized version : 3 output groups
+                    [1,64,80,80]  box coordinates
+                    [1,80,80,80]  per-class confidence for 80 classes
+                    [1,1,80,80]   confidence sum
 ```
 
-RK3576은 공식 지원 목록에 포함된다(RK3562/3566/3568/**3576**/3588/RV1126B/RV1109/RV1126/RK1808/RK3399PRO).
+RK3576 is on the officially supported list (RK3562/3566/3568/**3576**/3588/
+RV1126B/RV1109/RV1126/RK1808/RK3399PRO).
 
-## 6.2 변환된 RKNN
+## 6.2 The converted RKNN
 
-### FP16 (thread-safety 검증용, 2026-08-07)
+### FP16 (for thread-safety verification, 2026-08-07)
 
-Calibration 데이터가 확정되지 않아 먼저 FP16으로 변환했다. 양자화 없이도 동시성 검증에는 지장이 없다.
+Since the calibration data was not settled, FP16 was converted first. Without
+quantization, concurrency verification is unaffected.
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 파일 | `yolov8n-fp16.rknn` |
-| 크기 | 9,645,065 bytes |
+| File | `yolov8n-fp16.rknn` |
+| Size | 9,645,065 bytes |
 | **SHA-256** | `459602ea70479c1ce4fdd7419aa81e10e2f795fe6fe87444f3607f25b7054c0f` |
-| 양자화 | 없음 (FP16) |
+| Quantization | none (FP16) |
 | target_platform | `rk3576` |
-| 3노드 배포 및 해시 일치 | 확인 |
+| Deployed to 3 nodes with matching hashes | confirmed |
 
-### INT8 (기준 모델) — **생성 및 검증 완료 (2026-08-12)**
+### INT8 (the reference model) — **generated and verified (2026-08-12)**
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 양자화 방식 | INT8 |
-| Calibration 이미지 수 | **200** (COCO val2017, seed 20261128) |
-| Calibration manifest SHA-256 | `d8d189fc386897dd…` ⚠️ 절대경로 기반. 이식 가능한 값은 `224b8bebd5f3a4ce…` |
+| Quantization | INT8 |
+| Calibration images | **200** (COCO val2017, seed 20261128) |
+| Calibration manifest SHA-256 | `d8d189fc386897dd…` ⚠️ based on absolute paths. The portable value is `224b8bebd5f3a4ce…` |
 | RKNN SHA-256 | INT8 `dba155d2088df622…` / FP16 `459602ea70479c1c…` |
-| CPU fallback 연산 목록 | 미조사. 변환 로그의 `not support` 경고로 확인할 수 있다 |
+| CPU fallback operator list | not investigated. Can be confirmed from the `not support` warnings in the conversion log |
 
-Calibration 데이터 세트 확정 후 생성한다(§7).
+Generated after the calibration dataset was settled (§7).
 
-## 6.3 변환 환경
+## 6.3 The conversion environment
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 이미지 | `npuforge-converter:2.3.0` (9.61GB) |
-| 베이스 | `ubuntu:22.04` |
+| Image | `npuforge-converter:2.3.0` (9.61GB) |
+| Base | `ubuntu:22.04` |
 | Python | 3.10.12 |
-| **rknn-toolkit2** | **2.3.0** (보드 Runtime 2.3.0과 일치) |
-| **onnx** | **1.14.1 (고정 필수)** |
-| torch | 2.4.0 (CPU 전용으로 전환 예정) |
+| **rknn-toolkit2** | **2.3.0** (matching the boards' Runtime 2.3.0) |
+| **onnx** | **1.14.1 (pinning required)** |
+| torch | 2.4.0 (to be switched to CPU-only) |
 | numpy | 1.26.4 |
 | protobuf | 4.25.4 |
 
-### ⚠️ onnx 버전을 반드시 고정해야 한다
+### ⚠️ The onnx version has to be pinned
 
-`rknn-toolkit2`의 의존성 명세가 onnx 버전을 제한하지 않아 최신 버전(실측 시 1.22.0)이 설치되었고, 변환이 실패했다.
+`rknn-toolkit2`'s dependency specification does not constrain the onnx version,
+so the latest (1.22.0 at the time) got installed and conversion failed.
 
 ```text
 AttributeError: module 'onnx' has no attribute 'mapping'
 ```
 
-`onnx.mapping`은 onnx 1.16에서 제거되었는데 rknn-toolkit2 2.3.0이 이를 사용한다. **1.14.1로 고정하면 정상 동작한다**(2026-08-07 실측).
+`onnx.mapping` was removed in onnx 1.16, and rknn-toolkit2 2.3.0 uses it.
+**Pinning to 1.14.1 makes it work** (measured 2026-08-07).
 
-Dockerfile에 고정 및 검증 단계를 넣었다.
+The pin and a verification step are in the Dockerfile.
 
 ```dockerfile
 RUN python3 -m pip install "onnx==1.14.1" \
     && python3 -c "import onnx; assert hasattr(onnx, 'mapping')"
 ```
 
-CPU fallback 목록은 확장 효율 분석에 직접 쓰이므로 반드시 기록한다. NPU가 아닌 CPU에서 실행되는 연산이 많을수록 노드 간 편차와 온도 영향이 커진다.
+The CPU fallback list feeds directly into scaling-efficiency analysis and must
+be recorded. The more operators run on the CPU rather than the NPU, the greater
+the node-to-node variance and thermal influence.
 
 ---
 
-# 7. 벤치마크 데이터 세트
+# 7. The benchmark dataset
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 데이터 세트 이름 | **COCO val2017 부분집합** |
-| 출처 | `http://images.cocodataset.org/val2017` |
-| 재배포 조건 | **재배포 금지.** 개별 이미지는 Flickr 출처로 라이선스가 제각각이다. COCO 는 어노테이션에만 CC-BY 4.0 을 건다. 저장소에는 manifest 만 넣는다 |
-| 이미지 수 | **200** |
-| 선택 방식 | 정렬 후 고정 시드(20261128) 추출. `tools/model-converter/fetch_calibration.py` |
-| 입력 포맷 | 640×640×3 uint8 NHWC RGB (전처리는 `make_reference.py` 가 수행) |
+| Dataset name | **a COCO val2017 subset** |
+| Source | `http://images.cocodataset.org/val2017` |
+| Redistribution terms | **redistribution forbidden.** The individual images come from Flickr with varying licenses. COCO applies CC-BY 4.0 to the annotations only. Only a manifest goes in the repository |
+| Image count | **200** |
+| Selection method | sorted, then extracted with a fixed seed (20261128). `tools/model-converter/fetch_calibration.py` |
+| Input format | 640×640×3 uint8 NHWC RGB (preprocessing done by `make_reference.py`) |
 | Manifest SHA-256 | `224b8bebd5f3a4ce906388d2fab1371ce0b84bf92e352226fb270f2fe3560fec` |
 
-현재는 calibration 과 정확도 검증에 같은 데이터를 쓴다. **벤치마크 부하는
-`npuforge-bench` 가 결정적으로 생성하는 합성 입력**을 쓴다(시드 고정).
-실제 이미지로 부하를 걸 필요가 생기면 여기에 별도 세트를 정의한다.
+The same data is currently used for both calibration and accuracy verification.
+**The benchmark load uses synthetic input generated deterministically by
+`npuforge-bench`** (fixed seed). If loading with real images becomes necessary,
+a separate set is defined here.
 
 ---
 
-# 8. 노드 인벤토리
+# 8. Node inventory
 
-`03-DEVELOPMENT-REQUIREMENTS.md` §4.4에서 요구하는 관리 정보다.
+The management information required by `03-DEVELOPMENT-REQUIREMENTS.md` §4.4.
 
-보드에는 물리적으로 **K / Q / J** 라벨이 붙어 있다. Node ID와 hostname을 여기에 맞춘다.
+The boards carry physical **K / Q / J** labels. Node IDs and hostnames match
+them.
 
-| 항목 | K | Q | J |
+| Item | K | Q | J |
 |---|---|---|---|
 | Node ID | `king` | `queen` | `jack` |
 | hostname | `king` | `queen` | `jack` |
-| 변경 전 hostname | `NanoPi-R76S` | `NanoPi-R76S` | `localhost.localdomain` |
-| 관리망 IP (현재) | `192.168.123.12` | `192.168.123.16` | `192.168.123.33` |
-| 관리망 포트 | `eth1` | `eth1` | `eth1` |
-| 관리망 MAC | `<redacted-mac>` | (수집됨) | (수집됨) |
-| 관리망 링크 | 1000 Mbps (1G 허브에 협상됨. 포트는 2.5G 지원) | 1000 Mbps | 1000 Mbps |
-| 추론망 IP (예정) | `10.20.0.21` | `10.20.0.22` | `10.20.0.23` |
-| 추론망 포트 | `eth0` (2.5G, 미연결) | `eth0` (2.5G, 미연결) | `eth0` (2.5G, 미연결) |
-| 추론망 MAC | `<redacted-mac>` | (수집됨) | (수집됨) |
+| Previous hostname | `NanoPi-R76S` | `NanoPi-R76S` | `localhost.localdomain` |
+| Management IP (current) | `192.168.123.12` | `192.168.123.16` | `192.168.123.33` |
+| Management port | `eth1` | `eth1` | `eth1` |
+| Management MAC | `<redacted-mac>` | (collected) | (collected) |
+| Management link | 1000 Mbps (negotiated to the 1G hub. The port supports 2.5G) | 1000 Mbps | 1000 Mbps |
+| Inference IP (planned) | `10.20.0.21` | `10.20.0.22` | `10.20.0.23` |
+| Inference port | `eth0` (2.5G, unconnected) | `eth0` (2.5G, unconnected) | `eth0` (2.5G, unconnected) |
+| Inference MAC | `<redacted-mac>` | (collected) | (collected) |
 | Serial | `aaf2afcf6887055` | `64901d66a690b679` | `5b1e0475e81e50e4` |
 | RAM | 4GB | 4GB | 4GB |
 | eMMC | 64GB | 64GB | 64GB |
-| 전원 어댑터 | 5V 4A | 5V 4A | 5V 4A |
+| Power adapter | 5V 4A | 5V 4A | 5V 4A |
 
-MAC 전체 목록은 `benchmarks/node-info/{k,q,j}.txt` 참조.
+The full MAC list is in `benchmarks/node-info/{k,q,j}.txt`.
 
-**`eth0`이 세 노드 모두 `down` 상태다.** 두 번째 2.5G 포트가 비어 있으므로 추론망 전용으로 그대로 쓸 수 있다. `eth1`은 현재 1G 허브에 연결되어 관리망 역할을 하고 있다.
+**`eth0` is `down` on all three nodes.** The second 2.5G port is free and can be
+used for the inference network as-is. `eth1` is currently connected to the 1G
+hub serving as the management network.
 
-세 노드 모두 팬리스 출고 상태를 유지한다(`02-HARDWARE-SETUP.md` §9.1).
+All three nodes stay in their fanless factory state (`02-HARDWARE-SETUP.md`
+§9.1).
 
-**어느 물리 포트를 추론망에 쓸지는 세 노드에서 동일해야 한다.** 포트가 섞이면 노드별 네트워크 특성이 달라져 비교가 무의미해진다.
+**Which physical port is used for the inference network has to be identical on
+all three nodes.** Mixing ports gives the nodes different network
+characteristics and makes comparison meaningless.
 
-Scheduler 호스트는 `npuforge-scheduler` / `10.20.0.10`.
+The scheduler host is `npuforge-scheduler` / `10.20.0.10`.
 
-## 8.1 일치 검증
+## 8.1 Verifying they match
 
 ```bash
 ./scripts/check-versions.sh
 ./scripts/check-model-hashes.sh
 ```
 
-세 노드의 출력이 모두 동일해야 하며, 공식 벤치마크 실행 전에 매번 확인한다.
+The three nodes' output has to be identical, and is checked before every
+official benchmark run.
 
 ---
 
-# 8.2 전원 (확정 2026-08-10)
+# 8.2 Power (settled 2026-08-10)
 
-## 입력 방식
+## Input method
 
-**5V 입력이다.** 커널 디바이스 트리의 `vcc12v_dcin: 12000 mV`는 fixed-regulator 선언일 뿐 실제 입력 전압이 아니다. Rockchip 디바이스 트리가 보드 간 복사되며 남은 항목이다.
+**The input is 5V.** The kernel device tree's `vcc12v_dcin: 12000 mV` is merely
+a fixed-regulator declaration, not the actual input voltage. It is a leftover
+from Rockchip device trees being copied between boards.
 
-**반드시 센서 실측값을 확인한다.**
+**Always check the measured sensor value.**
 
 ```bash
-cat /sys/class/power_supply/simple-vin/voltage_now   # 마이크로볼트
+cat /sys/class/power_supply/simple-vin/voltage_now   # microvolts
 ```
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 입력 전압 | **5V** |
-| 센서 경로 | `/sys/class/power_supply/simple-vin/` |
-| 어댑터 정격 | **5V 4A (20W)** × 3, 노드별 독립 |
+| Input voltage | **5V** |
+| Sensor path | `/sys/class/power_supply/simple-vin/` |
+| Adapter rating | **5V 4A (20W)** × 3, independent per node |
 
-## 어댑터 교체 전후
+## Before and after the adapter replacement
 
-| 상태 | 유휴 전압 | 고부하 안정성 |
+| State | Idle voltage | Stability under heavy load |
 |---|---|---|
-| 교체 전 | **4.983 V** (5V 미만) | 3~5 스레드에서 하드 리셋 |
-| 교체 후 (5V 4A) | **5.27 ~ 5.31 V** | 8 스레드 완주 |
+| Before | **4.983 V** (below 5V) | hard reset at 3–5 threads |
+| After (5V 4A) | **5.27 – 5.31 V** | completes 8 threads |
 
-교체 전 어댑터는 **무부하에서도 5V를 유지하지 못했다.** 고부하에서 더 떨어져 브라운아웃 임계를 넘은 것이 재부팅의 원인이었다.
+The previous adapters **could not hold 5V even at no load.** Dropping further
+under heavy load past the brownout threshold was the cause of the reboots.
 
-## 지속 부하 중 전압 (3대 동시, 8스레드)
+## Voltage under sustained load (3 boards simultaneously, 8 threads)
 
-| 노드 | 최소 전압 |
+| Node | Minimum voltage |
 |---|---|
 | `king` | 5.061 V |
 | `queen` | 5.157 V |
 | `jack` | 5.124 V |
 
-3대를 동시에 최대 부하로 돌려도 5V 아래로 내려가지 않는다. **전원 여유는 확보되었다.**
+Even running all three at maximum load simultaneously it does not fall below 5V.
+**Power headroom is secured.**
 
-## 벤치마크 시 기록 의무
+## Recording obligation during benchmarks
 
-전압을 온도와 함께 기록한다. 전압 강하는 성능 저하와 리셋의 선행 지표다.
+Voltage is recorded alongside temperature. A voltage drop is a leading indicator
+of performance degradation and resets.
 
 ```text
-psu_simple-vin_voltage_v    측정 시작 / 최소 / 평균 / 종료
+psu_simple-vin_voltage_v    at measurement start / minimum / mean / end
 ```
 
-`scripts/collect-node-info.sh`가 수집하며, 벤치마크 실행 중에는 1초 간격으로 샘플링한다.
+`scripts/collect-node-info.sh` collects it, and it is sampled at 1-second
+intervals during a benchmark run.
 
 ---
 
-# 9. 열 특성 (S0 결과)
+# 9. Thermal characteristics (S0 results)
 
-팬리스 구성이므로 이 값들이 다른 모든 실험의 전제가 된다.
-**S0 로 측정을 마쳤다 (2026-08-21).** 원본은
+Being a fanless configuration, these values are the premise for every other
+experiment. **Measurement completed with S0 (2026-08-21).** The source is
 [`experiments/S0_SUSTAINED_LOAD.md`](experiments/S0_SUSTAINED_LOAD.md).
 
-> ⚠️ **원래 이 절은 노드별 Peak/Sustained FPS 표였다.** 계획 당시에는
-> 보드를 따로 재는 그림이었는데, S0 는 **클러스터 단위 30분 지속 부하**로
-> 설계됐다. 노드별로는 온도·클럭·지연이 나오고 FPS 는 클러스터 합계로
-> 나온다. **측정하지 않은 칸을 채우지 않는다** — 표를 실제 산출 구조에
-> 맞춰 다시 썼다.
+> ⚠️ **This section was originally a per-node Peak/Sustained FPS table.** At
+> planning time the picture was measuring boards separately, but S0 was designed
+> as **30 minutes of sustained load at the cluster level.** Per node you get
+> temperature, clock and latency; FPS comes out as a cluster total. **Cells that
+> were not measured do not get filled in** — the table was rewritten to match
+> the actual output structure.
 
-### 클러스터 (3노드 합계, 30분)
+### Cluster (3-node total, 30 minutes)
 
-| 항목 | B: 능동 냉각 | A: 팬리스 |
+| Item | B: active cooling | A: fanless |
 |---|---:|---:|
 | peak | 387.7 inf/s | 389.4 inf/s |
-| **steady (뒤 1/3)** | **380.3 ± 2.2** | **345.4 ± 3.8** |
-| **성능 저하율** | **1.9%** | **11.3%** |
-| soc 최대 | 58.2 ~ 61.0°C | **85.9 ~ 86.8°C** |
-| npu 최대 | 59.2 ~ 61.0°C | **86.8 ~ 87.8°C** |
-| NPU 최저 클럭 | 950 MHz | 950 MHz (**강등 없음**) |
-| 노드 제외 | 0 | 0 |
-| 오류율 | 0 | 0 |
+| **steady (last third)** | **380.3 ± 2.2** | **345.4 ± 3.8** |
+| **degradation** | **1.9%** | **11.3%** |
+| soc max | 58.2 – 61.0 °C | **85.9 – 86.8 °C** |
+| npu max | 59.2 – 61.0 °C | **86.8 – 87.8 °C** |
+| NPU minimum clock | 950 MHz | 950 MHz (**no downgrade**) |
+| Node exclusions | 0 | 0 |
+| Error rate | 0 | 0 |
 
-### 노드별 (팬리스 조건에서 갈린다)
+### Per node (they diverge under the fanless condition)
 
-| 항목 | KING | QUEEN | JACK |
+| Item | KING | QUEEN | JACK |
 |---|---:|---:|---:|
-| 유휴 시작 온도 | 38.8 ~ 41.6°C (두 조건 모두, 노드 간 차이 작음) |||
-| npu 최대 (팬리스) | 86.8°C | 85.9°C | 86.8°C |
-| **CPU 최저 클럭 (팬리스)** | **816 MHz (−63%)** | 1416 MHz (−36%) | 1200 MHz (−46%) |
-| p50 지연 (팬리스) | **156.9 ms** | 66.0 ms | 64.7 ms |
-| 요청 분배 | 33.3% | 33.3% | 33.3% |
+| Idle starting temperature | 38.8 – 41.6 °C (both conditions; little difference between nodes) |||
+| npu max (fanless) | 86.8 °C | 85.9 °C | 86.8 °C |
+| **CPU minimum clock (fanless)** | **816 MHz (−63%)** | 1416 MHz (−36%) | 1200 MHz (−46%) |
+| p50 latency (fanless) | **156.9 ms** | 66.0 ms | 64.7 ms |
+| Request share | 33.3% | 33.3% | 33.3% |
 
-**강등된 것은 NPU 가 아니라 CPU 다.** 그리고 보드마다 정도가 다르다 —
-king 이 다른 둘보다 **2.4배 느려졌는데 round-robin 은 여전히 1/3 을
-보낸다.** 이 관찰이 S0-C 정책 A/B 로 이어졌다.
+**What is downgraded is the CPU, not the NPU.** And by different amounts per
+board — king became **2.4× slower than the other two and round-robin still sends
+it one third.** That observation led to the S0-C policy A/B.
 
-능동 냉각에서는 **클럭 강등 0회**다. 그래서 S2~S3.9a 의 60초 결과가
-지속 운전에 그대로 적용된다.
+Under active cooling there are **zero clock downgrades.** That is why the
+60-second results from S2 through S3.9a apply unchanged to sustained operation.
 
-> 측정하지 않은 것: **throttling 시작 시점(초)** 과 **Idle 복귀 시간** 은
-> 재지 않았다. S0 는 정상 상태 도달 후의 지속 성능을 물었지 과도 구간을
-> 묻지 않았다.
+> Not measured: **throttling onset (seconds)** and **time to return to idle**
+> were not taken. S0 asked about sustained performance after reaching steady
+> state, not about the transient region.
 
-## 9.0 예비 측정 (S0 아님, 2026-08-11)
+## 9.0 The pilot measurement (not S0, 2026-08-11)
 
-S0 정식 측정(30분)이 아니라 **노드 간 열 편차 확인용 15분 측정**이다.
-S0 표를 채우지 않는다. `board-worklog.md` §2.19 참조.
+Not the formal S0 (30 minutes) but **a 15-minute measurement for checking
+node-to-node thermal spread.** It does not fill in the S0 table. See
+`board-worklog.md` §2.19.
 
-조건: 8스레드 고정, 900초, 세 보드 동시 시작, 팬리스, 선풍기 없음.
-**CPU governor 는 당시 `ondemand`.** 2026-08-12 부터 `performance` 이므로
-처리량 수치는 약 7% 낮게 나온 값이다(discuss.md §11). 온도는 유휴 기준
-1°C 이내 차이라 열 결론에는 영향이 없다.
-도구: `scripts/run-thermal-comparison.sh` + `sustained_load_test`.
-평탄역: 부하 후 300초~종료 (보드당 약 557샘플).
+Conditions: fixed at 8 threads, 900 s, all three boards started simultaneously,
+fanless, no desk fan. **The CPU governor was `ondemand` at the time.** Since
+2026-08-12 it has been `performance`, so the throughput figures came out about
+7% low (discuss.md §11). Temperatures differ by within 1 °C at idle, so the
+thermal conclusions are unaffected.
+Tools: `scripts/run-thermal-comparison.sh` + `sustained_load_test`.
+Plateau: from 300 s after load to the end (about 557 samples per board).
 
-| 항목 | `king` | `queen` | `jack` |
+| Item | `king` | `queen` | `jack` |
 |---|---|---|---|
-| Idle NPU | 37.0°C | 35.2°C | 36.1°C |
-| 평탄역 NPU 평균 | 73.0°C | 67.5°C | 72.6°C |
-| **최고 NPU** | **75.8°C** | 70.2°C | 74.8°C |
-| 평탄역 SoC 평균 | 71.2°C | 65.8°C | 71.6°C |
-| 입력 전압 최저 | 5.070 V | 5.090 V | 5.046 V |
-| NPU 클럭 | 950 MHz 고정 | 950 MHz 고정 | 950 MHz 고정 |
-| 지속 처리량 | 80.5 inf/s | 77.7 inf/s | 77.8 inf/s |
-| 총 추론 (900초) | 72,481 | 69,928 | 70,049 |
-| 평균 지연 | 99.3 ms | 102.9 ms | 102.8 ms |
-| 오류 | 0 | 0 | 0 |
+| Idle NPU | 37.0 °C | 35.2 °C | 36.1 °C |
+| Plateau NPU mean | 73.0 °C | 67.5 °C | 72.6 °C |
+| **Peak NPU** | **75.8 °C** | 70.2 °C | 74.8 °C |
+| Plateau SoC mean | 71.2 °C | 65.8 °C | 71.6 °C |
+| Minimum input voltage | 5.070 V | 5.090 V | 5.046 V |
+| NPU clock | pinned at 950 MHz | pinned at 950 MHz | pinned at 950 MHz |
+| Sustained throughput | 80.5 inf/s | 77.7 inf/s | 77.8 inf/s |
+| Total inferences (900 s) | 72,481 | 69,928 | 70,049 |
+| Mean latency | 99.3 ms | 102.9 ms | 102.8 ms |
+| Errors | 0 | 0 | 0 |
 
-**노드 간 최대 편차 5.6°C. NPU throttling 없음** — 928 샘플 전부 950 MHz 로,
-NPU 클럭이 한 번도 떨어지지 않았다.
+**Maximum node-to-node spread 5.6 °C. No NPU throttling** — all 928 samples at
+950 MHz, with the NPU clock never dropping once.
 
-여기서 확정할 수 있는 것:
+What can be settled here:
 
-- 현재 임계치(`degraded 80` / `disable 90`)는 이 부하에서 **작동하지 않는다**.
-  최고 75.8°C 로 80°C 에 닿지 않으므로 노드가 임의로 제외될 일이 없다.
-  다만 S0(30분)에서는 더 올라갈 수 있으므로 §9.2 는 여전히 S0 결과로 정한다.
-- 팬리스로 8스레드 지속 부하가 오류 없이 완주한다
-- ⚠️ **그러나 CPU 는 열로 강등된다.** 위 판정은 NPU 클럭만 봤다.
-  같은 로그의 CPU 클럭을 보면 A72 2208 → 816 MHz, A53 2016 → 600 MHz 다.
-  처리량이 300초에 -27% 떨어진다. `discuss.md` §12
-- 세 보드의 처리량 편차는 3.5% 이내다. 확장 효율 측정의 전제가 성립한다.
+- The current thresholds (`degraded 80` / `disable 90`) **do not fire** under
+  this load. At a peak of 75.8 °C they never reach 80 °C, so no node gets
+  arbitrarily excluded. But S0 (30 minutes) could go higher, so §9.2 is still
+  decided from S0's results.
+- Sustained 8-thread load runs to completion fanless with no errors
+- ⚠️ **But the CPU is downgraded by heat.** The verdict above looked only at the
+  NPU clock. The CPU clocks in the same log show A72 2208 → 816 MHz and A53
+  2016 → 600 MHz. Throughput falls 27% over 300 seconds. `discuss.md` §12
+- The three boards' throughput varies by within 3.5%. The premise for
+  scaling-efficiency measurement holds.
 
-## 9.1 측정 조건
+## 9.1 Measurement conditions
 
-| 항목 | 값 |
-|---|---|
-| 주변 온도 | 미측정 | 온도계 없음. 유휴 NPU 35~40°C 로 간접 추정 |
-| 측정 일시 | 예비 측정 2026-08-11 10:48 KST | 정식 S0 은 미실시 |
-| 보드 간 간격 | 미기록 | 사진 또는 실측으로 남길 것 |
-| 배치 방향 | 미기록 | 위와 같음 |
-| 케이스 유무 | **없음** (기판 노출) | |
+| Item | Value | |
+|---|---|---|
+| Ambient temperature | not measured | no thermometer. Indirectly estimated from an idle NPU of 35–40 °C |
+| Date and time | pilot measurement 2026-08-11 10:48 KST | the formal S0 was not run |
+| Spacing between boards | not recorded | to be captured by photograph or measurement |
+| Orientation | not recorded | as above |
+| Case | **none** (bare boards) | |
 
-## 9.2 확정 온도 임계치
+## 9.2 The settled temperature thresholds
 
-S0 결과를 근거로 정한다. 정상 상태 온도보다 충분히 높아야 벤치마크 중 노드가 임의로 제외되지 않는다.
+Decided on the basis of S0's results. They have to be comfortably above the
+steady-state temperature so that nodes are not arbitrarily excluded during a
+benchmark.
 
-| 설정 키 | 값 | 근거 |
+| Configuration key | Value | Basis |
 |---|---:|---|
-| `degraded_temperature_c` | **80.0** | 팬리스 지속 부하에서 soc 85.9~86.8°C 까지 오른다. 그 아래에 두어 열화를 신호로 잡는다 |
-| `disable_temperature_c` | **90.0** | S0 전 구간에서 **노드 제외 0건** — 팬리스도 여기 닿지 않았다 |
-| 반복 사이 cooldown (초) | 하네스가 유휴 온도로 게이트 | `preflight-check.sh` 가 유휴 온도 상한(50°C)을 검사한다. 고정 시간이 아니라 상태로 판단한다 |
+| `degraded_temperature_c` | **80.0** | fanless sustained load reaches soc 85.9–86.8 °C. Set below that to catch degradation as a signal |
+| `disable_temperature_c` | **90.0** | **0 node exclusions** across all of S0 — even fanless never reached it |
+| Cooldown between repetitions (s) | the harness gates on idle temperature | `preflight-check.sh` checks an idle temperature ceiling (50 °C). Judged by state rather than a fixed time |
 
-> **`disable` 90°C 는 아직 발동한 적이 없다.** 팬리스 31분에서도 87.8°C
-> 가 최고였다. 즉 이 값은 **검증된 것이 아니라 도달하지 않은 것**이다.
-> 노드 제외 동작 자체는 미검증으로 남아 있다 —
-> `experiments/README.md` §7.
+> **`disable` at 90 °C has never fired.** Even 31 minutes fanless peaked at
+> 87.8 °C. That is, the value is **not verified but merely not reached.** The
+> node exclusion behaviour itself remains unverified — `experiments/README.md`
+> §7.
 
-확정 후 `configs/scheduler.example.toml`과 이 표를 함께 갱신한다.
+Once settled, `configs/scheduler.example.toml` and this table are updated
+together.
 
 ---
 
-# 10. Scheduler 호스트
+# 10. The scheduler host
 
-호스트명 `dealer`. 모델 변환(Docker)과 스케줄러를 겸한다.
+Hostname `dealer`. It serves as both the model conversion (Docker) host and the
+scheduler.
 
-| 항목 | 값 | 비고 |
+| Item | Value | Note |
 |---|---|---|
-| 배포판 | **Rocky Linux 9.7** (Blue Onyx) | |
-| 커널 | **5.14.0-611.13.1.el9_7.x86_64** | |
-| CPU | **Intel i7-4712MQ @2.30GHz, 8코어** | 2014년 노트북 CPU |
-| RAM | **3GB** | ⚠️ §10.1 참조 |
-| NIC | **`enp3s0` 1000Mb/s** | ⚠️ 2.5GbE 미확보 |
-| Rust | **미설치** | 노드 바이너리는 `king` 에서 빌드 |
+| Distribution | **Rocky Linux 9.7** (Blue Onyx) | |
+| Kernel | **5.14.0-611.13.1.el9_7.x86_64** | |
+| CPU | **Intel i7-4712MQ @2.30GHz, 8 cores** | a 2014 laptop CPU |
+| RAM | **3GB** | ⚠️ see §10.1 |
+| NIC | **`enp3s0` 1000 Mb/s** | ⚠️ no 2.5GbE |
+| Rust | **not installed** | node binaries are built on `king` |
 
-Scheduler 호스트가 1GbE인 상태에서 측정한 값은 공식 수치로 사용하지 않는다.
-세 노드 트래픽이 합류하는 지점이라 여기가 먼저 포화되기 때문이다.
-`02-HARDWARE-SETUP.md` §3.3.2 참조.
+Values measured while the scheduler host is on 1GbE are not used as official
+figures. It is where the three nodes' traffic converges, so it saturates first.
+See `02-HARDWARE-SETUP.md` §3.3.2.
 
-## 10.1 확인이 필요한 제약
+## 10.1 Constraints needing confirmation
 
-**RAM 3GB.** 스케줄러는 요청 페이로드를 메모리에 들고 노드로 중계한다.
-640×640×3 = 1.17 MiB/요청이므로, 동시 처리 수가 커지면 무시할 수 없다.
+**RAM 3GB.** The scheduler holds request payloads in memory and relays them to
+the nodes. At 640×640×3 = 1.17 MiB per request, this is not negligible once the
+concurrent count grows.
 
 ```text
-3노드 × worker_count 8 = 24 in-flight
-+ 스케줄러 큐 + gRPC 버퍼(요청·응답 양쪽)
-→ 1.17 MiB × 수십 = 수백 MB
+3 nodes x worker_count 8 = 24 in-flight
++ the scheduler queue + gRPC buffers (both request and response)
+-> 1.17 MiB x tens = hundreds of MB
 ```
 
-산술적으로는 여유가 있지만 **실제로 측정해 확인해야 한다.** 부족하면
-페이로드를 스트리밍하거나 참조 전달로 바꿔야 하는데, 그것은 설계 변경이다.
-S2 측정 전에 스케줄러 RSS 를 관찰한다.
+Arithmetically there is headroom, but **it has to be confirmed by
+measurement.** If it falls short, the payload would have to be streamed or
+passed by reference, which is a design change. Scheduler RSS is observed before
+the S2 measurement.
 
-**NIC 1GbE + PCIe 슬롯 없음.** INT8 기준 노드 하나가 **1.545 Gbps** 를
-요구한다. 지금 상태로는 **노드 한 대분도 받지 못한다.**
+**A 1GbE NIC and no PCIe slot.** On INT8 a single node demands **1.545 Gbps.**
+In its current state it **cannot even take one node's worth.**
 
-3노드 입력만 4.636 Gbps 이고, 출력은 입력의 3.96배라 `want_float=1` 에서
-RX 가 **18.38 Gbps** 까지 간다. **2.5G 로는 어림없고 10G 가 필요하다.**
+Three nodes' input alone is 4.636 Gbps, and the output is 3.96× the input, so on
+`want_float=1` RX goes to **18.38 Gbps.** **2.5G is nowhere near enough and 10G
+is needed.**
 
-`dealer` 는 노트북이라 PCIe 10G 카드를 꽂을 수 없다. **별도 서버가 필요하다.**
-`02-HARDWARE-SETUP.md` §3.3.2, `RESULTS.md` §8.1 참조.
+`dealer` is a laptop and cannot take a PCIe 10G card. **A separate server is
+needed.** See `02-HARDWARE-SETUP.md` §3.3.2 and `RESULTS.md` §8.1.
 
 ---
 
-## 10.2 현재 Scheduler 호스트 (2026-08-26~)
+## 10.2 The current scheduler host (2026-08-26–)
 
-§10 · §10.1 은 `dealer`(노트북) 시절 기록이다. 그 제약은 서버 교체로
-해소됐고, 서버는 다시 한 번 교체됐다. **재현에 쓸 값은 이 표다.**
+§10 and §10.1 are records from the `dealer` (laptop) era. Those constraints were
+resolved by moving to a server, and the server has since been replaced once
+more. **This table holds the values to use for reproduction.**
 
-| 항목 | 값 | 비고 |
+| Item | Value | Note |
 |---|---|---|
-| hostname | `server` | SSH 별칭 `npuforge-server` |
-| 메인보드 | ASUS H81M-K (H81) | 여분 데스크톱 전용 |
-| CPU | **Intel Core i7-4790, 4C/8T, 3.6~4.0GHz** | ⚠️ 구서버는 Xeon E5-2630L ×2 (24T) |
+| hostname | `server` | SSH alias `npuforge-server` |
+| Motherboard | ASUS H81M-K (H81) | a spare desktop, dedicated |
+| CPU | **Intel Core i7-4790, 4C/8T, 3.6–4.0 GHz** | ⚠️ the old server was Xeon E5-2630L ×2 (24T) |
 | RAM | **16GB DDR3-1600 non-ECC** | |
-| 디스크 | ST2000VN004 2TB, root LVM 70GB | |
-| 배포판 | **Rocky Linux 9.4** (Blue Onyx) | |
-| 커널 | **5.14.0-427.13.1.el9_4.x86_64** | 구서버와 동일 |
-| glibc | **2.34** | 동결 바이너리 실행 요건 충족 |
-| NIC | **Intel X550T `enp1s0`**, 드라이버 `ixgbe` | 10GBASE-T, 10000Mb/s full 실측. **구서버에서 옮겨 온 같은 카드** (`enp4s0` 이었다) |
-| NIC 슬롯 | PCIe **2.0 x4** (`LnkSta 5GT/s x4`) | H81 x16 슬롯 한계. 방향당 16Gbps — 병목 아님 |
-| 시각 동기 | chronyd active, synchronized | 2026-08-26 활성화 |
+| Disk | ST2000VN004 2TB, root LVM 70GB | |
+| Distribution | **Rocky Linux 9.4** (Blue Onyx) | |
+| Kernel | **5.14.0-427.13.1.el9_4.x86_64** | same as the old server |
+| glibc | **2.34** | satisfies the requirement for running the frozen binaries |
+| NIC | **Intel X550T `enp1s0`**, driver `ixgbe` | 10GBASE-T, 10000 Mb/s full measured. **The same card moved from the old server** (it was `enp4s0`) |
+| NIC slot | PCIe **2.0 x4** (`LnkSta 5GT/s x4`) | the H81 x16 slot's limit. 16 Gbps per direction — not a bottleneck |
+| Time sync | chronyd active, synchronized | enabled 2026-08-26 |
 
-### 이 호스트에서의 기준선
+### The baseline on this host
 
 ```text
-처리량   ~360 inf/s   (3 run: 360.5 / 362.5 / 357.2)
-왕복 p50  ~93 ms
-오류율    0
-노드 편차 ~1.07x
-측정 중 서버 CPU 82.2% (8 스레드 합) — 스케줄러 45.3% / 벤치·커널 36.9%
+throughput   ~360 inf/s   (3 runs: 360.5 / 362.5 / 357.2)
+round-trip p50  ~93 ms
+error rate    0
+node spread   ~1.07x
+server CPU during measurement 82.2% (across 8 threads) - scheduler 45.3% / bench and kernel 36.9%
 ```
 
-**구서버 기준선은 ~391 inf/s 였다.** 차이(−7.5%)의 원인은 스케줄러 호스트의
-CPU 여유다. 근거와 판정은 `infrastructure.md` §3.2.1 에 있고, **원본 bench
-JSON 은 `results/baseline-20260826-althost/`** 에 있다.
+**The old server's baseline was ~391 inf/s.** The cause of the difference
+(−7.5%) is CPU headroom on the scheduler host. The evidence and verdict are in
+`infrastructure.md` §3.2.1, and **the raw bench JSON is in
+`results/baseline-20260826-althost/`.**
 
-> **측정 421건은 구서버에서 얻은 값이며 그대로 유효하다.** 소급해 고치지
-> 않는다. 신서버에서 측정을 이어간다면 **구서버 값과 직접 비교하지 않고**
-> 여기서 기준선을 다시 깔고 상대 비교한다. 이 문서 맨 아래 문장 그대로다 —
-> 조합을 바꾸면 이전 조합과 직접 비교할 수 없다.
+> **The 421 measurements were taken on the old server and stand as recorded.**
+> They are not retroactively edited. If measurement continues on the new server,
+> **its values are not compared directly with the old server's**; a baseline is
+> re-laid here and compared relatively. Exactly as the last sentence of this
+> document says — change the combination and it cannot be compared directly with
+> the previous one.
 
 ---
 
-# 11. 변경 이력
+# 11. Change history
 
-| 날짜 | 항목 | 이전 값 | 변경 값 | 사유 |
+| Date | Item | Previous value | New value | Reason |
 |---|---|---|---|---|
-| 2026-08-06 | — | — | — | 문서 생성 |
-| 2026-08-06 | SoC | RK3588 | RK3576 | 실제 보유 장비가 NanoPi R76S로 확인됨 |
-| 2026-08-06 | 보드 | NanoPi R6C | NanoPi R76S | 동일 |
-| 2026-08-06 | 냉각 | 팬 3개 추가 | 팬리스 유지 | throttling을 측정 대상으로 전환 |
-| 2026-08-06 | 네트워크 | 2.5G + 1G | 2.5G × 2 | 관리망 분리가 기본 구성이 됨 |
-| 2026-08-07 | 보드/SoC/NPU/RAM/eMMC | 미확정 | 실측 확정 | 3노드 SSH 접속 후 `collect-node-info.sh` 수집 |
-| 2026-08-07 | 네트워크 포트 | 미확정 | 2.5G × 2 (`r8125`, 별도 PCIe) | `ethtool` 실측 |
-| 2026-08-07 | hostname | `NanoPi-R76S` ×2, `localhost.localdomain` | `king` / `queen` / `jack` | 노드 구분 불가 문제 해소 |
-| 2026-08-07 | NPU 코어 수 | 미확정 | **2** | RK3588(3코어)과 다름 |
-| 2026-08-07 | RKNN Runtime | 미확정 | **2.3.0** | 3노드 SHA-256 동일 |
-| 2026-08-07 | RKNPU Driver | 미확정 | **v0.9.8** | 커널 6.1.141 BSP에 포함 |
-| 2026-08-07 | Node ID | `r76s-01/02/03` | `king` / `queen` / `jack` | 보드 물리 라벨에 맞춤 |
-| 2026-08-26 | Scheduler 호스트 CPU | Xeon E5-2630L ×2 (24T) | **Core i7-4790 (8T)** | 구서버 물리 교체. 여분 데스크톱으로 이전 |
-| 2026-08-26 | Scheduler 호스트 NIC 이름 | `enp4s0` | `enp1s0` | **카드는 같다** — Intel X550T 한 장을 구서버에서 빼 신서버에 옮겨 꽂았다. 슬롯이 달라 이름만 바뀐다 |
-| 2026-08-26 | 기준선 처리량 | ~391 inf/s | **~360 inf/s** | 호스트 CPU 여유 감소(24T→8T). §10.2 · `infrastructure.md` §3.2.1 |
-| 2026-08-26 | `h2` (HTTP/2 구현) | **0.4.15** | **0.4.19** | RUSTSEC-2026-0258 (빈 DATA 프레임 무제한 큐잉, Low). ⚠️ **측정 421건은 0.4.15 로 수행됐다** — 아래 참조 |
+| 2026-08-06 | — | — | — | document created |
+| 2026-08-06 | SoC | RK3588 | RK3576 | the equipment on hand was confirmed to be a NanoPi R76S |
+| 2026-08-06 | Board | NanoPi R6C | NanoPi R76S | as above |
+| 2026-08-06 | Cooling | add 3 fans | stay fanless | throttling switched to something to measure |
+| 2026-08-06 | Network | 2.5G + 1G | 2.5G × 2 | management network separation becomes the default |
+| 2026-08-07 | Board/SoC/NPU/RAM/eMMC | unsettled | settled by measurement | collected with `collect-node-info.sh` after SSH access to the 3 nodes |
+| 2026-08-07 | Network ports | unsettled | 2.5G × 2 (`r8125`, separate PCIe) | measured with `ethtool` |
+| 2026-08-07 | hostname | `NanoPi-R76S` ×2, `localhost.localdomain` | `king` / `queen` / `jack` | resolved the indistinguishable-node problem |
+| 2026-08-07 | NPU core count | unsettled | **2** | differs from RK3588 (3 cores) |
+| 2026-08-07 | RKNN Runtime | unsettled | **2.3.0** | SHA-256 identical on 3 nodes |
+| 2026-08-07 | RKNPU Driver | unsettled | **v0.9.8** | included in the kernel 6.1.141 BSP |
+| 2026-08-07 | Node ID | `r76s-01/02/03` | `king` / `queen` / `jack` | matched to the boards' physical labels |
+| 2026-08-26 | Scheduler host CPU | Xeon E5-2630L ×2 (24T) | **Core i7-4790 (8T)** | the old server was physically replaced. Moved to a spare desktop |
+| 2026-08-26 | Scheduler host NIC name | `enp4s0` | `enp1s0` | **the card is the same** — the one Intel X550T was pulled from the old server and plugged into the new one. Only the name changes, because the slot differs |
+| 2026-08-26 | Baseline throughput | ~391 inf/s | **~360 inf/s** | reduced host CPU headroom (24T→8T). §10.2 · `infrastructure.md` §3.2.1 |
+| 2026-08-26 | `h2` (the HTTP/2 implementation) | **0.4.15** | **0.4.19** | RUSTSEC-2026-0258 (unbounded queueing of empty DATA frames, Low). ⚠️ **the 421 measurements were performed on 0.4.15** — see below |
 
-> ## ⚠️ `h2` 는 이 프로젝트에서 부수적 의존성이 아니다
+> ## ⚠️ `h2` is not an incidental dependency in this project
 >
-> **우리가 측정한 전송 계층 그 자체다.** S3.6 은 H2 flow control(window
-> 크기)을 A/B 했고, S3.7 은 노드당 커넥션 수를 다뤘다. gRPC 위의 처리량
-> 계보 전체가 이 크레이트 위에서 나왔다.
+> **It is the transport layer we measured.** S3.6 A/B'd H2 flow control (window
+> size) and S3.7 dealt with connections per node. The entire throughput lineage
+> over gRPC came out on top of this crate.
 >
-> 측정 421건은 **`h2` 0.4.15** 로 수행됐다. 2026-08-26 에 보안 권고
-> (RUSTSEC-2026-0258)로 `Cargo.lock` 을 0.4.19 로 올렸다. **숫자를 소급해
-> 고치지 않는다** — 그 값들은 0.4.15 에서 얻은 것이고 그대로 유효하다.
+> The 421 measurements were performed on **`h2` 0.4.15.** On 2026-08-26 a
+> security advisory (RUSTSEC-2026-0258) took `Cargo.lock` to 0.4.19. **The
+> numbers are not retroactively edited** — those values were obtained on 0.4.15
+> and stand as recorded.
 >
-> 지금 저장소를 clone 해서 빌드하면 0.4.19 가 들어간다. 재현 시 처리량이
-> 미세하게 다를 수 있고, **다르다면 그것도 결과다.** 동결 바이너리
-> (`*.frozen-01f29a2`)는 0.4.15 로 빌드된 것이며 대조용으로 보존한다.
+> Cloning and building the repository now brings in 0.4.19. Throughput on
+> reproduction may differ slightly, and **if it does, that is also a result.**
+> The frozen binaries (`*.frozen-01f29a2`) were built with 0.4.15 and are kept
+> for comparison.
 >
-> 보안 권고를 무시하고 lock 을 묶어 두는 선택지도 있었으나 택하지 않았다.
-> **공개 저장소가 알려진 취약점을 담고 있는 편이 더 나쁘다.**
+> Ignoring the advisory and pinning the lock was an option and was not taken.
+> **A public repository carrying a known vulnerability is worse.**
 
-버전 조합을 변경하면 이전 조합으로 측정한 벤치마크 결과와 직접 비교할 수 없다. 변경 시 재측정 필요 여부를 함께 판단한다.
+Change the version combination and benchmark results measured with the previous
+combination become directly incomparable. When changing, judge whether
+re-measurement is needed at the same time.
