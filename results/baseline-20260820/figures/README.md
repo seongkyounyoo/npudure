@@ -16,5 +16,6 @@ Generated with `scripts/make-figures.py` (data from the frozen commit
 | `fig8_local_vs_cluster.png` | Local 161.5 vs cluster 112.9 (−30.1%) |
 
 Interactive version: `../dashboard.html` (open in a browser; hover, dark toggle,
-tables).
+tables). Its title still carries the old project name (NPUForge) — it is a
+measurement-time artifact and is frozen as generated.
 Regenerate: `python scripts/make-figures.py`

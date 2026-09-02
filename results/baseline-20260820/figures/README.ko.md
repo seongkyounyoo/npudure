@@ -15,4 +15,6 @@
 | `fig8_local_vs_cluster.png` | Local 161.5 vs Cluster 112.9 (-30.1%) |
 
 인터랙티브 버전: `../dashboard.html` (브라우저에서 열기, hover·다크토글·테이블).
+제목에는 옛 이름(NPUForge)이 그대로 남아 있다 — 측정 시점 생성물이므로
+생성된 상태 그대로 동결한다.
 재생성: `python scripts/make-figures.py`
