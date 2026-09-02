@@ -32,7 +32,7 @@
 - [호스트 인벤토리 — server](#hosts-server-i7-4790-20260826)  ·  `docs/hosts/server-i7-4790-20260826.md`
 - [호스트 인벤토리 — Dell PowerEdge R620 (구 스케줄러 서버)](#hosts-server-xeon-e5-2630l-20260826)  ·  `docs/hosts/server-xeon-e5-2630l-20260826.md`
 - [Experiment Ledger](#experiments-readme)  ·  `docs/experiments/README.md`
-- [S0-C — Scheduling Policy A/B (팬리스)](#experiments-s0-c-policy-ab)  ·  `docs/experiments/S0_C_POLICY_AB.md`
+- [S0-C — Scheduling Policy A/B (fanless)](#experiments-s0-c-policy-ab)  ·  `docs/experiments/S0_C_POLICY_AB.md`
 - [S0-D — Capacity Heterogeneity (deterministic)](#experiments-s0-d-capacity-hetero)  ·  `docs/experiments/S0_D_CAPACITY_HETERO.md`
 - [S0 — Sustained Load (condition A fanless / condition B active cooling)](#experiments-s0-sustained-load)  ·  `docs/experiments/S0_SUSTAINED_LOAD.md`
 - [S2 — gRPC Multi-node Scaling Baseline](#experiments-s2-grpc-baseline)  ·  `docs/experiments/S2_GRPC_BASELINE.md`
@@ -7976,28 +7976,30 @@ not write down what we do not know as though we knew it.**
 
 <a id="experiments-s0-c-policy-ab"></a>
 
-# S0-C — Scheduling Policy A/B (팬리스)
+# S0-C — Scheduling Policy A/B (fanless)
 
-- 실험 ID: **S0-C**
-- 측정일: 2026-08-21
-- 코드: `7281411` + `[transport] node_connections = 2`
-- 상태: **1차(15 run, 버그 발견) · 2차 팬리스(12 run) · 3차 능동냉각(12 run)** 완료
-- 원본: [`../../results/policy-ab-20260821/`](../results/policy-ab-20260821) (1차) ·
-  [`../../results/policy-ab-20260821b/`](../results/policy-ab-20260821b) (2차 팬리스) ·
-  [`../../results/policy-ab-20260821fan/`](../results/policy-ab-20260821fan) (3차 능동냉각)
-- 선행: [`S0_SUSTAINED_LOAD.md`](#experiments-s0-sustained-load)
+*[한국어 원문](experiments/S0_C_POLICY_AB.ko.md)*
+
+- Experiment ID: **S0-C**
+- Measured: 2026-08-21
+- Code: `7281411` + `[transport] node_connections = 2`
+- Status: **1st (15 runs, bug found) · 2nd fanless (12 runs) · 3rd active cooling (12 runs)** complete
+- Raw data: [`../../results/policy-ab-20260821/`](../results/policy-ab-20260821) (1st) ·
+  [`../../results/policy-ab-20260821b/`](../results/policy-ab-20260821b) (2nd, fanless) ·
+  [`../../results/policy-ab-20260821fan/`](../results/policy-ab-20260821fan) (3rd, active cooling)
+- Predecessor: [`S0_SUSTAINED_LOAD.md`](#experiments-s0-sustained-load)
 
 ---
 
-## 1. Research Question (원래 의도)
+## 1. Research Question (as originally intended)
 
-> S0-A 는 팬리스에서 king 이 2.4배 느려졌는데 RR 이 여전히 1/3 을 보내는
-> 것을 봤다. **부하 인지 정책(`least-queue`/`ect`)이 그 손실을 회수하는가?**
+> S0-A saw king become 2.4× slower fanless while RR kept sending it one third.
+> **Do load-aware policies (`least-queue`/`ect`) recover that loss?**
 
-## 2. 1차 Results — 정책이 붕괴한다
+## 2. 1st Results — the policies collapse
 
-팬리스, 15분 예열 후, 3노드 / 커넥션 2·node / c36, 정책당 5 run.
-오류율 **전 구간 0**.
+Fanless, after 15 minutes of preheat, 3 nodes / 2 connections per node / c36,
+5 runs per policy. Error rate **0 throughout**.
 
 | Policy | Throughput | p50 | p95 | p99 | king% | jack% | queen% |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -8005,10 +8007,10 @@ not write down what we do not know as though we knew it.**
 | **least-queue** | **169.8 ± 2.3** | 199.8 | 390.0 | 477.1 | 35.1 | 33.3 | 31.6 |
 | **ect** | **158.5 ± 2.1** | 219.6 | 397.9 | 483.0 | 34.8 | 36.3 | 28.9 |
 
-**부하 인지 정책이 처리량을 55~58% 떨어뜨린다.** 예상과 반대 방향이고,
-"조금 나쁘다" 가 아니라 **절반 이하**다.
+**The load-aware policies drop throughput by 55–58%.** That is the opposite of
+the expected direction, and it is not "a bit worse" but **less than half.**
 
-노드별 CPU busy% (`/proc/stat` 델타):
+Per-node CPU busy% (`/proc/stat` deltas):
 
 | Policy | king | jack | queen |
 |---|---:|---:|---:|
@@ -8016,11 +8018,11 @@ not write down what we do not know as though we knew it.**
 | least-queue | 22.6% | 21.1% | 20.7% |
 | ect | 21.0% | 21.7% | 17.7% |
 
-**노드는 오히려 놀고 있다.** 처리량이 반토막인데 CPU 사용률도 반토막이다.
+**The nodes are actually idling.** Throughput is halved and so is CPU usage.
 
-## 3. 원인 — 하트비트 stale 상태로 인한 herding
+## 3. Cause — herding on stale heartbeat state
 
-단계 분해가 범인을 좁힌다(p50, ms):
+The stage breakdown narrows the culprit (p50, ms):
 
 | Policy | scheduler_route | scheduler_queue | node_queue | inference | **end_to_end** |
 |---|---:|---:|---:|---:|---:|
@@ -8028,146 +8030,160 @@ not write down what we do not know as though we knew it.**
 | least-queue | **0.003** | 0.000 | 0.023 | 33.69 | **192.4** |
 | ect | **0.004** | 0.000 | 0.023 | 33.97 | **212.5** |
 
-- **정책 선택은 느리지 않다** — route 가 셋 다 0.004 ms.
-- **노드 큐도 아니다** — node_queue 0.023 ms 로 동일.
-- **추론도 아니다** — 30~34 ms 로 비슷.
-- 늘어난 것은 **왕복 전체**다(75.8 → 212.5).
+- **Policy selection is not slow** — route is 0.004 ms in all three.
+- **Nor is it the node queue** — node_queue is an identical 0.023 ms.
+- **Nor inference** — 30–34 ms, comparable.
+- What grew is **the whole round trip** (75.8 → 212.5).
 
-즉 요청이 **노드에 도착하기 전에** 어딘가에서 기다린다.
+So requests are waiting somewhere **before reaching the node**.
 
-### 3.1 정책이 보는 상태는 하트비트로만 갱신된다
+### 3.1 The state the policies read is refreshed only by heartbeat
 
 ```rust
-// registry.rs:110-121  — 정책에 넘어가는 스냅샷
+// registry.rs:110-121  - the snapshot handed to the policy
 queue_depth: self.health.queue_depth,
 in_flight:   self.health.in_flight,
 ```
 
-`self.health` 는 **하트비트 수신 시에만** 통째로 교체된다
+`self.health` is replaced wholesale **only when a heartbeat arrives**
 (`on_health_success`: `self.health = health;`).
 
-그리고 **디스패치 경로는 이 상태를 전혀 갱신하지 않는다** —
-`service.rs` 전체에 `in_flight`·`queue_depth` 참조가 **하나도 없다.**
+And **the dispatch path does not update this state at all** — there is **not a
+single** reference to `in_flight` or `queue_depth` anywhere in `service.rs`.
 
-하트비트 주기는 노드 **1000 ms**, 스케줄러 기대 2000 ms.
+The heartbeat period is **1000 ms** at the node, with the scheduler expecting
+2000 ms.
 
-### 3.2 그래서 결정이 결정적으로 쏠린다
+### 3.2 So decisions pile up deterministically
 
 ```text
-RR 기준 처리량 380 inf/s
-하트비트 1회(1초) 사이에 약 380건이 디스패치된다
-그 380건은 전부 같은 (고정된) 스냅샷을 본다
+RR-level throughput 380 inf/s
+about 380 requests are dispatched between two heartbeats (1 second)
+all 380 see the same (fixed) snapshot
 
 LeastQueue.choose() = min_by(queue_depth, in_flight, ewma_inference)
-스냅샷이 고정이면 이 함수는 결정적이다
-  → 380건이 전부 같은 노드를 고른다
-  → 다음 하트비트에 그 노드의 queue_depth 가 치솟음
-  → 그 다음 1초는 전부 다른 노드로
+with a fixed snapshot this function is deterministic
+  -> all 380 pick the same node
+  -> that node's queue_depth spikes at the next heartbeat
+  -> the following second goes entirely to a different node
 ```
 
-**전형적인 stale load information 하의 herd behavior** 다. 노드당 커넥션이
-2개뿐이라 한 노드로 몰린 수백 건이 그 2개 커넥션에서 밀린다 — 그래서
-**노드는 놀고(CPU 20%) 왕복만 길어진다(212 ms).** node_queue 가 0 인 것도
-같은 이유다. 요청은 워커 풀이 아니라 **전송 계층**에 쌓여 있다.
+**Textbook herd behaviour under stale load information.** With only 2 connections
+per node, the hundreds of requests piled onto one node back up behind those 2
+connections — which is why **the node idles (CPU 20%) while only the round trip
+grows (212 ms).** It is also why node_queue is 0: the requests are stacked in the
+**transport layer**, not the worker pool.
 
-집계 분배가 ~33% 로 보이는 것은 **60초 동안 쏠림이 번갈아 일어나 평균이
-난 것**이지 고르게 나간 것이 아니다.
+The aggregate split looking like ~33% is **the average of alternating pile-ups
+over 60 seconds**, not an even distribution.
 
-round-robin 은 상태를 안 보고 구조적으로 분산하므로 이 문제가 없다.
+Round-robin does not read state and distributes structurally, so it does not have
+this problem.
 
-## 4. 판정
+## 4. Verdict
 
-> **`least-queue` 와 `ect` 는 이 부하에서 사용 가능한 상태가 아니다.**
-> 정책 품질 문제가 아니라 **상태 신선도(state freshness) 설계 결함**이다.
-> 초당 수백 건을 초당 1회 갱신되는 상태로 라우팅하면 herding 이 일어난다.
+> **`least-queue` and `ect` are not in a usable state under this load.**
+> This is not a policy-quality problem but a **state-freshness design defect.**
+> Routing hundreds of requests per second on state refreshed once per second
+> produces herding.
 
-이것은 **S0-C 가 의도한 질문의 답이 아니다.** 정책이 열 불균질을 회수하는지
-는 여전히 **미확정**이다 — 구현이 그것을 시험할 상태가 아니었다.
+This is **not the answer to the question S0-C intended.** Whether the policies
+recover the thermal-heterogeneity loss remains **undetermined** — the
+implementation was not in a state to test it.
 
-## 5. ⚠️ 이 실험의 결함 두 가지
+## 5. ⚠️ Two defects in this experiment
 
-### 5.1 열 조건이 유지되지 않았다 (치명적)
+### 5.1 The thermal condition was not maintained (fatal)
 
-RR 결과가 라운드에 따라 크게 다르다.
+The RR results differ substantially by round.
 
-| round | RR 처리량 | king p50 |
+| round | RR throughput | king p50 |
 |---:|---:|---:|
-| 1 | **355.7** | **144.7** ← 예열 직후, 뜨거움 |
+| 1 | **355.7** | **144.7** ← right after preheat, hot |
 | 2 | 385.1 | 88.7 |
 | 3 | 387.2 | 89.7 |
 | 4 | 386.1 | 86.5 |
 | 5 | 385.2 | 89.5 |
 
-**저부하 정책(LQ/ECT)이 도는 동안 보드가 식었다.** CPU busy 가 45~51% →
-17~22% 로 떨어지니 발열이 줄고, 이어지는 RR run 은 시원한 상태에서 돈다.
-라운드 2부터 king p50 이 144.7 → 87 로 정상화됐다 — **S0-A 가 만든 열
-불균질 조건이 사라졌다.**
+**The boards cooled down while the low-load policies (LQ/ECT) ran.** With CPU
+busy falling from 45–51% to 17–22%, heat output dropped and the following RR
+runs executed cool. From round 2 on, king p50 normalised from 144.7 to 87 —
+**the thermal heterogeneity S0-A created had disappeared.**
 
-즉 이 실험은 "팬리스 열 불균질 상태에서의 정책 비교" 가 **아니게 됐다.**
+So this experiment stopped being "a policy comparison under fanless thermal
+heterogeneity".
 
-> **다행히 정책 붕괴 자체는 온도와 무관하다.** LQ/ECT 는 5 라운드 내내
-> 166~172 / 155~160 으로 일정했다(뜨겁든 식었든). RR 만 온도를 따라
-> 355 → 385 로 움직였다. §3 의 결론은 이 결함에 영향받지 않는다.
+> **Fortunately the policy collapse itself is unrelated to temperature.** LQ/ECT
+> held steady at 166–172 / 155–160 across all 5 rounds (hot or cool). Only RR
+> tracked temperature, moving 355 → 385. §3's conclusion is unaffected by this
+> defect.
 
-### 5.2 온도 수집이 실패했다
+### 5.2 Temperature collection failed
 
-`max_soc_c` 열이 전부 비어 있다. ssh 안에서 awk 프로그램을 **큰따옴표**로
-감싸 원격 셸이 `$1` 을 위치 인자로 먹었다.
+The `max_soc_c` column is entirely empty. The awk program inside ssh was wrapped
+in **double quotes**, so the remote shell consumed `$1` as a positional argument.
 
 ```bash
-# 틀림 — 원격 셸이 $1 을 빈 문자열로 치환
+# wrong - the remote shell substitutes $1 with an empty string
 ssh "$h" 'awk "{print $1/1000}" /sys/.../temp'
-# 맞음 — awk 프로그램은 작은따옴표로
+# right - the awk program goes in single quotes
 ssh "$h" "awk '{print \$1/1000}' /sys/.../temp"
 ```
 
-`thermal-logger.sh` 는 작은따옴표를 써서 정상이었다. 인라인으로 다시 쓸 때
-같은 함정을 밟았다.
+`thermal-logger.sh` uses single quotes and was fine. Rewriting it inline stepped
+into the same trap.
 
-## 6. 다음
+## 6. Next
 
-1. **정책 상태 신선도 수정** — 디스패치 시점에 `in_flight` 를 증감시키면
-   (스케줄러가 자기가 보낸 요청 수를 안다) 하트비트 없이도 상태가 최신이
-   된다. 수십 줄 규모다.
-2. **수정 후 S0-C 재실행** — 그래야 원래 질문에 답할 수 있다.
-3. 재실행 시 §5.1 을 피하려면 **정책 사이에 열 조건을 다시 맞춰야 한다**
-   (각 정책 앞에 RR 로 재가열, 또는 정책마다 별도 세션).
+1. **Fix policy state freshness** — incrementing and decrementing `in_flight` at
+   dispatch time (the scheduler knows how many requests it sent) keeps the state
+   current without heartbeats. A few dozen lines.
+2. **Re-run S0-C after the fix** — only then can the original question be
+   answered.
+3. To avoid §5.1 on re-run, **the thermal condition has to be re-matched between
+   policies** (reheat with RR before each policy, or a separate session per
+   policy).
 
 ## 7. Conclusion
 
-**부하 인지 정책을 켜자 처리량이 55~58% 무너졌다.** 원인은 정책 품질이
-아니라 **상태 신선도**다 — 정책이 보는 `queue_depth`/`in_flight` 가 하트비트
-(1초)로만 갱신되고 디스패치 경로가 이를 전혀 갱신하지 않아, 초당 수백 건이
-동일한 고정 스냅샷을 보고 **전부 같은 노드를 고른다**(herding).
+**Turning on load-aware policies collapsed throughput by 55–58%.** The cause is
+not policy quality but **state freshness** — the `queue_depth`/`in_flight` the
+policies read is refreshed only by heartbeat (1 s) and never updated by the
+dispatch path, so hundreds of requests per second read the same fixed snapshot
+and **all choose the same node** (herding).
 
-노드는 놀고(CPU 20%) 요청은 전송 계층에 쌓인다(node_queue 0, 왕복 212 ms).
+The nodes idle (CPU 20%) while requests stack in the transport layer
+(node_queue 0, round trip 212 ms).
 
-**원래 질문 — 부하 인지 정책이 열 불균질 손실을 회수하는가 — 는 미확정으로
-남는다.** 구현이 그것을 시험할 상태가 아니었고, 실험 도중 열 조건도 사라졌다
-(§5.1). 다만 **이 결함을 먼저 찾은 것이 더 중요하다** — 고치지 않았다면
-"부하 인지 정책은 도움이 안 된다" 는 정반대 결론을 낼 뻔했다.
+**The original question — do load-aware policies recover the thermal
+heterogeneity loss — remains undetermined.** The implementation was not in a
+state to test it, and the thermal condition vanished mid-experiment (§5.1). But
+**finding this defect first matters more** — without the fix we would have been
+one step from the opposite conclusion: "load-aware scheduling does not help".
+
 ---
 
-# 2차 (수정 후) — 정책이 실제로 적응한다
+# 2nd (after the fix) — the policies actually adapt
 
-수정 내용은 커밋 `ece4eba` — `local_in_flight` 원자적 예약, `Reservation`
-RAII 가드, `select_and_reserve()` 임계구역, 정책의 1차 신호 교체.
-98 tests pass.
+The fix is commit `ece4eba` — `local_in_flight` atomic reservation, a
+`Reservation` RAII guard, a `select_and_reserve()` critical section, and
+replacing the policies' primary signal. 98 tests pass.
 
-## 8. Method 변경점
+## 8. Changes to method
 
-1차의 치명적 결함(§5.1)을 고쳤다. **정책마다 RR 로 3 run 재예열**해
-**시작** thermal state 를 맞춘다.
+The 1st round's fatal defect (§5.1) is fixed. **Each policy is preceded by 3
+reheat runs of RR** to match the **starting** thermal state.
 
-> 맞추는 것은 **시작** 조건이다. 정책 실행 중 온도가 갈라지는 것은 그대로
-> 둔다 — adaptive scheduler 가 king 의 부하를 줄여 king 이 식는다면 그것
-> 자체가 정책 효과의 일부다.
+> What is matched is the **starting** condition. Temperature diverging during a
+> policy run is left alone — if an adaptive scheduler reduces king's load and
+> king cools as a result, that is itself part of the policy's effect.
 
-실제로 통제됐다 — 전 run 시작 soc **81~82°C**, run 중 최대 78.5~79.5°C.
+It was in fact controlled — every run started at soc **81–82 °C**, with a
+within-run maximum of 78.5–79.5 °C.
 
-## 9. Results (12 run, 정책당 4회)
+## 9. Results (12 runs, 4 per policy)
 
-오류율 **전 구간 0**.
+Error rate **0 throughout**.
 
 | Policy | Throughput | p50 | **p95** | **p99** | king% | jack% | queen% |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -8175,114 +8191,124 @@ RAII 가드, `select_and_reserve()` 임계구역, 정책의 1차 신호 교체.
 | least-queue | 380.9 ± 2.1 | 92.2 | **127.1** | **146.9** | 32.9 | 33.3 | 33.7 |
 | **ect** | **384.2 ± 0.8** | 90.6 | 130.9 | 156.4 | 32.8 | 33.3 | 33.9 |
 
-**붕괴가 사라졌다.** 169.8 / 158.5 → **380.9 / 384.2**.
+**The collapse is gone.** 169.8 / 158.5 → **380.9 / 384.2**.
 
-### 9.1 tail 이 크게 좋아진다
+### 9.1 The tail improves markedly
 
 | | RR | least-queue | ect |
 |---|---:|---:|---:|
 | p95 | 170.7 | **127.1** (−25.5%) | 130.9 (−23.3%) |
 | p99 | 232.0 | **146.9** (−36.7%) | 156.4 (−32.6%) |
 
-### 9.2 노드별 지연이 평준화된다
+### 9.2 Per-node latency levels out
 
-| Policy | king | jack | queen | 최대/최소 |
+| Policy | king | jack | queen | max/min |
 |---|---:|---:|---:|---:|
 | round-robin | 103.2 | 85.4 | 77.6 | **1.33×** |
 | least-queue | 93.3 | 92.0 | 91.1 | **1.02×** |
 | **ect** | 90.4 | 90.7 | 90.5 | **1.00×** |
 
-### 9.3 CPU 사용률도 평준화된다
+### 9.3 CPU utilisation levels out too
 
-| Policy | king | jack | queen | 편차 |
+| Policy | king | jack | queen | spread |
 |---|---:|---:|---:|---:|
-| round-robin | 53.9% | 47.4% | 43.6% | **10.3%p** |
-| least-queue | 54.4% | 52.5% | 50.4% | 4.0%p |
-| ect | 53.3% | 51.9% | 50.2% | 3.1%p |
+| round-robin | 53.9% | 47.4% | 43.6% | **10.3 pp** |
+| least-queue | 54.4% | 52.5% | 50.4% | 4.0 pp |
+| ect | 53.3% | 51.9% | 50.2% | 3.1 pp |
 
-"놀고 있다" 를 지연이 아니라 utilization 으로 확인한 것이다. RR 에서는
-queen 이 43.6% 로 놀고 king 이 53.9% 로 혼자 밀린다. 정책을 켜면 세 노드가
-50~54% 로 모인다.
+This confirms "idling" through utilisation rather than latency. Under RR, queen
+idles at 43.6% while king alone is pushed to 53.9%. With a policy on, the three
+converge at 50–54%.
 
-## 10. 판정 — 규칙은 안 걸렸다. 그 사실을 그대로 적는다
+## 10. Verdict — the rule did not fire, and that is recorded as such
 
-측정 전에 정한 규칙: **king 분배 3%p 이상 이동 = '이동'**.
+The rule fixed before measuring: **a shift of ≥3 pp in king's share counts as a
+"shift"**.
 
 ```text
-least-queue  king 33.3% → 32.9%   (−0.4%p)   규칙 미달
-ect          king 33.3% → 32.8%   (−0.5%p)   규칙 미달
+least-queue  king 33.3% -> 32.9%   (-0.4 pp)   below the rule
+ect          king 33.3% -> 32.8%   (-0.5 pp)   below the rule
 ```
 
-**임계값을 내리지 않는다.** 대신 규칙이 안 걸린 이유를 본다.
+**The threshold is not lowered.** Instead, look at why it did not fire.
 
-### 10.1 분배가 거의 안 움직였는데 지연·CPU 는 평준화됐다
+### 10.1 The distribution barely moved while latency and CPU levelled out
 
-이 둘이 모순이 아니다. **least-outstanding 은 개수를 옮기는 정책이 아니라
-동시 점유를 조절하는 폐루프**다. 느린 노드에 **동시에 걸어 두는 요청 수**를
-줄이면, 그 노드의 큐 대기가 줄어 지연이 내려간다. 60초 누적 처리 **건수**는
-지연이 평준화된 만큼 다시 비슷해진다.
+These are not contradictory. **Least-outstanding is not a policy that moves
+counts but a closed loop regulating concurrent occupancy.** Reducing the number
+of requests held **concurrently** on a slow node reduces that node's queue wait
+and brings its latency down. Over 60 seconds the cumulative **count** processed
+comes back to similar levels as latency levels out.
 
-즉 이번 조건에서는 **0.5%p 이동만으로 평준화가 달성됐다.**
+That is, under this condition **levelling was achieved with only a 0.5 pp
+shift.**
 
-### 10.2 이번 열 불균질이 S0-A 보다 훨씬 약했다
+### 10.2 This round's thermal heterogeneity was far weaker than S0-A's
 
-| | S0-A | S0-C 2차 |
+| | S0-A | S0-C 2nd |
 |---|---|---|
-| soc 최대 | 86~88°C | **78~79°C** |
-| RR 노드 p50 | 156.9 / 64.7 / 66.0 | 103.2 / 85.4 / 77.6 |
-| 편차 | **2.4×** | **1.33×** |
+| soc max | 86–88 °C | **78–79 °C** |
+| RR per-node p50 | 156.9 / 64.7 / 66.0 | 103.2 / 85.4 / 77.6 |
+| spread | **2.4×** | **1.33×** |
 
-3%p 임계는 S0-A 의 **2.4배 편차**를 상정하고 정한 값이다. 1.33배 조건에서는
-필요한 이동량 자체가 작다.
+The 3 pp threshold was set assuming S0-A's **2.4× spread**. Under a 1.33×
+condition the required shift is itself small.
 
-원인은 하네스다 — 정책 사이에 스케줄러 재기동과 probe bench 가 들어가
-평균 부하가 S0-A(30분 연속)보다 낮았다.
+The cause is the harness — scheduler restarts and a probe bench between policies
+made the average load lower than S0-A's (30 minutes continuous).
 
-> ⚠️ **정정 (4차, §18.4).** 위 표의 "78~79°C" 는 **계기 오류**다. run
-> 종료 후 순간값을 읽어 run 간 냉각 골짜기에 떨어진 값이며, 1초 열
-> 로거로 다시 집계하면 **2차도 86.8°C 로 S0-A 와 같다.** 따라서 "평균
-> 부하가 낮아서 덜 뜨거웠다" 는 이 문단의 인과는 성립하지 않는다.
-> 2차가 1.33배에 그친 실제 원인은 **CPU 강등이 덜 갈린 것**이다
-> (클럭 편차 1.50× vs S0-A 1.79×). 온도는 처음부터 같았다.
+> ⚠️ **Correction (4th round, §18.4).** The "78–79 °C" in the table above is an
+> **instrument error**. It reads an instantaneous value after the run ends and
+> falls into the inter-run cooling trough; re-aggregated from the 1-second
+> thermal logger, **the 2nd round was also 86.8 °C, the same as S0-A.** So this
+> paragraph's causal claim — "it was less hot because average load was lower" —
+> does not hold. The actual reason the 2nd round stopped at 1.33× is **that the
+> CPU downgrade diverged less** (clock spread 1.50× vs S0-A's 1.79×). The
+> temperature was identical from the start.
 
-## 11. Conclusion (2차)
+## 11. Conclusion (2nd)
 
-**상태 신선도 수정으로 부하 인지 정책이 정상 동작한다.** 55~58% 붕괴가
-사라지고 RR 대비 처리량 +1.9%(LQ) / **+2.7%(ECT)**.
+**With state freshness fixed, the load-aware policies work.** The 55–58% collapse
+is gone and throughput is +1.9% (LQ) / **+2.7% (ECT)** against RR.
 
-**가장 큰 이득은 tail 이다** — p99 **−37%**(232.0 → 146.9). 노드별 지연
-편차가 1.33× → **1.00×**, CPU 사용률 편차가 10.3%p → 3.1%p 로 평준화된다.
-**정책이 열 불균질을 실제로 흡수하고 있다.**
+**The biggest gain is the tail** — p99 **−37%** (232.0 → 146.9). Per-node latency
+spread goes 1.33× → **1.00×** and CPU utilisation spread 10.3 pp → 3.1 pp.
+**The policies really are absorbing the thermal heterogeneity.**
 
-ECT 가 LQ 보다 처리량이 약간 높고(384.2 vs 380.9) 지연 평준화가 완전하다
-(1.00× vs 1.02×). 서비스 속도를 점수에 반영하는 설계와 방향이 맞다. 다만
-차이는 0.9% 로 작아 **이 조건에서 ECT 우위를 단정하기는 이르다.**
+ECT is slightly ahead of LQ on throughput (384.2 vs 380.9) and levels latency
+completely (1.00× vs 1.02×). That matches the design of reflecting service rate
+in the score. But the difference is a small 0.9%, so **it is too early to declare
+ECT superior under this condition.**
 
-### 남은 것
+### What remains
 
-- **강한 열 불균질(2.4배)에서의 회수량은 여전히 미측정.** 이번 조건은
-  1.33배였다. S0-A 수준을 재현하려면 정책 사이 저부하 구간 없이 연속
-  가열이 필요하다.
-- 분배 이동이 작아 3%p 규칙이 안 걸렸다. 규칙은 그대로 두되, 다음 실험
-  에서는 **short-window(1초) 분배**를 봐야 순간 이동량을 알 수 있다
-  (bench 가 per-request 덤프를 아직 지원하지 않는다).
+- **How much is recovered under strong thermal heterogeneity (2.4×) is still
+  unmeasured.** This round was 1.33×. Reproducing S0-A's level requires
+  continuous heating with no low-load interval between policies.
+- The distribution shift was small, so the 3 pp rule did not fire. The rule
+  stays; the next experiment needs to look at **short-window (1 s) distribution**
+  to see the instantaneous shift (the bench does not yet support a per-request
+  dump).
 
 ---
 
-# 3차 (능동 냉각, 동질 조건) — 기본값 결정을 위한 sanity test
+# 3rd (active cooling, homogeneous) — a sanity test for the default
 
-## 12. 왜 필요했나
+## 12. Why it was needed
 
-2차는 **팬리스(열 이질)** 조건이다. 거기서 증명된 것은 정확히
-"노드 성능이 불균질할 때 fresh state 를 쓰는 adaptive scheduling 이 RR 보다
-유리하다" 이지, **정상 동질 클러스터에서도 항상 최선**까지는 아니다.
+The 2nd round is a **fanless (thermally heterogeneous)** condition. What was
+proved there is precisely "when node performance is heterogeneous, adaptive
+scheduling using fresh state beats RR" — not that it is **always best on a normal
+homogeneous cluster.**
 
-능동 냉각에서는 세 보드가 거의 같은 속도로 움직인다. 그 조건에서 adaptive
-정책이 **regression 을 내지 않는지**를 확인해야 기본값을 정할 수 있다.
+Under active cooling the three boards run at nearly the same speed. Confirming
+that the adaptive policies produce **no regression** under that condition is what
+lets a default be chosen.
 
-3N / 커넥션 2·node / c36 / **능동 냉각**, 정책당 4 run. soc 47~54°C.
+3N / 2 connections per node / c36 / **active cooling**, 4 runs per policy. soc
+47–54 °C.
 
-## 13. Results — regression 없음, tail 은 오히려 개선
+## 13. Results — no regression, and the tail actually improves
 
 | Policy | Throughput | p50 | **p95** | **p99** | king / jack / queen p50 |
 |---|---:|---:|---:|---:|---|
@@ -8290,283 +8316,308 @@ ECT 가 LQ 보다 처리량이 약간 높고(384.2 vs 380.9) 지연 평준화가
 | **least-queue** | **389.9 ± 2.0** | 89.1 | **129.3 ± 0.9** | **151.0 ± 1.5** | 89.2 / 89.1 / 89.1 (1.00×) |
 | ect | 388.6 ± 1.4 | 88.5 | 136.3 ± 0.4 | 163.2 ± 1.9 | 88.2 / 88.5 / 88.8 (1.01×) |
 
-CPU busy 는 세 정책 모두 45% 로 동일. 분배도 33.2~33.5% 로 안 움직인다 —
-**동질 조건에서는 안 움직이는 것이 정상**이다.
+CPU busy is an identical 45% for all three policies. The distribution does not
+move either, at 33.2–33.5% — **not moving is correct under a homogeneous
+condition.**
 
-- **처리량 regression 없음.** LQ −0.0%, ECT −0.3%. 판정 밴드(±2%) 안이다.
-- **tail 은 동질 조건에서도 좋아진다.** p99 185.6 → **151.0**(LQ, −18.6%)
-  / 163.2(ECT, −12.1%).
-- p50 은 소폭 는다(86.3 → 89.1 / 88.5, +3%). 중앙값을 조금 내주고 tail 을
-  크게 얻는 교환이다.
+- **No throughput regression.** LQ −0.0%, ECT −0.3%, within the decision band
+  (±2%).
+- **The tail improves even when homogeneous.** p99 185.6 → **151.0** (LQ,
+  −18.6%) / 163.2 (ECT, −12.1%).
+- p50 rises slightly (86.3 → 89.1 / 88.5, +3%). It trades a little median for a
+  lot of tail.
 
-## 14. 두 조건을 나란히 놓으면
+## 14. Placing the two conditions side by side
 
-| | 팬리스 (이질) | 능동 냉각 (동질) |
+| | Fanless (heterogeneous) | Active cooling (homogeneous) |
 |---|---|---|
 | **RR** | 373.9±4.5 · p95 170.7**±19.9** · p99 232.0**±34.7** | 389.9±1.6 · p95 146.1±1.8 · p99 185.6±5.4 |
 | **LQ** | 380.9±2.1 · p95 **127.1±0.5** · p99 **146.9±1.0** | 389.9±2.0 · p95 **129.3±0.9** · p99 **151.0±1.5** |
 | **ECT** | **384.2±0.8** · p95 130.9±0.0 · p99 156.4±0.5 | 388.6±1.4 · p95 136.3±0.4 · p99 163.2±1.9 |
 
-세 가지가 보인다.
+Three things are visible.
 
-**① RR 은 이질 조건에서 tail 이 불안정해진다.** p95 SD **19.9**, p99 SD
-**34.7** — adaptive 정책의 SD 가 ~1 인 것과 대비된다. adaptive 정책의 이득은
-"tail 이 낮다" 만이 아니라 **"tail 이 예측 가능하다"** 이기도 하다.
+**① RR's tail becomes unstable under heterogeneity.** p95 SD **19.9**, p99 SD
+**34.7** — against ~1 for the adaptive policies. The adaptive policies' gain is
+not only "a lower tail" but **"a predictable tail"**.
 
-**② LQ 가 두 조건 모두에서 tail 이 가장 낮다.** SD 가 0.4~1.9 로 작아
-차이가 실재한다. ECT 대비 p99 가 팬리스 −6.1%, 냉각 −7.5%.
+**② LQ has the lowest tail under both conditions.** With SDs of 0.4–1.9 the
+difference is real. Against ECT, p99 is −6.1% fanless and −7.5% cooled.
 
-**③ ECT 의 처리량 우위는 이질 조건에서만 나타난다.** 팬리스 +0.9%(384.2 vs
-380.9), 냉각에서는 −0.3%로 뒤집힌다.
+**③ ECT's throughput advantage appears only under heterogeneity.** +0.9%
+fanless (384.2 vs 380.9), inverting to −0.3% when cooled.
 
-## 15. 기본값 판단
+## 15. Choosing the default
 
-**RR 은 기본값 후보에서 빠진다.** 두 조건 모두에서 tail 이 가장 나쁘고,
-이질 조건에서는 예측 가능성까지 무너진다.
+**RR drops out of contention.** It has the worst tail under both conditions, and
+under heterogeneity even its predictability collapses.
 
-**LQ 와 ECT 는 어느 쪽도 지배적이지 않다.**
+**Neither LQ nor ECT dominates.**
 
 | | LQ | ECT |
 |---|---|---|
-| tail (양 조건) | **더 낮다** (p99 −6~8%) | |
-| 처리량 (이질) | | **+0.9%** |
-| 처리량 (동질) | **+0.3%** | |
-| 설계 근거 | 개수 기반 | **서비스 속도 반영** — 이질이 심해질수록 유리할 소지 |
+| tail (both conditions) | **lower** (p99 −6 to −8%) | |
+| throughput (heterogeneous) | | **+0.9%** |
+| throughput (homogeneous) | **+0.3%** | |
+| design rationale | count-based | **reflects service rate** — potentially favourable as heterogeneity worsens |
 
-> **현재 저장소 기본값은 `ect`** 다(`policy.rs` `default()`, 테스트로 고정).
-> 두 정책 모두 regression 이 없고 RR 보다 낫다는 것은 확정됐으므로,
-> **기본값을 유지할 근거는 충분하다.** LQ 로 바꿀지는 "p99 6~8% 를
-> 서비스 속도 인지와 바꿀 것인가" 의 판단이며, 강한 이질(2.4배) 조건에서
-> 다시 재기 전에는 결정을 미룰 수 있다.
+> **The repository's current default is `ect`** (`policy.rs` `default()`, pinned
+> by a test). Since both policies are regression-free and better than RR, **there
+> is sufficient basis to keep the default.** Switching to LQ is a judgement about
+> "whether to trade 6–8% of p99 for service-rate awareness", and that decision
+> can wait until it is re-measured under strong heterogeneity (2.4×).
 
 ## 16. Limitations
 
-- 강한 이질(S0-A 의 2.4배)에서의 LQ vs ECT 비교는 여전히 없다. 2차는
-  1.33배였다.
-- 정책 3종 × 4 run 씩이다. p50/p95 차이는 SD 가 작아 신뢰할 만하나
-  처리량 0.3~0.9% 차이는 **우열 근거로 쓰기에 약하다.**
-- short-window 분배 미관측(60초 aggregate 만).
+- There is still no LQ vs ECT comparison under strong heterogeneity (S0-A's
+  2.4×). The 2nd round was 1.33×.
+- Three policies × 4 runs each. The p50/p95 differences are trustworthy given the
+  small SDs, but the 0.3–0.9% throughput differences are **too weak to use as
+  grounds for preferring one.**
+- Short-window distribution was not observed (60-second aggregates only).
 
 ---
 
-# 4차 (강한 이질) — LQ vs ECT 기본값 결정
+# 4th (strong heterogeneity) — deciding the LQ vs ECT default
 
-## 17. 사전 등록 — 판정 규칙 (결과가 나오기 전에 적는다)
+## 17. Pre-registration — decision rules (written before the results arrive)
 
-> 이 절은 **측정이 도는 중에** 작성했다. `results/policy-ab-*` 가 아직
-> 비어 있는 시점이다. 규칙을 결과에 맞춰 옮기지 않기 위한 장치다(§10 의
-> 3%p 규칙이 안 걸렸을 때와 같은 태도).
+> This section was written **while the measurement was running**, at a point when
+> `results/policy-ab-*` was still empty. It is a device for not moving the rules
+> to fit the results (the same stance as when §10's 3 pp rule did not fire).
 
-### 17.1 조건
+### 17.1 Conditions
 
-| | 값 |
+| | Value |
 |---|---|
-| 냉각 | 팬리스 (측정 직전 물리적으로 OFF) |
-| 하네스 | `run-policy-ab.sh 4 25 5` — 4라운드, 예열 25분, 재예열 5run |
-| 정책 | round-robin / least-queue / ect, 라운드마다 순서 회전 |
-| 그 외 | 3노드 · 커넥션 2/node · c36 · 60초/run — 2·3차와 동일 |
+| Cooling | fanless (physically off immediately before measuring) |
+| Harness | `run-policy-ab.sh 4 25 5` — 4 rounds, 25 min preheat, 5 reheat runs |
+| Policies | round-robin / least-queue / ect, order rotating each round |
+| Everything else | 3 nodes · 2 connections/node · c36 · 60 s/run — same as the 2nd and 3rd |
 
-**2·3차 대비 하네스 변경 2건.** 둘 다 §10.2 가 지목한 "정책 사이 저부하
-구간" 을 줄이기 위한 것이다.
+**Two harness changes against the 2nd and 3rd rounds.** Both aim to shorten the
+"low-load interval between policies" §10.2 identified.
 
-1. `verify_nodes` 의 probe 를 `c12` → `c36`. 노드 수 검증은 부하와 무관
-   하므로, 측정 직전 10초를 냉각이 아니라 가열에 쓴다. 스케줄러 재기동
-   무부하 14초와 합쳐 **저부하 구간이 24초 → 14초**로 줄었다.
-2. `LOG_DUR` 이 `REHEAT_RUNS` 를 반영하도록 수정. 이번 파라미터에서
-   기존 식은 2,880초로 계산되어 **본측정 도중 열 로거가 죽었을** 값이다
-   (실제 소요 ~6,400초).
+1. `verify_nodes`'s probe goes from `c12` to `c36`. Node-count verification is
+   independent of load, so the 10 seconds immediately before measuring are spent
+   heating rather than cooling. Combined with the 14 seconds of no load during
+   scheduler restart, the **low-load interval falls from 24 s to 14 s**.
+2. `LOG_DUR` fixed to account for `REHEAT_RUNS`. With these parameters the old
+   formula computed 2,880 s, which would have **killed the thermal logger
+   mid-measurement** (the actual run took ~6,400 s).
 
-### 17.2 게이트 — 강한 이질이 재현됐는가
+### 17.2 The gate — was strong heterogeneity reproduced
 
-**재현 실패 시 LQ vs ECT 를 판정하지 않는다.** 2차가 답을 못 낸 이유가
-조건 미달이었으므로, 같은 실패를 "결과" 로 포장하지 않기 위한 게이트다.
+**If reproduction fails, LQ vs ECT is not judged.** The 2nd round failed to
+answer because the condition was not met, so this gate exists to avoid dressing
+the same failure up as a "result".
 
-| 지표 | 기준 | 근거 |
+| Metric | Criterion | Basis |
 |---|---|---|
-| **RR 라운드의 노드별 p50 최대/최소** | **≥ 2.0×** | S0-A 2.4×, 2차 1.33×. 그 사이에 선을 긋는다 |
-| soc 최대 | ≥ 85°C (보조) | S0-A 86~88°C, 2차 78~79°C |
+| **max/min of per-node p50 in the RR rounds** | **≥ 2.0×** | S0-A 2.4×, 2nd round 1.33×. Draw the line between them |
+| soc max | ≥ 85 °C (secondary) | S0-A 86–88 °C, 2nd round 78–79 °C |
 
-이질 게이지로 **RR 을 쓴다** — RR 은 적응하지 않으므로 균등 부하 아래
-드러나는 raw capacity 편차를 그대로 보여준다. S0-A 의 2.4× 도 같은 정의다.
+**RR is used as the heterogeneity gauge** — it does not adapt, so it shows the
+raw capacity spread that surfaces under an even load. S0-A's 2.4× uses the same
+definition.
 
-- 2.0× 미달 → **판정 보류.** 조건 미달로 기록하고 기본값은 손대지 않는다.
-- 1.33× 근처 → 하네스 수정으로도 부족하다는 뜻. 연속 가열 설계를 다시 본다.
+- Below 2.0× → **judgement withheld.** Record it as failing the condition and do
+  not touch the default.
+- Around 1.33× → the harness changes were insufficient. Revisit the
+  continuous-heating design.
 
-### 17.3 LQ vs ECT 판정 밴드
+### 17.3 LQ vs ECT decision bands
 
-n=4/정책이라 작은 차이는 못 쓴다(§16). **밴드를 넘어야 "이겼다" 로 센다.**
+With n=4 per policy, small differences are unusable (§16). **A difference has to
+clear the band to count as "winning".**
 
-| 축 | 승리 기준 | 근거 |
+| Axis | Winning criterion | Basis |
 |---|---|---|
-| 처리량 | 상대차 **≥ 2%** | §13 의 regression 밴드(±2%)와 같은 값 |
-| tail (p99) | 상대차 **≥ 5%** | 2·3차 관측 6~8%, SD ~1~2. 5%면 구분된다 |
+| Throughput | relative difference **≥ 2%** | the same value as §13's regression band (±2%) |
+| Tail (p99) | relative difference **≥ 5%** | 6–8% observed in the 2nd and 3rd rounds, SD ~1–2. 5% separates them |
 
-보조 지표(판정에는 안 쓰고 해석에만 쓴다): 노드별 p50 최대/최소 평준화
-비율, 노드별 CPU busy 편차, king 분배 이동폭.
+Secondary metrics (used for interpretation, not for the verdict): the levelling
+ratio of per-node p50 max/min, per-node CPU busy spread, and the size of king's
+distribution shift.
 
-### 17.4 결정 매트릭스
+### 17.4 Decision matrix
 
-`ect` 가 **현직**이다(`policy.rs` `default()`). 현직을 끌어내리려면
-적극적 근거가 필요하다 — 이 tie-break 도 사전에 정한 규칙이다.
+`ect` is **the incumbent** (`policy.rs` `default()`). Unseating an incumbent
+requires positive grounds — this tie-break is also a pre-registered rule.
 
-| 처리량 (ECT−LQ) | tail (LQ 유리) | 결정 |
+| Throughput (ECT−LQ) | Tail (LQ favoured) | Decision |
 |---|---|---|
-| ECT ≥ +2% | < 5% | **`ect` 유지** — 질문 닫힘 |
-| < 2% | LQ ≥ 5% | **`least-queue` 로 변경** — 질문 닫힘 |
-| ECT ≥ +2% | LQ ≥ 5% | **지배 없음.** `ect` 유지하되 트레이드오프를 명시하고 질문은 **열어 둔다** |
-| < 2% | < 5% | **구분 불가.** `ect` 유지, 질문 **닫힘** — "기본값 선택이 중요하지 않다" 는 것도 답이다 |
+| ECT ≥ +2% | < 5% | **keep `ect`** — question closed |
+| < 2% | LQ ≥ 5% | **switch to `least-queue`** — question closed |
+| ECT ≥ +2% | LQ ≥ 5% | **no dominance.** Keep `ect` but state the trade-off and leave the question **open** |
+| < 2% | < 5% | **indistinguishable.** Keep `ect`, question **closed** — "the default does not matter" is also an answer |
 
-마지막 행이 핵심이다. 강한 이질에서까지 구분이 안 되면, 더 센 조건을
-찾아다니는 대신 **이 질문을 닫고** S3.9b 로 넘어간다.
+The last row is the important one. If the two cannot be distinguished even under
+strong heterogeneity, then rather than hunting for a harsher condition we
+**close this question** and move on to S3.9b.
 
-### 17.5 측정 중 발견 — soc 게이트의 계기가 틀렸다
+### 17.5 Found mid-measurement — the soc gate's instrument was wrong
 
-예열 중 하네스가 `soc: 81 80 80` 을 찍어 게이트 미달로 보였다. 실제로는
-**조건이 재현되고 있었다.** 같은 시각 1초 열 로거 기준:
+During preheat the harness printed `soc: 81 80 80`, which looked like the gate
+failing. In fact **the condition was being reproduced.** From the 1-second
+thermal logger at the same moment:
 
-| | 하네스 출력 | 열 로거 (최근 3분) | S0-A |
+| | Harness output | Thermal logger (last 3 min) | S0-A |
 |---|---|---|---|
-| king | 81 | max **86.8** · avg 85.8 · min 78.5 | 85.9~86.8 |
-| queen | 80 | max **85.9** · avg 85.6 · min 78.5 | 85.0~85.9 |
-| jack | 80 | max **86.8** · avg 85.8 · min 80.4 | 85.0~85.9 |
-| CPU 최저 | — | **1008~1200 MHz** | 816~1800 MHz |
+| king | 81 | max **86.8** · avg 85.8 · min 78.5 | 85.9–86.8 |
+| queen | 80 | max **85.9** · avg 85.6 · min 78.5 | 85.0–85.9 |
+| jack | 80 | max **86.8** · avg 85.8 · min 80.4 | 85.0–85.9 |
+| CPU minimum | — | **1008–1200 MHz** | 816–1800 MHz |
 
-원인은 샘플링 시점이다. 하네스는 **60초 run 이 끝난 뒤** ssh 3번을
-순차로 돌며 읽는다. RK3576 은 부하가 끊기면 수 초 만에 식으므로 그
-값은 run 간 골짜기(min 78.5~80.4)에 떨어진다 — 열 로거의 min 과
-정확히 일치한다. CSV 의 `max_soc_c` 열도 같은 방식이라 **이름과 달리
-최대값이 아니다.**
+The cause is the sampling moment. The harness reads **after** the 60-second run
+finishes, over three sequential ssh calls. RK3576 cools within seconds once load
+stops, so the value falls into the inter-run trough (min 78.5–80.4) — matching
+the thermal logger's min exactly. The CSV's `max_soc_c` column works the same
+way and, **despite its name, is not a maximum.**
 
-> **게이트 기준(85°C)은 그대로 둔다. 바꾸는 것은 데이터 출처뿐이다.**
-> 결과에 맞춰 임계를 옮기는 것과, 임계를 재는 계기가 다른 물리량을
-> 재고 있었음을 고치는 것은 다르다. soc 보조 게이트는 **1초 열 로거의
-> run 중 최대**로 판정한다. 주 게이트(RR 노드 p50 최대/최소)는 bench
-> JSON 에서 오므로 영향이 없다.
+> **The gate criterion (85 °C) stays. What changes is only the data source.**
+> Moving a threshold to fit results and fixing an instrument that was measuring a
+> different quantity are different acts. The secondary soc gate is judged from
+> **the within-run maximum from the 1-second thermal logger.** The primary gate
+> (RR per-node p50 max/min) comes from the bench JSON and is unaffected.
 
-부수 효과: S0-C 2차의 "78~79°C" 도 같은 계기로 얻은 값이다. **2차의
-실제 부하 중 온도는 더 높았을 수 있다** — 2차가 1.33배에 그친 이유를
-"덜 뜨거워서" 로 돌린 §10.2 의 설명은 재검토 대상이다. 2차 열 로그가
-남아 있으므로 확인 가능하다.
+Side effect: S0-C's 2nd-round "78–79 °C" came from the same instrument.
+**Temperature during load in the 2nd round may have been higher** — which puts
+§10.2's explanation, attributing the 2nd round's 1.33× to "being less hot", up
+for review. The 2nd round's thermal log survives, so it can be checked.
 
-## 18. Results (4차) — **게이트 미달. LQ vs ECT 를 판정하지 않는다.**
+## 18. Results (4th) — **gate not met. LQ vs ECT is not judged.**
 
-- 원본: [`../../results/policy-ab-20260821-contaminated/`](../results/policy-ab-20260821-contaminated)
-  — **r1 round-robin 과 열 로그만 유효하다.** 나머지는 하네스 충돌로 무효
-  (해당 디렉터리 `README.md`, [S0-D](#experiments-s0-d-capacity-hetero) §4)
-- 예열 25분 완료 후 r1 만 측정하고 **의도적으로 중단**했다(§18.3).
+- Raw data: [`../../results/policy-ab-20260821-contaminated/`](../results/policy-ab-20260821-contaminated)
+  — **only the r1 round-robin run and the thermal log are valid.** The rest is
+  invalidated by the harness collision (that directory's `README.md`,
+  [S0-D](#experiments-s0-d-capacity-hetero) §4)
+- After the 25-minute preheat, only r1 was measured and the run was
+  **deliberately stopped** (§18.3).
 
-### 18.1 주 게이트: 1.10× (기준 2.0×)
+### 18.1 Primary gate: 1.10× (criterion 2.0×)
 
 ```text
 r1 round-robin   384.8 inf/s   p50 88.8  p95 140.2  p99 173.9  err 0
-   분배      king 33.3 / jack 33.3 / queen 33.3
-   노드 p50  king 93.3  jack 88.4  queen 85.1   ->  최대/최소 1.10x
+   distribution  king 33.3 / jack 33.3 / queen 33.3
+   node p50      king 93.3  jack 88.4  queen 85.1   ->  max/min 1.10x
 ```
 
-2차(1.33×)보다도 낮다. **강한 이질은 재현되지 않았다.**
+Lower even than the 2nd round (1.33×). **Strong heterogeneity was not
+reproduced.**
 
-### 18.2 그런데 열 조건은 완벽히 재현됐다
+### 18.2 And yet the thermal condition reproduced perfectly
 
-1초 열 로거를 S0-A 와 같은 방식으로 집계했다(§17.5 의 계기 수정 적용).
+The 1-second thermal logger was aggregated the same way as for S0-A (with
+§17.5's instrument fix applied).
 
-| | soc_max | soc_avg | **CPU p50** | CPU min | 노드 p50 편차 |
+| | soc_max | soc_avg | **CPU p50** | CPU min | node p50 spread |
 |---|---:|---:|---:|---:|---:|
 | **S0-A** king | 86.8 | 84.3 | **1008** | 816 | |
 | S0-A queen | 85.9 | 83.5 | **1800** | 1416 | |
 | S0-A jack | 86.8 | 83.9 | **1800** | 1200 | **2.4×** |
-| **4차** king | 86.8 | 84.3 | **1416** | 1008 | |
-| 4차 queen | 85.9 | 83.8 | **1608** | 1200 | |
-| 4차 jack | 86.8 | 84.3 | **1608** | 1008 | **1.10×** |
+| **4th** king | 86.8 | 84.3 | **1416** | 1008 | |
+| 4th queen | 85.9 | 83.8 | **1608** | 1200 | |
+| 4th jack | 86.8 | 84.3 | **1608** | 1008 | **1.10×** |
 
-**soc 는 소수점까지 같다.** 갈린 것은 CPU 클럭 분포뿐이다.
+**The soc values match to the decimal.** What differs is only the CPU clock
+distribution.
 
-| | 클럭 편차 (p50 최대/최소) | 지연 편차 |
+| | Clock spread (p50 max/min) | Latency spread |
 |---|---:|---:|
 | S0-A | **1.79×** | **2.4×** |
-| 4차 | **1.14×** | **1.10×** |
+| 4th | **1.14×** | **1.10×** |
 
-### 18.3 그래서 무엇이 틀렸나 — 전제
+### 18.3 So what was wrong — the premise
 
-핸드오프와 §10.2 는 2차가 1.33배에 그친 원인을 **"덜 뜨거워서"** 로 보고
-연속 가열을 처방했다. 이번 측정이 그 전제를 부정한다.
+The handoff and §10.2 attributed the 2nd round's 1.33× to **"being less hot"**
+and prescribed continuous heating. This measurement refutes that premise.
 
-> **열 조건은 이질의 필요조건이지 충분조건이 아니다.**
-> 충분조건은 **강등이 보드마다 갈리는 것**이고, 열 제어는 온도를 목표로
-> 하지 편차를 목표로 하지 않는다. 세 보드가 같은 온도에서 **같이** 내려
-> 가면 이질은 생기지 않는다.
+> **Thermal conditions are necessary for heterogeneity but not sufficient.**
+> The sufficient condition is **the downgrade differing per board**, and thermal
+> control targets temperature, not the spread. If the three boards come down
+> **together** at the same temperature, no heterogeneity appears.
 
-S0-A 의 1.79× 갈림은 실리콘·기류·위치 편차의 산물이며 **냉각 조건으로
-불러낼 수 있는 것이 아니다.** 예열을 더 해도 갈라지지 않는다 — 이미 세
-보드 모두 열 제어에 걸려 있었다.
+S0-A's 1.79× divergence is a product of silicon, airflow and position variance,
+and **is not something a cooling condition can summon.** More preheat will not
+make them diverge — all three boards were already under thermal control.
 
-이 판단이 서자 나머지 11 run(약 1시간 20분)은 음성 결과의 n 을 4로
-올리는 것 외에 사는 게 없어 중단했다. **판정을 미달로 남기고 설계를
-바꾸는 편이 낫다.**
+Once that was clear, the remaining 11 runs (about 1 hour 20 minutes) bought
+nothing beyond raising n to 4 on a negative result, so the run was stopped.
+**Better to leave the verdict as not-met and change the design.**
 
-### 18.4 §10.2 의 "78~79°C" 는 계기 오류였다 — **정정**
+### 18.4 §10.2's "78–79 °C" was an instrument error — **corrected**
 
-2차 열 로그를 다시 집계했다(`results/policy-ab-20260821b`). **2차도
-86.8°C 였다.** 78~79°C 는 §17.5 의 순간값 계기가 만든 허상이다.
+The 2nd round's thermal log was re-aggregated
+(`results/policy-ab-20260821b`). **The 2nd round was also 86.8 °C.** The
+78–79 °C is an artefact of §17.5's instantaneous-value instrument.
 
-| 실험 | soc_max (1초 로거) | 문서에 적혔던 값 | CPU p50 | 클럭 편차 | 지연 편차 |
+| Experiment | soc_max (1 s logger) | Value in the document | CPU p50 | Clock spread | Latency spread |
 |---|---|---|---:|---:|---:|
-| S0-A | 86.8 / 85.9 / 86.8 | 85.9~86.8 ✓ | 1008 / 1800 / 1800 | **1.79×** | **2.4×** |
-| **S0-C 2차** | **86.8 / 85.9 / 86.8** | **78~79 ✗** | 1200 / 1800 / 1800 | **1.50×** | **1.33×** |
-| S0-C 4차 | 86.8 / 85.9 / 86.8 | — | 1416 / 1608 / 1608 | **1.14×** | **1.10×** |
+| S0-A | 86.8 / 85.9 / 86.8 | 85.9–86.8 ✓ | 1008 / 1800 / 1800 | **1.79×** | **2.4×** |
+| **S0-C 2nd** | **86.8 / 85.9 / 86.8** | **78–79 ✗** | 1200 / 1800 / 1800 | **1.50×** | **1.33×** |
+| S0-C 4th | 86.8 / 85.9 / 86.8 | — | 1416 / 1608 / 1608 | **1.14×** | **1.10×** |
 
-**세 실험의 열 조건이 전부 동일하다.** §10.2 의 설명("2차는 덜 뜨거웠다")
-은 근거를 잃는다. 실제 원인은 **강등이 덜 갈린 것**이다.
+**The thermal conditions of all three experiments are identical.** §10.2's
+explanation ("the 2nd round was less hot") loses its basis. The real cause is
+**that the downgrade diverged less.**
 
-그리고 세 점이 단조를 이룬다.
-
-```text
-클럭 편차  1.14x -> 1.50x -> 1.79x
-지연 편차  1.10x -> 1.33x -> 2.40x
-```
-
-이질의 크기를 결정하는 것은 온도가 아니라 **클럭 편차**다. 클럭을 직접
-잡으면 이질을 원하는 값에 놓을 수 있다(§19).
-
-> 참고로 1차(`results/policy-ab-20260821`, 2 run)는 CPU p50 가 세 보드
-> 모두 2208 MHz, soc 평균 77.8°C 였다 — 강등 자체가 없었다. 열 조건이
-> 유지되지 않았다는 §5.1 의 진단은 그대로 맞다.
-
-## 19. 다음 — 이질을 결정론적으로 만든다
-
-열이 편차를 만들어 주기를 기다리는 대신 **열 제어가 쓰는 손잡이를 직접
-잡는다.** 강등은 `scaling_max_freq` 를 끌어내리는 방식으로 구현돼 있고
-(측정 중 king 이 `1008000` 으로 관측됐다), 같은 파일을 우리가 쓸 수 있다.
+And the three points form a monotone series.
 
 ```text
-팬 ON (열 균질·저온)  +  king 1008 MHz / queen 1800 / jack 1800
-   = S0-A 의 CPU p50 프로파일을 그대로 복제
+clock spread    1.14x -> 1.50x -> 1.79x
+latency spread  1.10x -> 1.33x -> 2.40x
 ```
 
-이점:
+What determines the size of the heterogeneity is not temperature but **the clock
+spread**. Take hold of the clock directly and the heterogeneity can be placed at
+any desired value (§19).
 
-1. **재현 가능**하다. 실리콘 운에 기대지 않는다.
-2. **열이 변수에서 빠진다.** 팬 ON 이면 캡이 그대로 유지되고(열 제어가
-   더 내릴 이유가 없다) 드리프트도 없다. 정책 비교의 교란이 사라진다.
-3. **편차를 쓸어볼 수 있다.** 1.0× / 1.3× / 1.8× / 2.4× 로 스윕하면
-   "2.4배에서 어느 쪽이 낫나" 보다 훨씬 강한 결론이 나온다 —
-   **"편차가 커질수록 ECT 가 유리해지는가"**. ECT 를 기본값으로 둔
-   설계 근거(서비스 속도 반영)가 바로 이 가설이므로, 이 스윕이 그
-   근거를 직접 시험한다.
+> For reference, the 1st round (`results/policy-ab-20260821`, 2 runs) had CPU p50
+> at 2208 MHz on all three boards and an soc average of 77.8 °C — there was no
+> downgrade at all. §5.1's diagnosis, that the thermal condition was not
+> maintained, stands.
 
-대가: 열 유래가 아니므로 **thermal heterogeneity 라고 부를 수 없다.**
-capacity heterogeneity 로 따로 적는다. 열 유래 이질에서 정책이 작동한다는
-인과는 2차에서 이미 닫혔고(§11), 지금 남은 질문은 **편차 크기에 대한
-정책의 반응**이므로 이 치환이 타당하다.
+## 19. Next — make heterogeneity deterministic
+
+Instead of waiting for heat to produce a spread, **take hold of the handle
+thermal control itself uses.** The downgrade is implemented by pulling
+`scaling_max_freq` down (king was observed at `1008000` during measurement), and
+we can write the same file.
+
+```text
+fan ON (thermally homogeneous, cool)  +  king 1008 MHz / queen 1800 / jack 1800
+   = replicating S0-A's CPU p50 profile exactly
+```
+
+Advantages:
+
+1. **Reproducible.** No reliance on silicon luck.
+2. **Heat leaves the variable set.** With the fan on, the cap holds (thermal
+   control has no reason to go lower) and there is no drift. The disturbance to
+   the policy comparison disappears.
+3. **The spread can be swept.** Sweeping 1.0× / 1.3× / 1.8× / 2.4× yields a far
+   stronger conclusion than "which one wins at 2.4×" —
+   **"does ECT gain as the spread widens"**. That hypothesis is exactly ECT's
+   design rationale for being the default (reflecting service rate), so the sweep
+   tests that rationale directly.
+
+The cost: since it is not thermally induced, **it cannot be called thermal
+heterogeneity.** It is recorded separately as capacity heterogeneity. The causal
+claim that the policies work under thermally induced heterogeneity was already
+closed in the 2nd round (§11), and the remaining question is **the policies'
+response to the size of the spread**, so the substitution is legitimate.
 
 ---
 
 ## Figure
 
-![RR 의 p99 SD 가 이질 조건에서만 폭발한다(±34.7 vs ±1)](../results/policy-ab-20260821b/figures/fig_policy_tail.png)
+![RR's p99 SD explodes only under heterogeneity (+/-34.7 vs +/-1)](../results/policy-ab-20260821b/figures/fig_policy_tail.png)
 
-**`fig_policy_tail.png`** — RR 의 p99 SD 가 이질 조건에서만 폭발한다(±34.7 vs ±1)
+**`fig_policy_tail.png`** — RR's p99 SD explodes only under heterogeneity
+(±34.7 vs ±1)
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`
 
 ---
 
@@ -10054,26 +10105,28 @@ Regenerate: `python scripts/make-experiment-figures.py`
 
 # S3.7 — Connection Tuning (a: sweep, b: concurrency, c: RPS)
 
-- 실험 ID: **S3.7a · S3.7b · S3.7c** (완료)
-- 측정일: 2026-08-20
-- 코드: `4e64bf4` (`[transport]` 설정. 기본값은 동결과 동일 동작)
-- 원본: [`../../results/connection-sweep-20260820/`](../results/connection-sweep-20260820)
-- 선행: [`S3_6_H2_CHANNEL_AB.md`](#experiments-s3-6-h2-channel-ab)
+*[한국어 원문](experiments/S3_7_CONNECTION_TUNING.ko.md)*
+
+- Experiment ID: **S3.7a · S3.7b · S3.7c** (complete)
+- Measured: 2026-08-20
+- Code: `4e64bf4` (the `[transport]` settings; defaults behave identically to the freeze)
+- Raw data: [`../../results/connection-sweep-20260820/`](../results/connection-sweep-20260820)
+- Predecessor: [`S3_6_H2_CHANNEL_AB.md`](#experiments-s3-6-h2-channel-ab)
 
 ---
 
-## 0. 이 실험이 답하는 것
+## 0. What this experiment answers
 
-S3.6 은 커넥션 1 → 4 만 비교해 +21.5% 를 봤다. **4 가 최적이라는 근거는
-없었고**, 처리량이 오르는 대신 **p95 가 46% 나빠졌다.**
+S3.6 compared only 1 → 4 connections and saw +21.5%. **There was no basis for 4
+being optimal**, and the throughput gain came with **p95 46% worse.**
 
-그래서 S3.7 은 "최대 처리량 찾기" 가 아니라 **운영점 선택(operating point
-selection)** 문제로 둔다.
+So S3.7 frames this not as "find maximum throughput" but as a problem of
+**operating point selection**.
 
 ```text
-S3.7a  커넥션 1/2/4/8/16 @ c32 고정      → Pareto 후보 선정        ← 완료
-S3.7b  상위 후보에 대해 concurrency sweep → 실제 operating point 확정
-S3.7c  그 운영점에서 RPS OFF/ON           → optimized gRPC 동결
+S3.7a  connections 1/2/4/8/16 at fixed c32   -> shortlist Pareto candidates   <- done
+S3.7b  concurrency sweep for the shortlist   -> establish the real operating point
+S3.7c  RPS OFF/ON at that operating point    -> freeze optimized gRPC
 ```
 
 ---
@@ -10082,21 +10135,23 @@ S3.7c  그 운영점에서 RPS OFF/ON           → optimized gRPC 동결
 
 ## 1. Method
 
-1노드(king), **c32 고정**, 60초, 커넥션 1/2/4/8/16, 조건당 **5 run** (총 25).
-window 는 기본값(S3.6 결론: 64 MB 급 확대는 −36.3%). 라운드마다 순서를 뒤집어
-온도·시간 경과가 한 조건에 몰리지 않게 했다. run 마다 노드의 실제 TCP 커넥션
-수를 `ss` 로 세어 기록했다.
+One node (king), **fixed c32**, 60 s, connections 1/2/4/8/16, **5 runs** per
+condition (25 total). The window stays at its default (S3.6's conclusion: a
+64 MB-class enlargement is −36.3%). The order reverses each round so temperature
+and elapsed time do not land on one condition. Each run counts the node's actual
+TCP connections with `ss` and records it.
 
-> **이 실험은 각 설정의 ceiling 이 아니다.** 부하를 c32 로 고정했으므로
-> 커넥션 수의 *순수 효과* 비교로는 좋지만, 커넥션을 늘리면 saturation
-> concurrency 가 c32 위로 이동했을 수 있다. 그래서 S3.7b 가 따로 있다.
+> **This is not each setting's ceiling.** Load is fixed at c32, which is good for
+> comparing the *pure effect* of connection count, but adding connections may
+> have moved the saturation concurrency above c32. That is why S3.7b exists
+> separately.
 
 ## 2. Results
 
-오류율 전 구간 **0**. 지연은 모두 **run-level percentile 의 run 간 평균**
-(pooled 아님 — S2 §7.4.1).
+Error rate **0** throughout. All latencies are **the run-to-run average of
+run-level percentiles** (not pooled — S2 §7.4.1).
 
-| conn | TCP 실측 | throughput | vs c1 | p50 | p95 | p99 | max | →node |
+| conn | TCP measured | throughput | vs c1 | p50 | p95 | p99 | max | →node |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | **1** | 1 | 115.6 ± 0.7 | — | 268.0 | **392.4** | **452.4** | 597.6 | 114.9 |
 | **2** | 2 | **134.4 ± 0.7** | **+16.3%** | 226.7 | **438.2** | **514.9** | 679.7 | 92.5 |
@@ -10104,116 +10159,122 @@ window 는 기본값(S3.6 결론: 64 MB 급 확대는 −36.3%). 라운드마다
 | **8** | 8 | 139.1 ± 0.6 | +20.4% | 157.4 | 597.0 | 827.0 | 1222.5 | 56.9 |
 | **16** | 16 | 136.8 ± 0.7 | +18.4% | 173.4 | 584.2 | 895.1 | 1481.5 | 65.3 |
 
-- 대표 그림: [`fig_sweep_pareto.png`](../results/connection-sweep-20260820/figures/fig_sweep_pareto.png)
-  (X=p95, Y=throughput, 점=커넥션 수)
-- 보조: [`fig_sweep_throughput.png`](../results/connection-sweep-20260820/figures/fig_sweep_throughput.png),
+- Main figure: [`fig_sweep_pareto.png`](../results/connection-sweep-20260820/figures/fig_sweep_pareto.png)
+  (X = p95, Y = throughput, points = connection count)
+- Supporting: [`fig_sweep_throughput.png`](../results/connection-sweep-20260820/figures/fig_sweep_throughput.png),
   [`fig_sweep_latency.png`](../results/connection-sweep-20260820/figures/fig_sweep_latency.png)
 
 ## 3. Interpretation
 
-### 3.1 connection parallelism 에는 knee 가 있다
+### 3.1 Connection parallelism has a knee
 
-> ⚠️ **[정정 — §4]** 아래는 전부 **c32 고정** 측정이다. 세 구성 모두 운영점이
-> c12 이므로 c32 는 overload 구간이고, 여기서 보이는 tail 악화는 상당 부분
-> **커넥션 수가 아니라 과부하 큐잉** 때문이다. knee 가 존재한다는 관찰은
-> 유효하지만, 그 knee 는 **connection knee 이자 동시에 concurrency knee 와
-> 얽혀 있다**(§0).
+> ⚠️ **[Corrected — §4]** Everything below was measured at **fixed c32**. All
+> three configurations have their operating point at c12, so c32 is the overload
+> region, and much of the tail degradation seen here is **overload queueing
+> rather than connection count**. The observation that a knee exists holds, but
+> that knee is **both a connection knee and entangled with the concurrency
+> knee** (§0).
 
-처리량은 **c4 에서 평평해진다**(139.5). c8 은 139.1 로 사실상 같고 c16 은
-136.8 로 오히려 내려간다. 반면 tail 은 **단조롭게 악화**한다.
+Throughput **flattens at c4** (139.5). c8 at 139.1 is effectively the same and
+c16 at 136.8 actually drops. The tail, meanwhile, **degrades monotonically**.
 
 ```text
-p99   c1 452  →  c2 515  →  c4 698  →  c8 827  →  c16 895
-max   c1 598  →  c2 680  →  c4 945  →  c8 1223 →  c16 1482
+p99   c1 452  ->  c2 515  ->  c4 698  ->  c8 827  ->  c16 895
+max   c1 598  ->  c2 680  ->  c4 945  ->  c8 1223 ->  c16 1482
 ```
 
-**데이터가 증명한 것은 여기까지다.**
+**This is as far as the data proves.**
 
-> **c4 이후의 추가 connection parallelism 은 c32 workload 에서 처리량을
-> 개선하지 못하고 tail latency 를 악화시킨다.**
+> **Beyond c4, additional connection parallelism does not improve throughput on
+> a c32 workload and degrades tail latency.**
 
-⚠️ **"커넥션 관리 비용·queueing 때문에 꺾인다" 는 아직 원인 확정이 아니다.**
-가능한 기여 요인이 섞여 있고 어느 것도 분리하지 않았다 — H2 내부 queueing,
-커넥션별 in-flight 편차, TCP 처리, NPU 도착 burst 등(S3.6 §4.3 과 같은 목록).
+⚠️ **"It bends because of connection management cost and queueing" is not an
+established cause.** Several possible contributors are mixed together and none
+was separated — H2-internal queueing, per-connection in-flight imbalance, TCP
+processing, bursty NPU arrivals (the same list as S3.6 §4.3).
 
-또 하나 흥미로운 것은 **median 과 tail 이 반대 방향으로 움직인다**는 점이다.
-커넥션을 늘리면 평균적인 요청은 빨라지는데(p50 268 → 157) 일부 요청은 훨씬
-늦어진다(p99 452 → 895). "커넥션이 많을수록 빠르다" 가 아니라 **처리량–tail
-트레이드오프가 실재한다.**
+Another interesting point is that **the median and the tail move in opposite
+directions.** Adding connections makes the average request faster (p50 268 →
+157) while some requests get much slower (p99 452 → 895). It is not "more
+connections are faster" but that **a throughput–tail trade-off is real.**
 
-### 3.2 진짜 선택은 c2 냐 c4 냐다
+### 3.2 The real choice is c2 or c4
 
-> ⚠️ **[정정 — §4]** 이 절의 트레이드오프는 **c32(overload 구간)** 에서 잰
-> 것이다. 운영점 c12 에서는 conn4 가 conn2 대비 처리량 +1.2% 에 p95 +1.2% 로
-> **거의 무승부**다(§4.1). 아래 "+3.8% 를 위해 tail 28~39%" 는 과부하
-> 구간에서만 성립한다.
+> ⚠️ **[Corrected — §4]** This section's trade-off was measured at **c32 (the
+> overload region)**. At the c12 operating point, conn4 against conn2 is
+> throughput +1.2% for p95 +1.2% — **essentially a draw** (§4.1). The "tail
+> 28–39% for +3.8%" below holds only in the overload region.
 
-| | c2 | c4 | c4 가 치르는 값 |
+| | c2 | c4 | what c4 pays |
 |---|---:|---:|---|
 | throughput | 134.4 | 139.5 | **+3.8%** |
 | p95 | 438.2 | 561.6 | **+28.2%** |
 | p99 | 514.9 | 698.2 | **+35.6%** |
 | max | 679.7 | 944.5 | **+39.0%** |
 
-**c4 는 처리량 +3.8% 를 위해 tail 을 28~39% 내준다.** 실시간 추론에서는
-나쁜 거래로 보인다.
+**c4 gives up 28–39% of the tail for +3.8% throughput.** For real-time inference
+that looks like a bad trade.
 
-c1 기준으로 보면 더 분명하다 — c2 는 c4 가 얻은 이득의 **79%**(+16.3 / +20.7)를
-tail 비용의 **약 4분의 1**로 얻는다(p95 +11.7% vs +43.1%).
+Against c1 it is clearer — c2 gets **79%** of what c4 gained (+16.3 / +20.7) for
+about **a quarter** of the tail cost (p95 +11.7% vs +43.1%).
 
-로컬 direct(161.5) 까지의 gap 회수율:
+Recovery of the gap to local direct (161.5):
 
 ```text
-c1 115.6  ─ gap 45.9 ─▶  로컬 161.5
-c2 134.4  회수 18.8 (41%)
-c4 139.5  회수 23.9 (52%)
+c1 115.6  - gap 45.9 ->  local 161.5
+c2 134.4  recovered 18.8 (41%)
+c4 139.5  recovered 23.9 (52%)
 ```
 
-### 3.3 heuristic 은 c4 를 골랐다 — 그리고 그건 아슬아슬하다
+### 3.3 The heuristic picked c4 — and it was a close thing
 
-분석기 규칙("처리량 최대의 97% 이상 중 p95 최소")은 **c4** 를 고른다.
-c2 가 **96.4%** 로 임계를 **0.6%p 차이로** 놓쳤기 때문이다.
+The analyser's rule ("lowest p95 among those within 97% of maximum throughput")
+picks **c4**, because c2 at **96.4%** missed the threshold **by 0.6 pp**.
 
-> **임계값을 결과에 맞춰 옮기지 않는다.** 96.4% 를 담으려고 97% → 96% 로
-> 내리면 그건 heuristic 이 아니라 사후 합리화다. 규칙은 그대로 두고,
-> **규칙이 이 경계에서 결론을 내주지 못한다는 사실 자체를 결과로 기록한다.**
+> **The threshold is not moved to fit the result.** Lowering 97% to 96% to
+> include 96.4% would be post-hoc rationalisation, not a heuristic. The rule
+> stays, and **the fact that the rule fails to decide at this boundary is
+> recorded as the result.**
 >
-> 이것이 §0 에서 "Selected operating point 는 통계적 최적값이 아니라 의도적
-> engineering heuristic" 이라고 못 박은 이유다. 표를 같이 내보이는 것도
-> 그래서다 — 경계에서는 사람이 판단해야 하고, 판단의 근거가 표에 있어야 한다.
+> This is why §0 pins down that the selected operating point is a deliberate
+> engineering heuristic rather than a statistical optimum. It is also why the
+> table is published alongside — at a boundary a human has to judge, and the
+> basis for that judgement has to be in the table.
 
-## 4. S3.7a 결론과 다음 수
+## 4. S3.7a conclusion and the next move
 
-- **c8·c16 은 S3.7b 후보에서 제외한다.**
+- **c8 and c16 are dropped from the S3.7b shortlist.**
 
-  > 이것은 "어떤 concurrency 에서도 c8/c16 이 열등하다" 가 **아니다.**
-  > S3.7a 는 c32 fixed-load 라 c8/c16 의 절대 ceiling 을 재지 않았다.
-  > 근거는 **우선순위**다 — c32 에서 이미 tail 비용이 이만큼 크므로
-  > (p99 827·895, max 1223·1482) 추가 탐색 비용 대비 기대값이 낮다.
-  > 필요하면 나중에 되돌아올 수 있다.
+  > This is **not** "c8/c16 are inferior at any concurrency". S3.7a is
+  > fixed-load at c32 and did not measure their absolute ceilings. The reason is
+  > **priority** — the tail cost at c32 is already this large (p99 827 and 895,
+  > max 1223 and 1482), so the expected value against further search cost is
+  > low. We can come back if needed.
 
-- **c2·c4 를 S3.7b 후보로 올린다.** c32 고정에서는 둘의 우열이 갈리지 않는다.
-  c2 가 아직 포화가 아니라면 더 높은 concurrency 에서 역전할 수 있고,
-  c4 의 tail 이 concurrency 증가에 더 빨리 무너질 수도 있다.
+- **c2 and c4 go forward as S3.7b candidates.** At fixed c32 neither wins. If c2
+  is not yet saturated it could overtake at a higher concurrency, and c4's tail
+  could collapse faster as concurrency rises.
 
-  현 상태의 성격을 요약하면 **c2 = efficiency point, c4 = performance point**
-  다. 어느 쪽이 운영점인지는 ceiling 을 봐야 정해진다.
+  Characterised as they stand: **c2 = efficiency point, c4 = performance
+  point.** Which is the operating point is decided by looking at the ceiling.
 
 ## 5. Limitations
 
-- **각 설정의 ceiling 이 아니다**(§1 주). c32 고정 결과다.
-- percentile 은 run-level 평균이라 pooled 보다 tail 을 낮게 보인다.
-  조건 간 비교에는 유효하나 절대값 인용은 안 된다(S2 §7.4.1).
-- p95/p99 악화의 **원인은 여전히 미검증**이다. S3.6 §4.3 의 후보 5개
-  (커넥션별 in-flight 불균형 / H2 내부 큐 편차 / NPU 도착 burst /
-  transport queueing / 처리량 상승에 따른 일반적 tail 증가) 중 어느 것도
-  배제하지 못했다.
-- 1노드 결과다. 3노드면 서버가 커넥션을 N×3 개 들게 된다(S3.8).
+- **These are not each setting's ceiling** (note in §1). It is a fixed-c32
+  result.
+- Percentiles are run-level averages, so they show the tail lower than pooled.
+  Valid for comparing conditions, not to be quoted as absolutes (S2 §7.4.1).
+- **The cause of the p95/p99 degradation remains unverified.** None of S3.6
+  §4.3's five candidates (per-connection in-flight imbalance / H2-internal queue
+  variance / bursty NPU arrivals / transport queueing / the general tail growth
+  that accompanies higher throughput) was excluded.
+- This is a 1-node result. At three nodes the server holds N×3 connections
+  (S3.8).
 
 ## 6. Reproduction
 
 ```bash
-bash scripts/run-connection-sweep.sh sweep 5     # 25 run, 약 40분
+bash scripts/run-connection-sweep.sh sweep 5     # 25 runs, about 40 minutes
 PYTHONIOENCODING=utf-8 python scripts/analyze-connection-sweep.py \
     results/connection-sweep-20260820/raw/results.csv
 python scripts/make-sweep-figures.py \
@@ -10225,36 +10286,37 @@ python scripts/make-sweep-figures.py \
 
 # S3.7b — Concurrency sweep
 
-## 0. 튜닝 대상은 1차원이 아니라 2차원이었다
+## 0. The thing to tune was two-dimensional, not one
 
-S3.7a·b 를 거치며 드러난 구조가 이것이다. **knee 가 둘 있다.**
+This is the structure that emerged through S3.7a and b. **There are two knees.**
 
 ```text
-Concurrency knee   요청을 몇 개까지 동시에 넣어야 장치를 포화시키는가?
-Connection knee    그 요청을 몇 개의 커넥션으로 나누는 것이 효율적인가?
+Concurrency knee   how many requests in flight are needed to saturate the device?
+Connection knee    how many connections should those requests be split across?
 ```
 
-즉 튜닝해야 할 것은 "커넥션 수" 하나가 아니라
-**load concurrency × connection parallelism 의 2차원 운영점**이다.
+So what needs tuning is not "connection count" alone but a **two-dimensional
+operating point of load concurrency × connection parallelism**.
 
-이것은 NPUDure 의 원래 질문 —"왜 안 늘어나지?"— 에 정확히 닿는다.
-**포화 이후에는 더 밀어넣어도 NPU 가 더 일하는 게 아니라 시스템 안에 큐만
-쌓인다.** 아래 §2 가 그것을 실측으로 잡은 것이다.
+This lands exactly on NPUDure's original question — "why won't it scale?"
+**Past saturation, pushing more in does not make the NPU do more work; it only
+piles queues up inside the system.** §2 below is that captured by measurement.
 
-## 1. 운영 concurrency 의 정의 (실험 규칙)
+## 1. Definition of operating concurrency (an experimental rule)
 
-숫자로 못 박아 둔다. 그러지 않으면 132.8 / 134.1 / 134.3 같은 결과에서
-"어디가 knee 냐" 가 매번 사람 판단으로 들어간다.
+Pinned to a number. Without it, results like 132.8 / 134.1 / 134.3 turn "where
+is the knee" into a human judgement every time.
 
-> **operating concurrency = peak 처리량의 98% 이상을 내는 가장 낮은 concurrency**
+> **operating concurrency = the lowest concurrency delivering at least 98% of
+> peak throughput**
 
-**98% 인 이유**: 관측된 run 간 SD 가 ±1 inf/s 수준이라 99% 로 잡으면 임계가
-측정 noise 와 겹친다. 이 정의는 `analyze-concurrency-sweep.py` 에 상수로
-들어가 있다.
+**Why 98%**: the observed run-to-run SD is around ±1 inf/s, so a 99% threshold
+would overlap measurement noise. This definition lives as a constant in
+`analyze-concurrency-sweep.py`.
 
-## 2. 1차 범위 (c24~c64) — 전 구간이 overload 였다
+## 2. First range (c24–c64) — all of it was overload
 
-후보 **c2 · c4**, 각 3 run.
+Candidates **c2 · c4**, 3 runs each.
 
 | conc | conn2 tp | conn2 p95 | conn2 p99 | conn4 tp | conn4 p95 | conn4 p99 |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -10264,19 +10326,21 @@ Connection knee    그 요청을 몇 개의 커넥션으로 나누는 것이 효
 | 48 | 133.8 | 697.6 | 832.0 | 137.6 | 958.6 | 1200.9 |
 | 64 | 132.9 | 946.0 | 1132.3 | 137.9 | 1254.4 | 1566.7 |
 
-오류율 전 구간 0.
+Error rate 0 throughout.
 
-**처리량이 c24~c64 내내 완전히 평평하다**(conn2 ≈ 134, conn4 ≈ 138). 반면
-tail 은 거의 선형으로 커진다 — conn4 @c64 는 p99 1567 ms, max 2128 ms.
+**Throughput is completely flat across c24–c64** (conn2 ≈ 134, conn4 ≈ 138),
+while the tail grows nearly linearly — conn4 @c64 reaches p99 1567 ms, max
+2128 ms.
 
-> **이 범위는 전부 포화 이후 구간이다.** 데이터가 말하는 것:
+> **This entire range is past saturation.** What the data says:
 >
-> **처리량 포화는 concurrency ≤ 24 에서 일어난다. 포화 이후의 추가
-> concurrency 는 처리량을 늘리지 않고 tail latency 만 증가시킨다.**
+> **Throughput saturation occurs at concurrency ≤ 24. Additional concurrency
+> past saturation does not increase throughput and only increases tail latency.**
 
-전형적인 queueing 이다. 더 밀어넣은 요청은 계산으로 가지 않고 대기열로 간다.
+Textbook queueing. Requests pushed in beyond that go to a queue, not to
+computation.
 
-### 2.1 ~~트레이드오프는 부하에 안정적이다~~ — **틀렸다 (§4 에서 반증)**
+### 2.1 ~~The trade-off is stable across load~~ — **wrong (refuted in §4)**
 
 | | S3.7a @c32 | S3.7b @c24 |
 |---|---:|---:|
@@ -10284,47 +10348,52 @@ tail 은 거의 선형으로 커진다 — conn4 @c64 는 p99 1567 ms, max 2128 
 | p95 | +28.2% | +27.4% |
 | p99 | +35.6% | +34.3% |
 
-두 값이 거의 같아서, 처음에는 "특정 concurrency 의 우연이 아니라 **4 커넥션
-자체가 만드는 트레이드오프**" 라고 썼다. **그 해석은 틀렸다.**
+The two agreed closely, so this was initially written up as "not a coincidence
+of one concurrency but **a trade-off that 4 connections create as such**".
+**That interpretation was wrong.**
 
-c32 와 c24 가 일치한 것은 **둘 다 overload 구간이라 같은 현상을 두 번 본
-것**이었다. §4 에서 진짜 운영점(c12)으로 내려가자 p95 페널티가
-**+28% → +1.2%** 로 사라진다. 커넥션 4개의 성질이 아니라 **포화 이후 큐잉의
-성질**이었다.
+c32 and c24 agreed because **both are in the overload region and we saw the same
+phenomenon twice.** Descending to the true operating point (c12) in §4, the p95
+penalty vanishes from **+28% to +1.2%**. It was not a property of four
+connections but **a property of post-saturation queueing.**
 
-> 교훈: **두 측정이 일치한다는 것이 곧 그 해석이 옳다는 뜻은 아니다.**
-> 둘 다 같은 방향으로 편향돼 있으면 재현성은 편향을 확인해 줄 뿐이다.
+> The lesson: **two measurements agreeing does not mean the interpretation is
+> right.** If both are biased in the same direction, reproducibility only
+> confirms the bias.
 
-### 2.2 그래서 sweep 방향이 틀렸다
+### 2.2 So the sweep direction was wrong
 
-두 후보 모두 최고점이 **sweep 하단(c24)** 이다. 즉 포화점은 c24 **이하**에
-있고, 운영점(= ceiling 을 내는 가장 낮은 concurrency)을 아직 못 봤다.
-→ **c8/c12/c16/c20/c24 로 아래쪽을 다시 훑는다.**
+Both candidates peak at **the bottom of the sweep (c24)**. The saturation point
+is therefore **below** c24, and the operating point (the lowest concurrency
+yielding the ceiling) has not been seen.
+→ **Re-sweep downwards over c8/c12/c16/c20/c24.**
 
-## 3. conn1 baseline 을 같은 범위에서 다시 잰다
+## 3. Re-measure the conn1 baseline over the same range
 
-이걸 안 하면 해석이 섞인다. 지금 가진 두 점을 나란히 놓으면
+Skip this and the interpretation gets mixed. Placing the two points we have side
+by side:
 
 ```text
-conn1 @c32 →  115.6 inf/s,  p95 392
-conn2 @c24 →  134.3 inf/s,  p95 307
+conn1 @c32 ->  115.6 inf/s,  p95 392
+conn2 @c24 ->  134.3 inf/s,  p95 307
 ```
 
-"2 커넥션이 처리량과 지연을 **둘 다** 개선했다" 고 쓰고 싶어진다. 그러나
-**변수가 두 개 동시에 바뀌었다** — 커넥션 1→2, concurrency 32→24. 인과를
-분리할 수 없다.
+It is tempting to write "2 connections improved **both** throughput and
+latency". But **two variables changed at once** — connections 1→2 and
+concurrency 32→24. Causality cannot be separated.
 
-각 커넥션 수의 **운영점을 같은 규칙(§1)으로 찾아** 비교해야 질문이 성립한다.
+The question only stands if each connection count's **operating point is found
+by the same rule (§1)** and then compared.
 
-답할 질문은 하나로 좁혀진다.
+The question narrows to one.
 
-> **동일한 saturation criterion 에서 connection parallelism 은 처리량과
-> tail latency 에 어떤 영향을 주는가?**
+> **Under an identical saturation criterion, how does connection parallelism
+> affect throughput and tail latency?**
 
-## 4. 2차 범위 (c8~c24) — 결과가 뒤집힌다
+## 4. Second range (c8–c24) — the result inverts
 
-conn **1 · 2 · 4** 를 **같은 격자**(c8/12/16/20/24)에서 각 3 run, 총 45 run.
-오류율 0.
+conn **1 · 2 · 4** on **the same grid** (c8/12/16/20/24), 3 runs each, 45 runs
+total. Error rate 0.
 
 | conc | conn1 tp | conn1 p95 | conn2 tp | conn2 p95 | conn4 tp | conn4 p95 |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -10334,28 +10403,29 @@ conn **1 · 2 · 4** 를 **같은 격자**(c8/12/16/20/24)에서 각 3 run, 총 
 | 20 | 114.9 | 239.2 | 135.1 | 245.4 | 138.5 | 306.1 |
 | 24 | 115.9 | 286.8 | 134.0 | 307.7 | 139.1 | 392.3 |
 
-### 4.1 운영점은 셋 다 c12 다
+### 4.1 The operating point is c12 for all three
 
-98% 규칙(§1) 적용 결과:
+Applying the 98% rule (§1):
 
-| connections | operating conc | throughput | p50 | p95 | p99 | peak 대비 |
+| connections | operating conc | throughput | p50 | p95 | p99 | vs peak |
 |---:|---:|---:|---:|---:|---:|---:|
 | **1** | **12** | 114.8 | 102.1 | 147.6 | 167.2 | 99.1% |
 | **2** | **12** | **136.4** | 85.8 | **119.8** | **137.4** | 100.0% |
 | **4** | **12** | 138.1 | 83.4 | 121.2 | 145.7 | 99.3% |
 
-**시험한 세 커넥션 수(1·2·4) 모두에서 98% 기준 운영 concurrency 가 c12 로
-관측됐다.**
+**For all three connection counts tested (1, 2, 4), the 98%-criterion operating
+concurrency was observed at c12.**
 
 > **Within the tested range, the concurrency knee remained invariant to
 > connection parallelism.**
 
-커넥션 병렬도를 바꿔도 concurrency knee 가 움직이지 않았다는 증거다. 두
-knee 가 서로 독립임을 **강하게 시사하지만 증명한 것은 아니다** — 다른 모델,
-페이로드 크기, 노드 수, 네트워크에서는 움직일 수 있다. §0 의 2차원 구조는
-이 범위 안에서 관측된 것으로 읽어야 한다.
+That is evidence the concurrency knee did not move when connection parallelism
+changed. It **strongly suggests, but does not prove**, that the two knees are
+independent — with a different model, payload size, node count or network it
+could move. §0's two-dimensional structure should be read as observed within
+this range.
 
-### 4.2 운영점에서는 트레이드오프가 없다 — conn2 가 conn1 을 지배한다
+### 4.2 At the operating point there is no trade-off — conn2 dominates conn1
 
 | conn2 vs conn1 @c12 | |
 |---|---:|
@@ -10364,196 +10434,206 @@ knee 가 서로 독립임을 **강하게 시사하지만 증명한 것은 아니
 | p95 | **−18.8%** |
 | p99 | **−17.8%** |
 
-**처리량이 오르면서 지연이 모든 분위에서 함께 내려간다.** 트레이드오프가
-아니라 **strict Pareto improvement** 다 — 단, **측정한 처리량·지연 지표
-기준**이다(on the measured throughput/latency metrics). CPU·메모리·커넥션
-자원까지 포함한 전 시스템 Pareto 라는 뜻은 아니다.
+**Throughput rises while latency falls at every percentile.** Not a trade-off but
+a **strict Pareto improvement** — on the measured throughput and latency
+metrics, that is. It does not mean a whole-system Pareto including CPU, memory
+and connection resources.
 → [`fig_sweep_pareto.png`](../results/s37b-operating-point/figures/fig_sweep_pareto.png)
 
-**conn4 가 절대적으로 나쁜 것은 아니다.** 처리량 최고값을 우선한다면 conn4 도
-정당한 선택이다(138.1 vs 136.4).
+**conn4 is not absolutely worse.** If maximum throughput is the priority, conn4
+is a legitimate choice too (138.1 vs 136.4).
 
-conn2 를 기본 운영점으로 삼는 근거는 "conn4 가 나빠서" 가 아니다.
+The basis for making conn2 the default operating point is not "conn4 is bad".
 
-| conn4 가 더 주는 것 | conn4 가 더 쓰는 것 |
+| What conn4 gives extra | What conn4 spends extra |
 |---|---|
-| 처리량 **+1.2%** — 측정 변동(SD ±0.3~1.6)과 가까운 수준 | 커넥션 자원 **2배** |
+| throughput **+1.2%** — close to measurement variation (SD ±0.3–1.6) | **twice** the connection resources |
 | | p99 **+6.0%** |
 
 > **2 connections is the lowest-complexity configuration that captures
 > nearly all available throughput.**
 
-최소 자원으로 ceiling 을 거의 다 먹기 때문에 conn2 다.
+conn2 because it takes nearly all of the ceiling with the fewest resources.
 
-### 4.3 그래서 앞선 "tail 악화" 는 커넥션 탓이 아니었다
+### 4.3 So the earlier "tail degradation" was not the connections' fault
 
-S3.6 §4.3 과 S3.7a 는 커넥션을 늘리면 tail 이 나빠진다고 기록했다
-(p95 +46%, +43%). **그 측정 자체는 맞지만 해석이 틀렸다.**
+S3.6 §4.3 and S3.7a recorded that adding connections worsens the tail (p95 +46%,
++43%). **Those measurements are right and the interpretation was wrong.**
 
-그 실험들은 전부 **c32 에서 쟀는데, c32 는 세 구성 모두에게 overload 구간**
-이다(운영점이 c12). 즉 그 비교는 "어느 구성이 더 좋은가" 가 아니라
-**"어느 구성이 과부하에서 더 완만하게 무너지는가"** 를 잰 것이었다.
+Those experiments all **measured at c32, and c32 is the overload region for all
+three configurations** (the operating point is c12). That comparison was
+therefore not "which configuration is better" but **"which configuration
+degrades more gracefully under overload"**.
 
 ```text
-c32 에서 본 것   1ch → 4ch :  처리량 +21%, p95 +46%   ← overload 구간 비교
-c12 에서 본 것   1ch → 2ch :  처리량 +19%, p95 −19%   ← 운영점 비교
+seen at c32   1ch -> 4ch :  throughput +21%, p95 +46%   <- overload comparison
+seen at c12   1ch -> 2ch :  throughput +19%, p95 -19%   <- operating-point comparison
 ```
 
-**S3.6·S3.7a 의 숫자가 틀린 것이 아니다. 질문이 달랐다.**
+**S3.6's and S3.7a's numbers are not wrong. The question was different.**
 
-| 무엇을 물었나 | 답 |
+| What was asked | Answer |
 |---|---|
-| **고정 c32 비교** — 각 구성이 **과부하에서** 어떻게 behaving 하는가? | 커넥션이 많을수록 ceiling 은 조금 높지만 **tail amplification 이 커진다** |
-| **운영점 비교** — 어느 구성이 **운영상** 더 나은가? | conn2 가 conn1 을 양 축에서 지배한다 |
+| **Fixed-c32 comparison** — how does each configuration behave **under overload**? | more connections raise the ceiling slightly but **amplify the tail more** |
+| **Operating-point comparison** — which configuration is better **in operation**? | conn2 dominates conn1 on both axes |
 
-그래서 c32 결과는 폐기 대상이 아니라 **별도의 유효한 결과**로 남는다 —
-과부하 거동에 대한 결과다. 다만 그것을 운영 판단의 근거로 쓰면 안 된다.
+So the c32 results are not to be discarded but remain **a separate valid
+result** — a result about overload behaviour. They just must not be used as
+grounds for operating decisions.
 
 > **Optimize at the operating point, not in the overload region.**
 
-운영점을 정의하지 않고 고정 부하에서 구성을 비교하면 **configuration effect
-가 아니라 overload behavior 를 보게 되고, 결론이 뒤집힐 수 있다.**
-이것이 S3.7 이 남기는 가장 실용적인 교훈이다.
+Comparing configurations at a fixed load without defining the operating point
+means **seeing overload behaviour rather than a configuration effect, and the
+conclusion can invert.** This is the most practical lesson S3.7 leaves.
 
-## 5. S3.7b 결론
+## 5. S3.7b conclusion
 
-> **Selected operating point: 커넥션 2개 @ concurrency 12
+> **Selected operating point: 2 connections @ concurrency 12
 > — 136.4 inf/s, p95 119.8 ms, p99 137.4 ms**
 
-동일 규칙의 conn1 baseline(114.8 @c12) 대비 **처리량 +18.8%, p95 −18.8%**.
-로컬 direct(161.5) 까지의 gap 46.7 중 **21.6 (46%) 를 설정만으로 회수**하면서
-tail 도 함께 개선했다.
+Against the conn1 baseline under the same rule (114.8 @c12): **throughput
++18.8%, p95 −18.8%**. Of the 46.7 gap to local direct (161.5), **21.6 (46%) was
+recovered by configuration alone**, with the tail improving alongside.
 
 ## 6. Limitations
 
-- **격자 해상도.** knee 는 c8(peak 의 88%)과 c12 사이에 있는데 격자가 4
-  단위라 **c12 가 진짜 knee 인지 c10 인지는 모른다.** 세 구성을 같은 격자로
-  비교하는 데는 문제없으나, 운영점 절대값으로 인용할 때는 이 한계를 붙인다.
-- 분석기가 conn1·conn4 에 "포화 미확인(최고점이 sweep 상단)" 을 찍는다.
-  다만 conn1 은 c12 114.8±0.7 vs c24 115.9±0.8, conn4 는 c12 138.1±1.6 vs
-  c24 139.1±0.8 로 **평평한 구간 안의 noise** 다. 경고는 보수적으로 남긴다.
-- 1노드 결과다. 3노드면 서버가 2×3 = 6 커넥션을 든다(S3.8).
-- percentile 은 run-level 평균(S2 §7.4.1).
+- **Grid resolution.** The knee lies between c8 (88% of peak) and c12, and with
+  a step of 4 **we do not know whether c12 is the true knee or c10**. This is
+  fine for comparing three configurations on the same grid, but the caveat
+  attaches when quoting the operating point as an absolute.
+- The analyser flags "saturation unconfirmed (peak at the top of the sweep)" for
+  conn1 and conn4. But conn1 is c12 114.8 ± 0.7 vs c24 115.9 ± 0.8, and conn4 is
+  c12 138.1 ± 1.6 vs c24 139.1 ± 0.8 — **noise within a flat region**. The
+  warning is left in place, conservatively.
+- This is a 1-node result. At three nodes the server holds 2×3 = 6 connections
+  (S3.8).
+- Percentiles are run-level averages (S2 §7.4.1).
 
 # S3.7c — RPS at the selected operating point
 
-확정 운영점: **커넥션 2개 @ c12**.
+Settled operating point: **2 connections @ c12**.
 
-이제 다른 변수를 섞지 않고 질문 하나만 묻는 실험이 된다.
+This now becomes an experiment that asks one question with nothing else mixed in.
 
 > **Does RPS improve the selected operating point?**
 
-여기서 S3.5b 처럼 다시 null 이 나오면 **그것도 좋은 결과**다. 그때는
-"RPS 가 무효였던 건 흐름이 하나뿐이라서" 라는 가설이 상당 부분 약해진다 —
-흐름이 2개인데도 변화가 없다면 **IRQ/RX-side 분산이 이 워크로드의 병목이
-아니라는 쪽**으로 증거가 쌓인다.
+If a null comes back as in S3.5b, **that is a good result too**. It would
+substantially weaken the hypothesis that "RPS was ineffective because there was
+only one flow" — if nothing changes with two flows, evidence accumulates that
+**IRQ/RX-side distribution is not this workload's bottleneck.**
 
-확정된 운영점에서 `rps_cpus` OFF/ON. S3.5b 는 흐름이 하나뿐이라 분산할 대상이
-없었다. 이제 흐름이 여러 개이고 S3.6 의 4ch 조건에서 CPU0 는 busy 81% /
-soft 74% 였다.
+`rps_cpus` OFF/ON at the settled operating point. In S3.5b there was one flow
+and nothing to distribute. Now there are several flows, and under S3.6's 4ch
+condition CPU0 was at busy 81% / soft 74%.
 
-**S3.7b 에서 c2·c4 가 애매하게 비기면 둘 다 RPS A/B 를 한다.** 조건당 10 run
-이면 되므로 싸고, **흐름이 2개냐 4개냐에 따라 RPS 효과가 달라질 수 있다** —
-그 자체가 ②-a(TCP per-flow 처리)를 겨냥한 정보다.
+**If c2 and c4 tie ambiguously in S3.7b, run the RPS A/B on both.** Ten runs per
+condition suffices, so it is cheap, and **the RPS effect may differ between two
+flows and four** — which is itself information aimed at ②-a (TCP per-flow
+processing).
 
-- 오르면 → 단일 커넥션 제약을 풀자 NIC 처리 병목이 드러난 것
-- 그대로면 → CPU0 softirq 는 **상관관계일 뿐 처리량 limiter 가 아니다**
-  (S3.5b 단독보다 훨씬 강한 배제)
+- If it rises → releasing the single-connection constraint exposed a NIC
+  processing bottleneck
+- If unchanged → CPU0 softirq is **merely a correlation, not a throughput
+  limiter** (a much stronger exclusion than S3.5b alone)
 
-## 결과 — null 이다. 그리고 이번 null 은 훨씬 강하다
+## Result — a null. And this null is much stronger
 
-conn2 @ c12 고정, `rps_cpus` = `00`(CPU0만) vs `fe`(코어 1~7), 각 5 run.
+conn2 @ c12 fixed, `rps_cpus` = `00` (CPU0 only) vs `fe` (cores 1–7), 5 runs
+each.
 
-| | throughput | p50 | p95 | p99 | 보드 idle | **CPU0 busy** | **CPU0 %soft** |
+| | throughput | p50 | p95 | p99 | board idle | **CPU0 busy** | **CPU0 %soft** |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | RPS off | **136.8 ± 0.6** | 85.4 | 119.1 | 137.7 | 49.3% | **78.7%** | **68.0%** |
 | RPS on | 135.6 ± 0.4 | 86.4 | 119.7 | 139.3 | 49.1% | **74.6%** | **56.0%** |
-| 차이 | **−0.8%** | +1.2% | +0.5% | +1.2% | — | −4.1%p | **−12.0%p** |
+| difference | **−0.8%** | +1.2% | +0.5% | +1.2% | — | −4.1 pp | **−12.0 pp** |
 
-오류율 0. 처리량 차이 −0.8% 는 SD(±0.4~0.6) 범위다.
+Error rate 0. The −0.8% throughput difference is within the SD (±0.4–0.6).
 
-### 왜 이 null 이 S3.5b 보다 강한가
+### Why this null is stronger than S3.5b's
 
-S3.5b 때는 반박이 가능했다 — **흐름이 하나뿐이라 RPS 가 분산할 대상 자체가
-없었다.** 이번에는 그 반박이 막힌다.
+In S3.5b there was a counter-argument — **with one flow, RPS had nothing to
+distribute.** That counter-argument is blocked here.
 
-1. **흐름이 2개다.** RPS 가 해시로 나눌 것이 실재한다.
-2. **RPS 가 실제로 작동했다.** CPU0 %soft 가 **68.0% → 56.0%** 로 12%p
-   내려갔고 CPU0 busy 도 78.7% → 74.6% 로 떨어졌다. 설정이 무시된 것이 아니다.
-3. **CPU0 는 놀고 있지 않았다.** busy 78.7% 로 충분히 부하가 걸린 상태였다
-   (S3.6 의 c32/4ch 조건 81% 와 비슷하다). "부하가 낮아 RPS 가 손댈 여지가
-   없었다" 는 설명도 성립하지 않는다.
+1. **There are two flows.** There really is something for RPS to hash apart.
+2. **RPS actually worked.** CPU0 %soft came down 12 pp, **68.0% → 56.0%**, and
+   CPU0 busy fell from 78.7% to 74.6%. The setting was not ignored.
+3. **CPU0 was not idling.** At 78.7% busy it was under real load (comparable to
+   81% under S3.6's c32/4ch condition). "There was too little load for RPS to
+   act on" does not hold either.
 
 > **At the selected operating point, RPS reduced CPU0 softirq load
 > substantially but produced no measurable throughput or tail-latency
 > improvement. Therefore, CPU0 receive-side processing was not
 > performance-limiting under the tested configuration.**
 
-**범위를 정확히 읽어야 한다.** 이 실험이 말하는 것은 "CPU0 softirq 는
-limiter 가 아니다" 가 아니라 **"이 운영점·이 구성에서는 limiter 가 아니다"**
-다. 다른 부하·모델·페이로드 크기·노드 수에서는 달라질 수 있다.
+**Read the scope precisely.** What this says is not "CPU0 softirq is not a
+limiter" but **"it is not a limiter at this operating point, in this
+configuration"**. Under a different load, model, payload size or node count it
+could differ.
 
-그 범위 안에서는 상당히 강하다 — mechanism 은 분명히 작동했는데
-end-to-end limiter 를 건드리지 못했다. S3.5(§4.3)가 CPU0 을 "다음 병목
-후보" 로 지목했던 것은 **이 구성에 한해** 배제된다.
+Within that scope it is quite strong — the mechanism demonstrably worked and did
+not touch the end-to-end limiter. S3.5's (§4.3) nomination of CPU0 as "the next
+bottleneck candidate" is excluded **for this configuration.**
 
-## S3.7 전체 결론
+## Overall S3.7 conclusion
 
-| 후보 | 판정 |
+| Candidate | Verdict |
 |---|---|
-| 링크 대역폭 | 배제 (방향당 51%) — S3.5 |
-| 보드 CPU 총량 | 배제 (49~63% idle) — S3.5·S3.7c |
-| 서버·스케줄러 | **재개방** — baseline 에서는 배제됐으나 optimized 3N eff 95.3% (S3.8) |
-| **CPU0 softirq / RPS** | **배제.** 12%p 덜어도 처리량 불변 — S3.7c |
-| H2 flow control window | 64 MB 급 확대는 −36.3% 로 해로움 — S3.6 |
-| **노드당 커넥션 수** | **주요 제약.** 1→2 로 +18.8%, tail 도 개선 — S3.7b |
-| protobuf·복사·syscall | **미분리.** 남은 15.5% 안에 있을 수 있다 |
+| Link bandwidth | excluded (51% per direction) — S3.5 |
+| Board CPU capacity | excluded (49–63% idle) — S3.5, S3.7c |
+| Server and scheduler | **reopened** — excluded at baseline, but optimized 3N eff 95.3% (S3.8) |
+| **CPU0 softirq / RPS** | **excluded.** Throughput unchanged after taking 12 pp off — S3.7c |
+| H2 flow control window | enlarging to 64 MB is harmful at −36.3% — S3.6 |
+| **Connections per node** | **primary constraint.** 1→2 gives +18.8% and improves the tail — S3.7b |
+| protobuf, copies, syscalls | **unseparated.** May lie within the remaining 15.5% |
 
-**Selected operating point: 노드당 커넥션 2개(2 connections **per node**)
-@ concurrency 12 — 136.4 inf/s, p95 119.8 ms, p99 137.4 ms**
+**Selected operating point: 2 connections **per node** @ concurrency 12 —
+136.4 inf/s, p95 119.8 ms, p99 137.4 ms**
 
-> **단위를 반드시 명시한다.** `[transport] node_connections` 는 **노드당**
-> 값이다(`GrpcNodePool` 이 `NodeId` 마다 채널을 N 개 만든다). 클러스터 전체
-> 합이 아니다.
+> **Always state the unit.** `[transport] node_connections` is a **per-node**
+> value (`GrpcNodePool` creates N channels per `NodeId`). It is not a
+> cluster-wide total.
 >
-> | 노드 수 | node_connections | 클러스터 전체 커넥션 |
+> | Nodes | node_connections | cluster-wide connections |
 > |---:|---:|---:|
 > | 1 | 2 | 2 |
 > | 2 | 2 | 4 |
 > | 3 | 2 | 6 |
 >
-> S3.8 에서 "2 connections" 를 클러스터 전체로 고정하면 노드당 조건이
-> 보존되지 않고, 3N 에서 **커넥션 공급 자체가 새 병목**이 된다. 완전히
-> 다른 실험이 되므로 혼동하면 안 된다.
+> Fixing "2 connections" cluster-wide in S3.8 would not preserve the per-node
+> condition, and at 3N **connection supply itself would become a new
+> bottleneck**. That is an entirely different experiment and must not be
+> confused with this one.
 
-로컬 direct 161.5 까지 아직 **15.5%** 남아 있다.
+**15.5%** still remains to local direct at 161.5.
 
-> ⚠️ **배제표는 후보 공간을 줄인 것이지, 남은 15.5% 의 정체를 특정한 것이
-> 아니다.** 남은 후보는 여전히 여럿이다.
+> ⚠️ **The exclusion table shrank the candidate space; it did not identify what
+> the remaining 15.5% is.** Several candidates remain.
 >
-> | 남은 gap 의 후보 |
+> | Candidates for the remaining gap |
 > |---|
 > | protobuf serialization |
-> | memcpy / buffer ownership (`to_vec()` 등) |
+> | memcpy / buffer ownership (`to_vec()` and the like) |
 > | syscall / submission path |
-> | HTTP/2 구현 오버헤드 |
-> | userspace 스케줄링 (tokio 워커 ↔ blocking 풀 경합) |
-> | NPU submission / RKNN 런타임 오버헤드 |
-> | 그 밖 |
+> | HTTP/2 implementation overhead |
+> | userspace scheduling (tokio workers ↔ blocking pool contention) |
+> | NPU submission / RKNN runtime overhead |
+> | other |
 
-**io_uring 은 이제 정당한 후보가 됐다. 그러나 "다음 병목이 syscall·복사다"
-는 아직 아니다.** 그래서 S4 의 질문을 이렇게 둔다.
+**io_uring is now a legitimate candidate. But "the next bottleneck is syscalls
+and copies" is not yet established.** So S4's question is framed this way:
 
 ```text
-아니다   io_uring 이 남은 15.5% 를 회수하는가?
-맞다     syscall / submission path 가 실제로 유의미한 비용인가?
+no    Does io_uring recover the remaining 15.5%?
+yes   Is the syscall / submission path actually a meaningful cost?
 ```
 
-프로파일로 syscall·복사 비용을 먼저 확인하고, 그 답이 "그렇다" 일 때
-io_uring 으로 간다. TECHSPEC §15.1 의 순서이자 S3.5 이후 지켜 온 원칙과
-같다 — **측정이 구현을 결정한다.**
+Confirm syscall and copy cost by profiling first, and go to io_uring only if the
+answer is yes. That is TECHSPEC §15.1's order and the same principle held since
+S3.5 — **measurement decides implementation.**
 
-다음은 **S3.8** — 이 운영점으로 1N/2N/3N scale-out 을 재검증한다.
+Next is **S3.8** — re-verify 1N/2N/3N scale-out at this operating point.
 
 ---
 

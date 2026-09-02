@@ -1,25 +1,27 @@
 # S3.7 — Connection Tuning (a: sweep, b: concurrency, c: RPS)
 
-- 실험 ID: **S3.7a · S3.7b · S3.7c** (완료)
-- 측정일: 2026-08-20
-- 코드: `4e64bf4` (`[transport]` 설정. 기본값은 동결과 동일 동작)
-- 원본: [`../../results/connection-sweep-20260820/`](../../results/connection-sweep-20260820/)
-- 선행: [`S3_6_H2_CHANNEL_AB.md`](S3_6_H2_CHANNEL_AB.md)
+*[한국어 원문](S3_7_CONNECTION_TUNING.ko.md)*
+
+- Experiment ID: **S3.7a · S3.7b · S3.7c** (complete)
+- Measured: 2026-08-20
+- Code: `4e64bf4` (the `[transport]` settings; defaults behave identically to the freeze)
+- Raw data: [`../../results/connection-sweep-20260820/`](../../results/connection-sweep-20260820/)
+- Predecessor: [`S3_6_H2_CHANNEL_AB.md`](S3_6_H2_CHANNEL_AB.md)
 
 ---
 
-## 0. 이 실험이 답하는 것
+## 0. What this experiment answers
 
-S3.6 은 커넥션 1 → 4 만 비교해 +21.5% 를 봤다. **4 가 최적이라는 근거는
-없었고**, 처리량이 오르는 대신 **p95 가 46% 나빠졌다.**
+S3.6 compared only 1 → 4 connections and saw +21.5%. **There was no basis for 4
+being optimal**, and the throughput gain came with **p95 46% worse.**
 
-그래서 S3.7 은 "최대 처리량 찾기" 가 아니라 **운영점 선택(operating point
-selection)** 문제로 둔다.
+So S3.7 frames this not as "find maximum throughput" but as a problem of
+**operating point selection**.
 
 ```text
-S3.7a  커넥션 1/2/4/8/16 @ c32 고정      → Pareto 후보 선정        ← 완료
-S3.7b  상위 후보에 대해 concurrency sweep → 실제 operating point 확정
-S3.7c  그 운영점에서 RPS OFF/ON           → optimized gRPC 동결
+S3.7a  connections 1/2/4/8/16 at fixed c32   -> shortlist Pareto candidates   <- done
+S3.7b  concurrency sweep for the shortlist   -> establish the real operating point
+S3.7c  RPS OFF/ON at that operating point    -> freeze optimized gRPC
 ```
 
 ---
@@ -28,21 +30,23 @@ S3.7c  그 운영점에서 RPS OFF/ON           → optimized gRPC 동결
 
 ## 1. Method
 
-1노드(king), **c32 고정**, 60초, 커넥션 1/2/4/8/16, 조건당 **5 run** (총 25).
-window 는 기본값(S3.6 결론: 64 MB 급 확대는 −36.3%). 라운드마다 순서를 뒤집어
-온도·시간 경과가 한 조건에 몰리지 않게 했다. run 마다 노드의 실제 TCP 커넥션
-수를 `ss` 로 세어 기록했다.
+One node (king), **fixed c32**, 60 s, connections 1/2/4/8/16, **5 runs** per
+condition (25 total). The window stays at its default (S3.6's conclusion: a
+64 MB-class enlargement is −36.3%). The order reverses each round so temperature
+and elapsed time do not land on one condition. Each run counts the node's actual
+TCP connections with `ss` and records it.
 
-> **이 실험은 각 설정의 ceiling 이 아니다.** 부하를 c32 로 고정했으므로
-> 커넥션 수의 *순수 효과* 비교로는 좋지만, 커넥션을 늘리면 saturation
-> concurrency 가 c32 위로 이동했을 수 있다. 그래서 S3.7b 가 따로 있다.
+> **This is not each setting's ceiling.** Load is fixed at c32, which is good for
+> comparing the *pure effect* of connection count, but adding connections may
+> have moved the saturation concurrency above c32. That is why S3.7b exists
+> separately.
 
 ## 2. Results
 
-오류율 전 구간 **0**. 지연은 모두 **run-level percentile 의 run 간 평균**
-(pooled 아님 — S2 §7.4.1).
+Error rate **0** throughout. All latencies are **the run-to-run average of
+run-level percentiles** (not pooled — S2 §7.4.1).
 
-| conn | TCP 실측 | throughput | vs c1 | p50 | p95 | p99 | max | →node |
+| conn | TCP measured | throughput | vs c1 | p50 | p95 | p99 | max | →node |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | **1** | 1 | 115.6 ± 0.7 | — | 268.0 | **392.4** | **452.4** | 597.6 | 114.9 |
 | **2** | 2 | **134.4 ± 0.7** | **+16.3%** | 226.7 | **438.2** | **514.9** | 679.7 | 92.5 |
@@ -50,116 +54,122 @@ window 는 기본값(S3.6 결론: 64 MB 급 확대는 −36.3%). 라운드마다
 | **8** | 8 | 139.1 ± 0.6 | +20.4% | 157.4 | 597.0 | 827.0 | 1222.5 | 56.9 |
 | **16** | 16 | 136.8 ± 0.7 | +18.4% | 173.4 | 584.2 | 895.1 | 1481.5 | 65.3 |
 
-- 대표 그림: [`fig_sweep_pareto.png`](../../results/connection-sweep-20260820/figures/fig_sweep_pareto.png)
-  (X=p95, Y=throughput, 점=커넥션 수)
-- 보조: [`fig_sweep_throughput.png`](../../results/connection-sweep-20260820/figures/fig_sweep_throughput.png),
+- Main figure: [`fig_sweep_pareto.png`](../../results/connection-sweep-20260820/figures/fig_sweep_pareto.png)
+  (X = p95, Y = throughput, points = connection count)
+- Supporting: [`fig_sweep_throughput.png`](../../results/connection-sweep-20260820/figures/fig_sweep_throughput.png),
   [`fig_sweep_latency.png`](../../results/connection-sweep-20260820/figures/fig_sweep_latency.png)
 
 ## 3. Interpretation
 
-### 3.1 connection parallelism 에는 knee 가 있다
+### 3.1 Connection parallelism has a knee
 
-> ⚠️ **[정정 — §4]** 아래는 전부 **c32 고정** 측정이다. 세 구성 모두 운영점이
-> c12 이므로 c32 는 overload 구간이고, 여기서 보이는 tail 악화는 상당 부분
-> **커넥션 수가 아니라 과부하 큐잉** 때문이다. knee 가 존재한다는 관찰은
-> 유효하지만, 그 knee 는 **connection knee 이자 동시에 concurrency knee 와
-> 얽혀 있다**(§0).
+> ⚠️ **[Corrected — §4]** Everything below was measured at **fixed c32**. All
+> three configurations have their operating point at c12, so c32 is the overload
+> region, and much of the tail degradation seen here is **overload queueing
+> rather than connection count**. The observation that a knee exists holds, but
+> that knee is **both a connection knee and entangled with the concurrency
+> knee** (§0).
 
-처리량은 **c4 에서 평평해진다**(139.5). c8 은 139.1 로 사실상 같고 c16 은
-136.8 로 오히려 내려간다. 반면 tail 은 **단조롭게 악화**한다.
+Throughput **flattens at c4** (139.5). c8 at 139.1 is effectively the same and
+c16 at 136.8 actually drops. The tail, meanwhile, **degrades monotonically**.
 
 ```text
-p99   c1 452  →  c2 515  →  c4 698  →  c8 827  →  c16 895
-max   c1 598  →  c2 680  →  c4 945  →  c8 1223 →  c16 1482
+p99   c1 452  ->  c2 515  ->  c4 698  ->  c8 827  ->  c16 895
+max   c1 598  ->  c2 680  ->  c4 945  ->  c8 1223 ->  c16 1482
 ```
 
-**데이터가 증명한 것은 여기까지다.**
+**This is as far as the data proves.**
 
-> **c4 이후의 추가 connection parallelism 은 c32 workload 에서 처리량을
-> 개선하지 못하고 tail latency 를 악화시킨다.**
+> **Beyond c4, additional connection parallelism does not improve throughput on
+> a c32 workload and degrades tail latency.**
 
-⚠️ **"커넥션 관리 비용·queueing 때문에 꺾인다" 는 아직 원인 확정이 아니다.**
-가능한 기여 요인이 섞여 있고 어느 것도 분리하지 않았다 — H2 내부 queueing,
-커넥션별 in-flight 편차, TCP 처리, NPU 도착 burst 등(S3.6 §4.3 과 같은 목록).
+⚠️ **"It bends because of connection management cost and queueing" is not an
+established cause.** Several possible contributors are mixed together and none
+was separated — H2-internal queueing, per-connection in-flight imbalance, TCP
+processing, bursty NPU arrivals (the same list as S3.6 §4.3).
 
-또 하나 흥미로운 것은 **median 과 tail 이 반대 방향으로 움직인다**는 점이다.
-커넥션을 늘리면 평균적인 요청은 빨라지는데(p50 268 → 157) 일부 요청은 훨씬
-늦어진다(p99 452 → 895). "커넥션이 많을수록 빠르다" 가 아니라 **처리량–tail
-트레이드오프가 실재한다.**
+Another interesting point is that **the median and the tail move in opposite
+directions.** Adding connections makes the average request faster (p50 268 →
+157) while some requests get much slower (p99 452 → 895). It is not "more
+connections are faster" but that **a throughput–tail trade-off is real.**
 
-### 3.2 진짜 선택은 c2 냐 c4 냐다
+### 3.2 The real choice is c2 or c4
 
-> ⚠️ **[정정 — §4]** 이 절의 트레이드오프는 **c32(overload 구간)** 에서 잰
-> 것이다. 운영점 c12 에서는 conn4 가 conn2 대비 처리량 +1.2% 에 p95 +1.2% 로
-> **거의 무승부**다(§4.1). 아래 "+3.8% 를 위해 tail 28~39%" 는 과부하
-> 구간에서만 성립한다.
+> ⚠️ **[Corrected — §4]** This section's trade-off was measured at **c32 (the
+> overload region)**. At the c12 operating point, conn4 against conn2 is
+> throughput +1.2% for p95 +1.2% — **essentially a draw** (§4.1). The "tail
+> 28–39% for +3.8%" below holds only in the overload region.
 
-| | c2 | c4 | c4 가 치르는 값 |
+| | c2 | c4 | what c4 pays |
 |---|---:|---:|---|
 | throughput | 134.4 | 139.5 | **+3.8%** |
 | p95 | 438.2 | 561.6 | **+28.2%** |
 | p99 | 514.9 | 698.2 | **+35.6%** |
 | max | 679.7 | 944.5 | **+39.0%** |
 
-**c4 는 처리량 +3.8% 를 위해 tail 을 28~39% 내준다.** 실시간 추론에서는
-나쁜 거래로 보인다.
+**c4 gives up 28–39% of the tail for +3.8% throughput.** For real-time inference
+that looks like a bad trade.
 
-c1 기준으로 보면 더 분명하다 — c2 는 c4 가 얻은 이득의 **79%**(+16.3 / +20.7)를
-tail 비용의 **약 4분의 1**로 얻는다(p95 +11.7% vs +43.1%).
+Against c1 it is clearer — c2 gets **79%** of what c4 gained (+16.3 / +20.7) for
+about **a quarter** of the tail cost (p95 +11.7% vs +43.1%).
 
-로컬 direct(161.5) 까지의 gap 회수율:
+Recovery of the gap to local direct (161.5):
 
 ```text
-c1 115.6  ─ gap 45.9 ─▶  로컬 161.5
-c2 134.4  회수 18.8 (41%)
-c4 139.5  회수 23.9 (52%)
+c1 115.6  - gap 45.9 ->  local 161.5
+c2 134.4  recovered 18.8 (41%)
+c4 139.5  recovered 23.9 (52%)
 ```
 
-### 3.3 heuristic 은 c4 를 골랐다 — 그리고 그건 아슬아슬하다
+### 3.3 The heuristic picked c4 — and it was a close thing
 
-분석기 규칙("처리량 최대의 97% 이상 중 p95 최소")은 **c4** 를 고른다.
-c2 가 **96.4%** 로 임계를 **0.6%p 차이로** 놓쳤기 때문이다.
+The analyser's rule ("lowest p95 among those within 97% of maximum throughput")
+picks **c4**, because c2 at **96.4%** missed the threshold **by 0.6 pp**.
 
-> **임계값을 결과에 맞춰 옮기지 않는다.** 96.4% 를 담으려고 97% → 96% 로
-> 내리면 그건 heuristic 이 아니라 사후 합리화다. 규칙은 그대로 두고,
-> **규칙이 이 경계에서 결론을 내주지 못한다는 사실 자체를 결과로 기록한다.**
+> **The threshold is not moved to fit the result.** Lowering 97% to 96% to
+> include 96.4% would be post-hoc rationalisation, not a heuristic. The rule
+> stays, and **the fact that the rule fails to decide at this boundary is
+> recorded as the result.**
 >
-> 이것이 §0 에서 "Selected operating point 는 통계적 최적값이 아니라 의도적
-> engineering heuristic" 이라고 못 박은 이유다. 표를 같이 내보이는 것도
-> 그래서다 — 경계에서는 사람이 판단해야 하고, 판단의 근거가 표에 있어야 한다.
+> This is why §0 pins down that the selected operating point is a deliberate
+> engineering heuristic rather than a statistical optimum. It is also why the
+> table is published alongside — at a boundary a human has to judge, and the
+> basis for that judgement has to be in the table.
 
-## 4. S3.7a 결론과 다음 수
+## 4. S3.7a conclusion and the next move
 
-- **c8·c16 은 S3.7b 후보에서 제외한다.**
+- **c8 and c16 are dropped from the S3.7b shortlist.**
 
-  > 이것은 "어떤 concurrency 에서도 c8/c16 이 열등하다" 가 **아니다.**
-  > S3.7a 는 c32 fixed-load 라 c8/c16 의 절대 ceiling 을 재지 않았다.
-  > 근거는 **우선순위**다 — c32 에서 이미 tail 비용이 이만큼 크므로
-  > (p99 827·895, max 1223·1482) 추가 탐색 비용 대비 기대값이 낮다.
-  > 필요하면 나중에 되돌아올 수 있다.
+  > This is **not** "c8/c16 are inferior at any concurrency". S3.7a is
+  > fixed-load at c32 and did not measure their absolute ceilings. The reason is
+  > **priority** — the tail cost at c32 is already this large (p99 827 and 895,
+  > max 1223 and 1482), so the expected value against further search cost is
+  > low. We can come back if needed.
 
-- **c2·c4 를 S3.7b 후보로 올린다.** c32 고정에서는 둘의 우열이 갈리지 않는다.
-  c2 가 아직 포화가 아니라면 더 높은 concurrency 에서 역전할 수 있고,
-  c4 의 tail 이 concurrency 증가에 더 빨리 무너질 수도 있다.
+- **c2 and c4 go forward as S3.7b candidates.** At fixed c32 neither wins. If c2
+  is not yet saturated it could overtake at a higher concurrency, and c4's tail
+  could collapse faster as concurrency rises.
 
-  현 상태의 성격을 요약하면 **c2 = efficiency point, c4 = performance point**
-  다. 어느 쪽이 운영점인지는 ceiling 을 봐야 정해진다.
+  Characterised as they stand: **c2 = efficiency point, c4 = performance
+  point.** Which is the operating point is decided by looking at the ceiling.
 
 ## 5. Limitations
 
-- **각 설정의 ceiling 이 아니다**(§1 주). c32 고정 결과다.
-- percentile 은 run-level 평균이라 pooled 보다 tail 을 낮게 보인다.
-  조건 간 비교에는 유효하나 절대값 인용은 안 된다(S2 §7.4.1).
-- p95/p99 악화의 **원인은 여전히 미검증**이다. S3.6 §4.3 의 후보 5개
-  (커넥션별 in-flight 불균형 / H2 내부 큐 편차 / NPU 도착 burst /
-  transport queueing / 처리량 상승에 따른 일반적 tail 증가) 중 어느 것도
-  배제하지 못했다.
-- 1노드 결과다. 3노드면 서버가 커넥션을 N×3 개 들게 된다(S3.8).
+- **These are not each setting's ceiling** (note in §1). It is a fixed-c32
+  result.
+- Percentiles are run-level averages, so they show the tail lower than pooled.
+  Valid for comparing conditions, not to be quoted as absolutes (S2 §7.4.1).
+- **The cause of the p95/p99 degradation remains unverified.** None of S3.6
+  §4.3's five candidates (per-connection in-flight imbalance / H2-internal queue
+  variance / bursty NPU arrivals / transport queueing / the general tail growth
+  that accompanies higher throughput) was excluded.
+- This is a 1-node result. At three nodes the server holds N×3 connections
+  (S3.8).
 
 ## 6. Reproduction
 
 ```bash
-bash scripts/run-connection-sweep.sh sweep 5     # 25 run, 약 40분
+bash scripts/run-connection-sweep.sh sweep 5     # 25 runs, about 40 minutes
 PYTHONIOENCODING=utf-8 python scripts/analyze-connection-sweep.py \
     results/connection-sweep-20260820/raw/results.csv
 python scripts/make-sweep-figures.py \
@@ -171,36 +181,37 @@ python scripts/make-sweep-figures.py \
 
 # S3.7b — Concurrency sweep
 
-## 0. 튜닝 대상은 1차원이 아니라 2차원이었다
+## 0. The thing to tune was two-dimensional, not one
 
-S3.7a·b 를 거치며 드러난 구조가 이것이다. **knee 가 둘 있다.**
+This is the structure that emerged through S3.7a and b. **There are two knees.**
 
 ```text
-Concurrency knee   요청을 몇 개까지 동시에 넣어야 장치를 포화시키는가?
-Connection knee    그 요청을 몇 개의 커넥션으로 나누는 것이 효율적인가?
+Concurrency knee   how many requests in flight are needed to saturate the device?
+Connection knee    how many connections should those requests be split across?
 ```
 
-즉 튜닝해야 할 것은 "커넥션 수" 하나가 아니라
-**load concurrency × connection parallelism 의 2차원 운영점**이다.
+So what needs tuning is not "connection count" alone but a **two-dimensional
+operating point of load concurrency × connection parallelism**.
 
-이것은 NPUDure 의 원래 질문 —"왜 안 늘어나지?"— 에 정확히 닿는다.
-**포화 이후에는 더 밀어넣어도 NPU 가 더 일하는 게 아니라 시스템 안에 큐만
-쌓인다.** 아래 §2 가 그것을 실측으로 잡은 것이다.
+This lands exactly on NPUDure's original question — "why won't it scale?"
+**Past saturation, pushing more in does not make the NPU do more work; it only
+piles queues up inside the system.** §2 below is that captured by measurement.
 
-## 1. 운영 concurrency 의 정의 (실험 규칙)
+## 1. Definition of operating concurrency (an experimental rule)
 
-숫자로 못 박아 둔다. 그러지 않으면 132.8 / 134.1 / 134.3 같은 결과에서
-"어디가 knee 냐" 가 매번 사람 판단으로 들어간다.
+Pinned to a number. Without it, results like 132.8 / 134.1 / 134.3 turn "where
+is the knee" into a human judgement every time.
 
-> **operating concurrency = peak 처리량의 98% 이상을 내는 가장 낮은 concurrency**
+> **operating concurrency = the lowest concurrency delivering at least 98% of
+> peak throughput**
 
-**98% 인 이유**: 관측된 run 간 SD 가 ±1 inf/s 수준이라 99% 로 잡으면 임계가
-측정 noise 와 겹친다. 이 정의는 `analyze-concurrency-sweep.py` 에 상수로
-들어가 있다.
+**Why 98%**: the observed run-to-run SD is around ±1 inf/s, so a 99% threshold
+would overlap measurement noise. This definition lives as a constant in
+`analyze-concurrency-sweep.py`.
 
-## 2. 1차 범위 (c24~c64) — 전 구간이 overload 였다
+## 2. First range (c24–c64) — all of it was overload
 
-후보 **c2 · c4**, 각 3 run.
+Candidates **c2 · c4**, 3 runs each.
 
 | conc | conn2 tp | conn2 p95 | conn2 p99 | conn4 tp | conn4 p95 | conn4 p99 |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -210,19 +221,21 @@ Connection knee    그 요청을 몇 개의 커넥션으로 나누는 것이 효
 | 48 | 133.8 | 697.6 | 832.0 | 137.6 | 958.6 | 1200.9 |
 | 64 | 132.9 | 946.0 | 1132.3 | 137.9 | 1254.4 | 1566.7 |
 
-오류율 전 구간 0.
+Error rate 0 throughout.
 
-**처리량이 c24~c64 내내 완전히 평평하다**(conn2 ≈ 134, conn4 ≈ 138). 반면
-tail 은 거의 선형으로 커진다 — conn4 @c64 는 p99 1567 ms, max 2128 ms.
+**Throughput is completely flat across c24–c64** (conn2 ≈ 134, conn4 ≈ 138),
+while the tail grows nearly linearly — conn4 @c64 reaches p99 1567 ms, max
+2128 ms.
 
-> **이 범위는 전부 포화 이후 구간이다.** 데이터가 말하는 것:
+> **This entire range is past saturation.** What the data says:
 >
-> **처리량 포화는 concurrency ≤ 24 에서 일어난다. 포화 이후의 추가
-> concurrency 는 처리량을 늘리지 않고 tail latency 만 증가시킨다.**
+> **Throughput saturation occurs at concurrency ≤ 24. Additional concurrency
+> past saturation does not increase throughput and only increases tail latency.**
 
-전형적인 queueing 이다. 더 밀어넣은 요청은 계산으로 가지 않고 대기열로 간다.
+Textbook queueing. Requests pushed in beyond that go to a queue, not to
+computation.
 
-### 2.1 ~~트레이드오프는 부하에 안정적이다~~ — **틀렸다 (§4 에서 반증)**
+### 2.1 ~~The trade-off is stable across load~~ — **wrong (refuted in §4)**
 
 | | S3.7a @c32 | S3.7b @c24 |
 |---|---:|---:|
@@ -230,47 +243,52 @@ tail 은 거의 선형으로 커진다 — conn4 @c64 는 p99 1567 ms, max 2128 
 | p95 | +28.2% | +27.4% |
 | p99 | +35.6% | +34.3% |
 
-두 값이 거의 같아서, 처음에는 "특정 concurrency 의 우연이 아니라 **4 커넥션
-자체가 만드는 트레이드오프**" 라고 썼다. **그 해석은 틀렸다.**
+The two agreed closely, so this was initially written up as "not a coincidence
+of one concurrency but **a trade-off that 4 connections create as such**".
+**That interpretation was wrong.**
 
-c32 와 c24 가 일치한 것은 **둘 다 overload 구간이라 같은 현상을 두 번 본
-것**이었다. §4 에서 진짜 운영점(c12)으로 내려가자 p95 페널티가
-**+28% → +1.2%** 로 사라진다. 커넥션 4개의 성질이 아니라 **포화 이후 큐잉의
-성질**이었다.
+c32 and c24 agreed because **both are in the overload region and we saw the same
+phenomenon twice.** Descending to the true operating point (c12) in §4, the p95
+penalty vanishes from **+28% to +1.2%**. It was not a property of four
+connections but **a property of post-saturation queueing.**
 
-> 교훈: **두 측정이 일치한다는 것이 곧 그 해석이 옳다는 뜻은 아니다.**
-> 둘 다 같은 방향으로 편향돼 있으면 재현성은 편향을 확인해 줄 뿐이다.
+> The lesson: **two measurements agreeing does not mean the interpretation is
+> right.** If both are biased in the same direction, reproducibility only
+> confirms the bias.
 
-### 2.2 그래서 sweep 방향이 틀렸다
+### 2.2 So the sweep direction was wrong
 
-두 후보 모두 최고점이 **sweep 하단(c24)** 이다. 즉 포화점은 c24 **이하**에
-있고, 운영점(= ceiling 을 내는 가장 낮은 concurrency)을 아직 못 봤다.
-→ **c8/c12/c16/c20/c24 로 아래쪽을 다시 훑는다.**
+Both candidates peak at **the bottom of the sweep (c24)**. The saturation point
+is therefore **below** c24, and the operating point (the lowest concurrency
+yielding the ceiling) has not been seen.
+→ **Re-sweep downwards over c8/c12/c16/c20/c24.**
 
-## 3. conn1 baseline 을 같은 범위에서 다시 잰다
+## 3. Re-measure the conn1 baseline over the same range
 
-이걸 안 하면 해석이 섞인다. 지금 가진 두 점을 나란히 놓으면
+Skip this and the interpretation gets mixed. Placing the two points we have side
+by side:
 
 ```text
-conn1 @c32 →  115.6 inf/s,  p95 392
-conn2 @c24 →  134.3 inf/s,  p95 307
+conn1 @c32 ->  115.6 inf/s,  p95 392
+conn2 @c24 ->  134.3 inf/s,  p95 307
 ```
 
-"2 커넥션이 처리량과 지연을 **둘 다** 개선했다" 고 쓰고 싶어진다. 그러나
-**변수가 두 개 동시에 바뀌었다** — 커넥션 1→2, concurrency 32→24. 인과를
-분리할 수 없다.
+It is tempting to write "2 connections improved **both** throughput and
+latency". But **two variables changed at once** — connections 1→2 and
+concurrency 32→24. Causality cannot be separated.
 
-각 커넥션 수의 **운영점을 같은 규칙(§1)으로 찾아** 비교해야 질문이 성립한다.
+The question only stands if each connection count's **operating point is found
+by the same rule (§1)** and then compared.
 
-답할 질문은 하나로 좁혀진다.
+The question narrows to one.
 
-> **동일한 saturation criterion 에서 connection parallelism 은 처리량과
-> tail latency 에 어떤 영향을 주는가?**
+> **Under an identical saturation criterion, how does connection parallelism
+> affect throughput and tail latency?**
 
-## 4. 2차 범위 (c8~c24) — 결과가 뒤집힌다
+## 4. Second range (c8–c24) — the result inverts
 
-conn **1 · 2 · 4** 를 **같은 격자**(c8/12/16/20/24)에서 각 3 run, 총 45 run.
-오류율 0.
+conn **1 · 2 · 4** on **the same grid** (c8/12/16/20/24), 3 runs each, 45 runs
+total. Error rate 0.
 
 | conc | conn1 tp | conn1 p95 | conn2 tp | conn2 p95 | conn4 tp | conn4 p95 |
 |---:|---:|---:|---:|---:|---:|---:|
@@ -280,28 +298,29 @@ conn **1 · 2 · 4** 를 **같은 격자**(c8/12/16/20/24)에서 각 3 run, 총 
 | 20 | 114.9 | 239.2 | 135.1 | 245.4 | 138.5 | 306.1 |
 | 24 | 115.9 | 286.8 | 134.0 | 307.7 | 139.1 | 392.3 |
 
-### 4.1 운영점은 셋 다 c12 다
+### 4.1 The operating point is c12 for all three
 
-98% 규칙(§1) 적용 결과:
+Applying the 98% rule (§1):
 
-| connections | operating conc | throughput | p50 | p95 | p99 | peak 대비 |
+| connections | operating conc | throughput | p50 | p95 | p99 | vs peak |
 |---:|---:|---:|---:|---:|---:|---:|
 | **1** | **12** | 114.8 | 102.1 | 147.6 | 167.2 | 99.1% |
 | **2** | **12** | **136.4** | 85.8 | **119.8** | **137.4** | 100.0% |
 | **4** | **12** | 138.1 | 83.4 | 121.2 | 145.7 | 99.3% |
 
-**시험한 세 커넥션 수(1·2·4) 모두에서 98% 기준 운영 concurrency 가 c12 로
-관측됐다.**
+**For all three connection counts tested (1, 2, 4), the 98%-criterion operating
+concurrency was observed at c12.**
 
 > **Within the tested range, the concurrency knee remained invariant to
 > connection parallelism.**
 
-커넥션 병렬도를 바꿔도 concurrency knee 가 움직이지 않았다는 증거다. 두
-knee 가 서로 독립임을 **강하게 시사하지만 증명한 것은 아니다** — 다른 모델,
-페이로드 크기, 노드 수, 네트워크에서는 움직일 수 있다. §0 의 2차원 구조는
-이 범위 안에서 관측된 것으로 읽어야 한다.
+That is evidence the concurrency knee did not move when connection parallelism
+changed. It **strongly suggests, but does not prove**, that the two knees are
+independent — with a different model, payload size, node count or network it
+could move. §0's two-dimensional structure should be read as observed within
+this range.
 
-### 4.2 운영점에서는 트레이드오프가 없다 — conn2 가 conn1 을 지배한다
+### 4.2 At the operating point there is no trade-off — conn2 dominates conn1
 
 | conn2 vs conn1 @c12 | |
 |---|---:|
@@ -310,193 +329,203 @@ knee 가 서로 독립임을 **강하게 시사하지만 증명한 것은 아니
 | p95 | **−18.8%** |
 | p99 | **−17.8%** |
 
-**처리량이 오르면서 지연이 모든 분위에서 함께 내려간다.** 트레이드오프가
-아니라 **strict Pareto improvement** 다 — 단, **측정한 처리량·지연 지표
-기준**이다(on the measured throughput/latency metrics). CPU·메모리·커넥션
-자원까지 포함한 전 시스템 Pareto 라는 뜻은 아니다.
+**Throughput rises while latency falls at every percentile.** Not a trade-off but
+a **strict Pareto improvement** — on the measured throughput and latency
+metrics, that is. It does not mean a whole-system Pareto including CPU, memory
+and connection resources.
 → [`fig_sweep_pareto.png`](../../results/s37b-operating-point/figures/fig_sweep_pareto.png)
 
-**conn4 가 절대적으로 나쁜 것은 아니다.** 처리량 최고값을 우선한다면 conn4 도
-정당한 선택이다(138.1 vs 136.4).
+**conn4 is not absolutely worse.** If maximum throughput is the priority, conn4
+is a legitimate choice too (138.1 vs 136.4).
 
-conn2 를 기본 운영점으로 삼는 근거는 "conn4 가 나빠서" 가 아니다.
+The basis for making conn2 the default operating point is not "conn4 is bad".
 
-| conn4 가 더 주는 것 | conn4 가 더 쓰는 것 |
+| What conn4 gives extra | What conn4 spends extra |
 |---|---|
-| 처리량 **+1.2%** — 측정 변동(SD ±0.3~1.6)과 가까운 수준 | 커넥션 자원 **2배** |
+| throughput **+1.2%** — close to measurement variation (SD ±0.3–1.6) | **twice** the connection resources |
 | | p99 **+6.0%** |
 
 > **2 connections is the lowest-complexity configuration that captures
 > nearly all available throughput.**
 
-최소 자원으로 ceiling 을 거의 다 먹기 때문에 conn2 다.
+conn2 because it takes nearly all of the ceiling with the fewest resources.
 
-### 4.3 그래서 앞선 "tail 악화" 는 커넥션 탓이 아니었다
+### 4.3 So the earlier "tail degradation" was not the connections' fault
 
-S3.6 §4.3 과 S3.7a 는 커넥션을 늘리면 tail 이 나빠진다고 기록했다
-(p95 +46%, +43%). **그 측정 자체는 맞지만 해석이 틀렸다.**
+S3.6 §4.3 and S3.7a recorded that adding connections worsens the tail (p95 +46%,
++43%). **Those measurements are right and the interpretation was wrong.**
 
-그 실험들은 전부 **c32 에서 쟀는데, c32 는 세 구성 모두에게 overload 구간**
-이다(운영점이 c12). 즉 그 비교는 "어느 구성이 더 좋은가" 가 아니라
-**"어느 구성이 과부하에서 더 완만하게 무너지는가"** 를 잰 것이었다.
+Those experiments all **measured at c32, and c32 is the overload region for all
+three configurations** (the operating point is c12). That comparison was
+therefore not "which configuration is better" but **"which configuration
+degrades more gracefully under overload"**.
 
 ```text
-c32 에서 본 것   1ch → 4ch :  처리량 +21%, p95 +46%   ← overload 구간 비교
-c12 에서 본 것   1ch → 2ch :  처리량 +19%, p95 −19%   ← 운영점 비교
+seen at c32   1ch -> 4ch :  throughput +21%, p95 +46%   <- overload comparison
+seen at c12   1ch -> 2ch :  throughput +19%, p95 -19%   <- operating-point comparison
 ```
 
-**S3.6·S3.7a 의 숫자가 틀린 것이 아니다. 질문이 달랐다.**
+**S3.6's and S3.7a's numbers are not wrong. The question was different.**
 
-| 무엇을 물었나 | 답 |
+| What was asked | Answer |
 |---|---|
-| **고정 c32 비교** — 각 구성이 **과부하에서** 어떻게 behaving 하는가? | 커넥션이 많을수록 ceiling 은 조금 높지만 **tail amplification 이 커진다** |
-| **운영점 비교** — 어느 구성이 **운영상** 더 나은가? | conn2 가 conn1 을 양 축에서 지배한다 |
+| **Fixed-c32 comparison** — how does each configuration behave **under overload**? | more connections raise the ceiling slightly but **amplify the tail more** |
+| **Operating-point comparison** — which configuration is better **in operation**? | conn2 dominates conn1 on both axes |
 
-그래서 c32 결과는 폐기 대상이 아니라 **별도의 유효한 결과**로 남는다 —
-과부하 거동에 대한 결과다. 다만 그것을 운영 판단의 근거로 쓰면 안 된다.
+So the c32 results are not to be discarded but remain **a separate valid
+result** — a result about overload behaviour. They just must not be used as
+grounds for operating decisions.
 
 > **Optimize at the operating point, not in the overload region.**
 
-운영점을 정의하지 않고 고정 부하에서 구성을 비교하면 **configuration effect
-가 아니라 overload behavior 를 보게 되고, 결론이 뒤집힐 수 있다.**
-이것이 S3.7 이 남기는 가장 실용적인 교훈이다.
+Comparing configurations at a fixed load without defining the operating point
+means **seeing overload behaviour rather than a configuration effect, and the
+conclusion can invert.** This is the most practical lesson S3.7 leaves.
 
-## 5. S3.7b 결론
+## 5. S3.7b conclusion
 
-> **Selected operating point: 커넥션 2개 @ concurrency 12
+> **Selected operating point: 2 connections @ concurrency 12
 > — 136.4 inf/s, p95 119.8 ms, p99 137.4 ms**
 
-동일 규칙의 conn1 baseline(114.8 @c12) 대비 **처리량 +18.8%, p95 −18.8%**.
-로컬 direct(161.5) 까지의 gap 46.7 중 **21.6 (46%) 를 설정만으로 회수**하면서
-tail 도 함께 개선했다.
+Against the conn1 baseline under the same rule (114.8 @c12): **throughput
++18.8%, p95 −18.8%**. Of the 46.7 gap to local direct (161.5), **21.6 (46%) was
+recovered by configuration alone**, with the tail improving alongside.
 
 ## 6. Limitations
 
-- **격자 해상도.** knee 는 c8(peak 의 88%)과 c12 사이에 있는데 격자가 4
-  단위라 **c12 가 진짜 knee 인지 c10 인지는 모른다.** 세 구성을 같은 격자로
-  비교하는 데는 문제없으나, 운영점 절대값으로 인용할 때는 이 한계를 붙인다.
-- 분석기가 conn1·conn4 에 "포화 미확인(최고점이 sweep 상단)" 을 찍는다.
-  다만 conn1 은 c12 114.8±0.7 vs c24 115.9±0.8, conn4 는 c12 138.1±1.6 vs
-  c24 139.1±0.8 로 **평평한 구간 안의 noise** 다. 경고는 보수적으로 남긴다.
-- 1노드 결과다. 3노드면 서버가 2×3 = 6 커넥션을 든다(S3.8).
-- percentile 은 run-level 평균(S2 §7.4.1).
+- **Grid resolution.** The knee lies between c8 (88% of peak) and c12, and with
+  a step of 4 **we do not know whether c12 is the true knee or c10**. This is
+  fine for comparing three configurations on the same grid, but the caveat
+  attaches when quoting the operating point as an absolute.
+- The analyser flags "saturation unconfirmed (peak at the top of the sweep)" for
+  conn1 and conn4. But conn1 is c12 114.8 ± 0.7 vs c24 115.9 ± 0.8, and conn4 is
+  c12 138.1 ± 1.6 vs c24 139.1 ± 0.8 — **noise within a flat region**. The
+  warning is left in place, conservatively.
+- This is a 1-node result. At three nodes the server holds 2×3 = 6 connections
+  (S3.8).
+- Percentiles are run-level averages (S2 §7.4.1).
 
 # S3.7c — RPS at the selected operating point
 
-확정 운영점: **커넥션 2개 @ c12**.
+Settled operating point: **2 connections @ c12**.
 
-이제 다른 변수를 섞지 않고 질문 하나만 묻는 실험이 된다.
+This now becomes an experiment that asks one question with nothing else mixed in.
 
 > **Does RPS improve the selected operating point?**
 
-여기서 S3.5b 처럼 다시 null 이 나오면 **그것도 좋은 결과**다. 그때는
-"RPS 가 무효였던 건 흐름이 하나뿐이라서" 라는 가설이 상당 부분 약해진다 —
-흐름이 2개인데도 변화가 없다면 **IRQ/RX-side 분산이 이 워크로드의 병목이
-아니라는 쪽**으로 증거가 쌓인다.
+If a null comes back as in S3.5b, **that is a good result too**. It would
+substantially weaken the hypothesis that "RPS was ineffective because there was
+only one flow" — if nothing changes with two flows, evidence accumulates that
+**IRQ/RX-side distribution is not this workload's bottleneck.**
 
-확정된 운영점에서 `rps_cpus` OFF/ON. S3.5b 는 흐름이 하나뿐이라 분산할 대상이
-없었다. 이제 흐름이 여러 개이고 S3.6 의 4ch 조건에서 CPU0 는 busy 81% /
-soft 74% 였다.
+`rps_cpus` OFF/ON at the settled operating point. In S3.5b there was one flow
+and nothing to distribute. Now there are several flows, and under S3.6's 4ch
+condition CPU0 was at busy 81% / soft 74%.
 
-**S3.7b 에서 c2·c4 가 애매하게 비기면 둘 다 RPS A/B 를 한다.** 조건당 10 run
-이면 되므로 싸고, **흐름이 2개냐 4개냐에 따라 RPS 효과가 달라질 수 있다** —
-그 자체가 ②-a(TCP per-flow 처리)를 겨냥한 정보다.
+**If c2 and c4 tie ambiguously in S3.7b, run the RPS A/B on both.** Ten runs per
+condition suffices, so it is cheap, and **the RPS effect may differ between two
+flows and four** — which is itself information aimed at ②-a (TCP per-flow
+processing).
 
-- 오르면 → 단일 커넥션 제약을 풀자 NIC 처리 병목이 드러난 것
-- 그대로면 → CPU0 softirq 는 **상관관계일 뿐 처리량 limiter 가 아니다**
-  (S3.5b 단독보다 훨씬 강한 배제)
+- If it rises → releasing the single-connection constraint exposed a NIC
+  processing bottleneck
+- If unchanged → CPU0 softirq is **merely a correlation, not a throughput
+  limiter** (a much stronger exclusion than S3.5b alone)
 
-## 결과 — null 이다. 그리고 이번 null 은 훨씬 강하다
+## Result — a null. And this null is much stronger
 
-conn2 @ c12 고정, `rps_cpus` = `00`(CPU0만) vs `fe`(코어 1~7), 각 5 run.
+conn2 @ c12 fixed, `rps_cpus` = `00` (CPU0 only) vs `fe` (cores 1–7), 5 runs
+each.
 
-| | throughput | p50 | p95 | p99 | 보드 idle | **CPU0 busy** | **CPU0 %soft** |
+| | throughput | p50 | p95 | p99 | board idle | **CPU0 busy** | **CPU0 %soft** |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | RPS off | **136.8 ± 0.6** | 85.4 | 119.1 | 137.7 | 49.3% | **78.7%** | **68.0%** |
 | RPS on | 135.6 ± 0.4 | 86.4 | 119.7 | 139.3 | 49.1% | **74.6%** | **56.0%** |
-| 차이 | **−0.8%** | +1.2% | +0.5% | +1.2% | — | −4.1%p | **−12.0%p** |
+| difference | **−0.8%** | +1.2% | +0.5% | +1.2% | — | −4.1 pp | **−12.0 pp** |
 
-오류율 0. 처리량 차이 −0.8% 는 SD(±0.4~0.6) 범위다.
+Error rate 0. The −0.8% throughput difference is within the SD (±0.4–0.6).
 
-### 왜 이 null 이 S3.5b 보다 강한가
+### Why this null is stronger than S3.5b's
 
-S3.5b 때는 반박이 가능했다 — **흐름이 하나뿐이라 RPS 가 분산할 대상 자체가
-없었다.** 이번에는 그 반박이 막힌다.
+In S3.5b there was a counter-argument — **with one flow, RPS had nothing to
+distribute.** That counter-argument is blocked here.
 
-1. **흐름이 2개다.** RPS 가 해시로 나눌 것이 실재한다.
-2. **RPS 가 실제로 작동했다.** CPU0 %soft 가 **68.0% → 56.0%** 로 12%p
-   내려갔고 CPU0 busy 도 78.7% → 74.6% 로 떨어졌다. 설정이 무시된 것이 아니다.
-3. **CPU0 는 놀고 있지 않았다.** busy 78.7% 로 충분히 부하가 걸린 상태였다
-   (S3.6 의 c32/4ch 조건 81% 와 비슷하다). "부하가 낮아 RPS 가 손댈 여지가
-   없었다" 는 설명도 성립하지 않는다.
+1. **There are two flows.** There really is something for RPS to hash apart.
+2. **RPS actually worked.** CPU0 %soft came down 12 pp, **68.0% → 56.0%**, and
+   CPU0 busy fell from 78.7% to 74.6%. The setting was not ignored.
+3. **CPU0 was not idling.** At 78.7% busy it was under real load (comparable to
+   81% under S3.6's c32/4ch condition). "There was too little load for RPS to
+   act on" does not hold either.
 
 > **At the selected operating point, RPS reduced CPU0 softirq load
 > substantially but produced no measurable throughput or tail-latency
 > improvement. Therefore, CPU0 receive-side processing was not
 > performance-limiting under the tested configuration.**
 
-**범위를 정확히 읽어야 한다.** 이 실험이 말하는 것은 "CPU0 softirq 는
-limiter 가 아니다" 가 아니라 **"이 운영점·이 구성에서는 limiter 가 아니다"**
-다. 다른 부하·모델·페이로드 크기·노드 수에서는 달라질 수 있다.
+**Read the scope precisely.** What this says is not "CPU0 softirq is not a
+limiter" but **"it is not a limiter at this operating point, in this
+configuration"**. Under a different load, model, payload size or node count it
+could differ.
 
-그 범위 안에서는 상당히 강하다 — mechanism 은 분명히 작동했는데
-end-to-end limiter 를 건드리지 못했다. S3.5(§4.3)가 CPU0 을 "다음 병목
-후보" 로 지목했던 것은 **이 구성에 한해** 배제된다.
+Within that scope it is quite strong — the mechanism demonstrably worked and did
+not touch the end-to-end limiter. S3.5's (§4.3) nomination of CPU0 as "the next
+bottleneck candidate" is excluded **for this configuration.**
 
-## S3.7 전체 결론
+## Overall S3.7 conclusion
 
-| 후보 | 판정 |
+| Candidate | Verdict |
 |---|---|
-| 링크 대역폭 | 배제 (방향당 51%) — S3.5 |
-| 보드 CPU 총량 | 배제 (49~63% idle) — S3.5·S3.7c |
-| 서버·스케줄러 | **재개방** — baseline 에서는 배제됐으나 optimized 3N eff 95.3% (S3.8) |
-| **CPU0 softirq / RPS** | **배제.** 12%p 덜어도 처리량 불변 — S3.7c |
-| H2 flow control window | 64 MB 급 확대는 −36.3% 로 해로움 — S3.6 |
-| **노드당 커넥션 수** | **주요 제약.** 1→2 로 +18.8%, tail 도 개선 — S3.7b |
-| protobuf·복사·syscall | **미분리.** 남은 15.5% 안에 있을 수 있다 |
+| Link bandwidth | excluded (51% per direction) — S3.5 |
+| Board CPU capacity | excluded (49–63% idle) — S3.5, S3.7c |
+| Server and scheduler | **reopened** — excluded at baseline, but optimized 3N eff 95.3% (S3.8) |
+| **CPU0 softirq / RPS** | **excluded.** Throughput unchanged after taking 12 pp off — S3.7c |
+| H2 flow control window | enlarging to 64 MB is harmful at −36.3% — S3.6 |
+| **Connections per node** | **primary constraint.** 1→2 gives +18.8% and improves the tail — S3.7b |
+| protobuf, copies, syscalls | **unseparated.** May lie within the remaining 15.5% |
 
-**Selected operating point: 노드당 커넥션 2개(2 connections **per node**)
-@ concurrency 12 — 136.4 inf/s, p95 119.8 ms, p99 137.4 ms**
+**Selected operating point: 2 connections **per node** @ concurrency 12 —
+136.4 inf/s, p95 119.8 ms, p99 137.4 ms**
 
-> **단위를 반드시 명시한다.** `[transport] node_connections` 는 **노드당**
-> 값이다(`GrpcNodePool` 이 `NodeId` 마다 채널을 N 개 만든다). 클러스터 전체
-> 합이 아니다.
+> **Always state the unit.** `[transport] node_connections` is a **per-node**
+> value (`GrpcNodePool` creates N channels per `NodeId`). It is not a
+> cluster-wide total.
 >
-> | 노드 수 | node_connections | 클러스터 전체 커넥션 |
+> | Nodes | node_connections | cluster-wide connections |
 > |---:|---:|---:|
 > | 1 | 2 | 2 |
 > | 2 | 2 | 4 |
 > | 3 | 2 | 6 |
 >
-> S3.8 에서 "2 connections" 를 클러스터 전체로 고정하면 노드당 조건이
-> 보존되지 않고, 3N 에서 **커넥션 공급 자체가 새 병목**이 된다. 완전히
-> 다른 실험이 되므로 혼동하면 안 된다.
+> Fixing "2 connections" cluster-wide in S3.8 would not preserve the per-node
+> condition, and at 3N **connection supply itself would become a new
+> bottleneck**. That is an entirely different experiment and must not be
+> confused with this one.
 
-로컬 direct 161.5 까지 아직 **15.5%** 남아 있다.
+**15.5%** still remains to local direct at 161.5.
 
-> ⚠️ **배제표는 후보 공간을 줄인 것이지, 남은 15.5% 의 정체를 특정한 것이
-> 아니다.** 남은 후보는 여전히 여럿이다.
+> ⚠️ **The exclusion table shrank the candidate space; it did not identify what
+> the remaining 15.5% is.** Several candidates remain.
 >
-> | 남은 gap 의 후보 |
+> | Candidates for the remaining gap |
 > |---|
 > | protobuf serialization |
-> | memcpy / buffer ownership (`to_vec()` 등) |
+> | memcpy / buffer ownership (`to_vec()` and the like) |
 > | syscall / submission path |
-> | HTTP/2 구현 오버헤드 |
-> | userspace 스케줄링 (tokio 워커 ↔ blocking 풀 경합) |
-> | NPU submission / RKNN 런타임 오버헤드 |
-> | 그 밖 |
+> | HTTP/2 implementation overhead |
+> | userspace scheduling (tokio workers ↔ blocking pool contention) |
+> | NPU submission / RKNN runtime overhead |
+> | other |
 
-**io_uring 은 이제 정당한 후보가 됐다. 그러나 "다음 병목이 syscall·복사다"
-는 아직 아니다.** 그래서 S4 의 질문을 이렇게 둔다.
+**io_uring is now a legitimate candidate. But "the next bottleneck is syscalls
+and copies" is not yet established.** So S4's question is framed this way:
 
 ```text
-아니다   io_uring 이 남은 15.5% 를 회수하는가?
-맞다     syscall / submission path 가 실제로 유의미한 비용인가?
+no    Does io_uring recover the remaining 15.5%?
+yes   Is the syscall / submission path actually a meaningful cost?
 ```
 
-프로파일로 syscall·복사 비용을 먼저 확인하고, 그 답이 "그렇다" 일 때
-io_uring 으로 간다. TECHSPEC §15.1 의 순서이자 S3.5 이후 지켜 온 원칙과
-같다 — **측정이 구현을 결정한다.**
+Confirm syscall and copy cost by profiling first, and go to io_uring only if the
+answer is yes. That is TECHSPEC §15.1's order and the same principle held since
+S3.5 — **measurement decides implementation.**
 
-다음은 **S3.8** — 이 운영점으로 1N/2N/3N scale-out 을 재검증한다.
+Next is **S3.8** — re-verify 1N/2N/3N scale-out at this operating point.
