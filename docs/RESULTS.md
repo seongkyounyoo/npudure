@@ -1,486 +1,524 @@
-# NPUDure 측정 결과 — 1차 정리
+# NPUDure measurement results — first pass
 
-- 정리 시점: **2026-08-14** (단일 노드 계보)
-- 대상 기간: 2026-08-07 ~ 2026-08-12
-- 원본 데이터: `results/`, `benchmarks/`
-- 논의 과정: `discuss.md` (시각순), 작업 이력: `board-worklog.md`
+*[한국어 원문](RESULTS.ko.md)*
 
-> ## ⚠️ 이 문서는 **단일 노드 계보의 1차 정리**다 (2026-08-21 갱신)
->
-> 2026-08-20~21 에 **클러스터 측정 계보가 통째로 진행돼 종료됐다**
-> (S2 · S3 · S3.5~3.9b · S0-A~D, 421건, 오류율 0). 그 결과는 이 문서가
-> 아니라 **[`experiments/README.md`](experiments/README.md)** 에 있다.
-> 다중 노드 수치를 찾는다면 거기서 시작한다.
->
-> 아래 §2.5 는 그 계보 **이전의 예비 측정**이며 **후속 측정으로 대체됐다.**
-> §1~§4 의 단일 노드 결과와 §5~§6 의 실패 목록은 여전히 유효하다.
+- Compiled: **2026-08-14** (the single-node lineage)
+- Period covered: 2026-08-07 to 2026-08-12
+- Raw data: `results/`, `benchmarks/`
+- The discussion: `discuss.md` (chronological); work history:
+  `board-worklog.md`
 
-> 이 문서는 **결과만** 모은다. 왜 그렇게 결론냈는지는 `discuss.md`,
-> 무슨 일이 있었는지는 `board-worklog.md` 를 본다.
+> ## ⚠️ This document is **the first pass over the single-node lineage** (updated 2026-08-21)
 >
-> **모든 수치에 측정 조건을 함께 적었다.** 조건 없는 숫자는 3개월 뒤에
-> 쓸모가 없다는 것을 이번에 배웠다.
+> On 2026-08-20 and 21 **the cluster measurement lineage ran through to
+> completion** (S2 · S3 · S3.5–3.9b · S0-A–D, 421 runs, error rate 0). Those
+> results are not here but in
+> **[`experiments/README.md`](experiments/README.md)**. Start there for
+> multi-node figures.
+>
+> §2.5 below is **a pilot measurement from before that lineage** and has been
+> **superseded by later measurements.** The single-node results in §1–§4 and the
+> failure list in §5–§6 remain valid.
+
+> This document collects **results only**. Why those conclusions were reached is
+> in `discuss.md`; what happened is in `board-worklog.md`.
+>
+> **Every number carries its measurement conditions.** We learned this time that
+> a number without conditions is useless three months later.
 
 ---
 
-# 1. 한 장 요약
+# 1. One page
 
-3대의 RK3576 보드(6 TOPS NPU)로 분산 추론 클러스터를 만들었다.
-이 문서는 **단일 노드 특성과 소프트웨어**를 정리한다. 다중 노드 계보는
-2026-08-20~21 에 별도로 진행돼 종료됐다 — **3노드 387.2 inf/s
-(운영점, 2.86× / 95.3%)**, [`experiments/README.md`](experiments/README.md).
+A distributed inference cluster was built from three RK3576 boards (6 TOPS NPU).
+This document covers **single-node characteristics and the software.** The
+multi-node lineage ran separately on 2026-08-20 and 21 and is complete —
+**three nodes at 387.2 inf/s (operating point, 2.86× / 95.3%)**,
+[`experiments/README.md`](experiments/README.md).
 
-지금까지 나온 가장 중요한 수치 셋.
+The three most important numbers so far.
 
-| 항목 | 값 | 뜻 |
+| Item | Value | Meaning |
 |---|---|---|
-| 노드당 처리량 (120초) | **84.3 inf/s** (FP16) / **157.2 inf/s** (INT8) | `want_float=0` 기준 |
-| 노드당 **정상 상태** (300초) | **59.7 inf/s** (FP16) | 시작 대비 **-27%**. CPU throttling |
-| 애플리케이션 최적화 2종 | **+0.1%, -1.8%** (`core_mask`, zero-copy) | 노드 내부에서 짜낼 것이 거의 없다 |
-| INT8 양자화 | **1.86배** | 가장 크게 먹힌 수단 |
-| `want_float=0` | **+17.3%** (INT8) / **+15.7%** (FP16) | 출력도 4분의 1. 네트워크와 처리량이 같은 방향 |
+| Per-node throughput (120 s) | **84.3 inf/s** (FP16) / **157.2 inf/s** (INT8) | on `want_float=0` |
+| Per-node **steady state** (300 s) | **59.7 inf/s** (FP16) | **−27%** against the start. CPU throttling |
+| Two application optimizations | **+0.1%, −1.8%** (`core_mask`, zero-copy) | there is almost nothing left to squeeze inside the node |
+| INT8 quantization | **1.86×** | the measure that landed hardest |
+| `want_float=0` | **+17.3%** (INT8) / **+15.7%** (FP16) | output a quarter too. Network and throughput move together |
 
-그리고 가장 중요한 **비수치** 결과.
+And the most important **non-numeric** result.
 
-> **네 번의 측정이 틀렸고, 네 번 다 "성공처럼 보였다."**
-> 이 프로젝트의 산출물 절반은 그 실패의 목록이다. §6 참조.
+> **Four measurements were wrong, and all four "looked like success."**
+> Half this project's output is that list of failures. See §6.
 
 ---
 
-# 2. 확정 수치
+# 2. Settled figures
 
-## 2.1 하드웨어
+## 2.1 Hardware
 
-| 항목 | 값 | 출처 |
+| Item | Value | Source |
 |---|---|---|
-| SoC | Rockchip RK3576 | 실측 |
-| CPU | 4× Cortex-A72 @2208MHz + 4× A53 @2016MHz | `cpufreq` |
-| NPU | 2코어, 950MHz, 6 TOPS(공칭) | `/sys/kernel/debug/rknpu` |
-| RAM | 4GB LPDDR4X | 실측 |
-| 전원 | 5V DC. **4A 어댑터 필요** | §6.2 |
-| 네트워크 | 2.5GbE × 2 (r8125) | 실측 |
+| SoC | Rockchip RK3576 | measured |
+| CPU | 4× Cortex-A72 @2208 MHz + 4× A53 @2016 MHz | `cpufreq` |
+| NPU | 2 cores, 950 MHz, 6 TOPS (nominal) | `/sys/kernel/debug/rknpu` |
+| RAM | 4GB LPDDR4X | measured |
+| Power | 5V DC. **A 4A adapter is required** | §6.2 |
+| Network | 2.5GbE × 2 (r8125) | measured |
 | RKNN Runtime | 2.3.0 (`c949ad889d@2024-11-07`) | `strings librknnrt.so` |
-| RKNPU 드라이버 | v0.9.8 | `/sys/kernel/debug/rknpu/version` |
+| RKNPU driver | v0.9.8 | `/sys/kernel/debug/rknpu/version` |
 
-세 노드의 커널(6.1.141), `librknnrt.so` 해시, 드라이버 버전, 모델 해시가
-모두 일치한다. `preflight-check.sh` 가 매 측정 전에 확인한다.
+The three nodes' kernel (6.1.141), `librknnrt.so` hash, driver version and model
+hash all match. `preflight-check.sh` confirms this before every measurement.
 
-## 2.2 추론 성능
+## 2.2 Inference performance
 
-**측정 조건: `king`, 8스레드, 120초 지속, CPU governor `performance`,
-팬리스, 스레드별 전용 RKNN 컨텍스트.**
+**Conditions: `king`, 8 threads, 120 s sustained, CPU governor `performance`,
+fanless, a dedicated RKNN context per thread.**
 
-| 모델 | 처리량 | 평균 지연 | 모델 크기 |
+| Model | Throughput | Mean latency | Model size |
 |---|---:|---:|---:|
 | YOLOv8n FP16 | **84.3 inf/s** | 94.5 ms | 9.65 MB |
 | YOLOv8n INT8 | **157.2 inf/s** | 50.8 ms | 6.46 MB |
-| 배율 | **1.86×** | -46% | -33% |
+| Ratio | **1.86×** | −46% | −33% |
 
-관련 수치.
+Related figures.
 
-| 항목 | 값 | 조건 |
+| Item | Value | Conditions |
 |---|---|---|
-| 최적 `worker_count` | **8** | 4 대비 +27%. 8에서 아직 안 꺾임 |
-| NPU 2번째 코어 기여 | **1.51배** (2배 아님) | 단일코어 48.2 → 두코어 73.0 inf/s |
-| 추론당 커널 ioctl | **76회** | FP16·INT8 동일 |
-| CPU governor 영향 | +7% | `ondemand` → `performance`. **120초 측정.** 지속 부하에서는 미검증 |
-| `want_float=0` 효과 | **INT8 +17.3% / FP16 +15.7%** | 출력도 4분의 1이 된다 |
+| Optimal `worker_count` | **8** | +27% over 4. Has not bent yet at 8 |
+| Contribution of the NPU's second core | **1.51×** (not 2×) | single core 48.2 → two cores 73.0 inf/s |
+| Kernel ioctls per inference | **76** | identical for FP16 and INT8 |
+| CPU governor effect | +7% | `ondemand` → `performance`. **A 120-second measurement.** Unverified under sustained load |
+| `want_float=0` effect | **INT8 +17.3% / FP16 +15.7%** | output becomes a quarter too |
 
-> ⚠️ **2026-08-11 이전 문서의 처리량 수치는 `ondemand` 기준이다**
-> (FP16 79.0 / INT8 146.2). 직접 비교하지 말 것.
+> ⚠️ **Throughput figures in documents from before 2026-08-11 are on
+> `ondemand`** (FP16 79.0 / INT8 146.2). Do not compare directly.
 
-## 2.3 열 특성 (예비, S0 아님)
+## 2.3 Thermal characteristics (pilot, not S0)
 
-**측정 조건: 3보드 동시, 8스레드, 900초, 팬리스, 선풍기 없음,
-governor `ondemand`.** 평탄역은 부하 후 300초~종료.
+**Conditions: 3 boards concurrently, 8 threads, 900 s, fanless, no desk fan,
+governor `ondemand`.** The plateau is from 300 s after load to the end.
 
-| 보드 | NPU 평균 | NPU 최고 | 처리량 |
+| Board | NPU mean | NPU peak | Throughput |
 |---|---:|---:|---:|
-| king | 73.0°C | 75.8°C | 80.5 inf/s |
-| queen | 67.5°C | 70.2°C | 77.7 inf/s |
-| jack | 72.6°C | 74.8°C | 77.8 inf/s |
+| king | 73.0 °C | 75.8 °C | 80.5 inf/s |
+| queen | 67.5 °C | 70.2 °C | 77.7 inf/s |
+| jack | 72.6 °C | 74.8 °C | 77.8 inf/s |
 
-- **노드 간 편차 5.6°C**
-- **NPU throttling 없음** — 928 샘플 전부 950MHz
-- ⚠️ **그러나 CPU 는 강등된다.** 이 판정은 NPU 클럭만 봤다.
-  같은 로그의 CPU 클럭을 보면 A72 2208 → 816 MHz, A53 2016 → 600 MHz 다.
+- **Node-to-node spread 5.6 °C**
+- **No NPU throttling** — all 928 samples at 950 MHz
+- ⚠️ **But the CPU is downgraded.** That verdict looked only at the NPU clock.
+  The CPU clocks in the same log show A72 2208 → 816 MHz and A53 2016 → 600 MHz.
   `discuss.md` §12
-- 90°C 초과 없음. 현재 임계치(`degraded 80` / `disable 90`)에 닿지 않음
-- 유휴 온도 35~40°C, 입력 전압 최저 5.046V
+- Never exceeded 90 °C. Did not reach the current thresholds
+  (`degraded 80` / `disable 90`)
+- Idle temperature 35–40 °C, minimum input voltage 5.046 V
 
-**팬리스로 8스레드 지속 부하가 가능하다.** 오류 없이 완주한다.
-다만 **처리량은 유지되지 않는다** — 300초 지속에서 81.6 → 59.7 inf/s
-(-27%). NPU 가 아니라 CPU 가 열로 강등되기 때문이다. `discuss.md` §12
+**Sustained 8-thread load is possible fanless.** It completes without errors.
+But **throughput is not sustained** — over 300 seconds it goes 81.6 → 59.7 inf/s
+(−27%). Because it is the CPU, not the NPU, being downgraded by heat.
+`discuss.md` §12
 
-정식 S0(30분 × 2조건)은 아직이다. 이것은 노드 간 편차 확인용 15분 측정이다.
+The formal S0 (30 min × 2 conditions) is still to come. This is a 15-minute
+measurement for checking node-to-node spread.
 
-## 2.4 정확도
+## 2.4 Accuracy
 
-**측정 조건: 실보드(`king`), COCO val2017 이미지 1장, 전처리를 한 곳에서
-수행해 양쪽이 같은 입력 바이트를 보게 함.**
+**Conditions: real board (`king`), one COCO val2017 image, preprocessing done in
+one place so both see the same input bytes.**
 
-| 비교 | box cosine | 검출 셀 | 클래스 일치 |
+| Comparison | box cosine | Detection cells | Class agreement |
 |---|---|---|---|
 | FP16 vs ONNX | 0.99999 | 10/10 | 100% |
 | INT8 vs FP16 | 0.997 | 10/10 | 100% |
 
-INT8 은 최고 검출의 셀이 한 칸 이동하고 점수가 -5.5%. **검출 집합과
-클래스는 동일하다.** 1.86배를 이 대가로 얻는다면 쓸 만하다.
+For INT8 the top detection's cell moves by one and its score is −5.5%. **The
+detection set and classes are identical.** Getting 1.86× for that price is worth
+it.
 
-RKNN 시뮬레이터는 빌드된 `.rknn` 을 추론하지 못한다(`load_rknn` 후
-`init_runtime` 이 거부). 배포되는 것과 같은 파일로 검증해야 하므로
-실보드에서 측정했다.
+The RKNN simulator cannot infer with a built `.rknn` (after `load_rknn`,
+`init_runtime` refuses). Verification has to use the same file that gets
+deployed, so it was measured on a real board.
 
-## 2.5 다중 노드 확장성 (2026-08-20, 예비) — **대체됨**
+## 2.5 Multi-node scalability (2026-08-20, pilot) — **superseded**
 
-> **이 절은 후속 측정으로 대체됐다.** 단일 run 예비 측정이며, 정식 결과는
-> 아래와 같다. 값을 인용할 때는 이 절이 아니라 각 실험 문서를 쓴다.
+> **This section has been superseded by later measurements.** It is a
+> single-run pilot; the formal results are below. When quoting values, use the
+> individual experiment documents rather than this section.
 >
-> | 이 절 (예비) | 정식 | 문서 |
+> | This section (pilot) | Formal | Document |
 > |---|---|---|
-> | 3노드 337.7 inf/s | **338.4** (30 run) / ceiling **341.8** | [S2](experiments/S2_GRPC_BASELINE.md) · [S3](experiments/S3_SATURATION.md) |
-> | 확장 효율 ~98% | **98.9%** (baseline) / **95.3%** (운영점) | [S2](experiments/S2_GRPC_BASELINE.md) · [S3.8](experiments/S3_8_OPTIMIZED_SCALEOUT.md) |
-> | 노드 상한 115 | 운영점 **135.5** (커넥션 2개/노드) | [S3.7](experiments/S3_7_CONNECTION_TUNING.md) |
-> | 로컬 157 대비 −27% | 로컬 direct **161.5** 대비 **−16.1%** | [S3.9b](experiments/S3_9B_NODE_RESIDUAL.md) |
+> | 3 nodes 337.7 inf/s | **338.4** (30 runs) / ceiling **341.8** | [S2](experiments/S2_GRPC_BASELINE.md) · [S3](experiments/S3_SATURATION.md) |
+> | scaling efficiency ~98% | **98.9%** (baseline) / **95.3%** (operating point) | [S2](experiments/S2_GRPC_BASELINE.md) · [S3.8](experiments/S3_8_OPTIMIZED_SCALEOUT.md) |
+> | node ceiling 115 | operating point **135.5** (2 connections/node) | [S3.7](experiments/S3_7_CONNECTION_TUNING.md) |
+> | −27% against local 157 | **−16.1%** against local direct **161.5** | [S3.9b](experiments/S3_9B_NODE_RESIDUAL.md) |
 >
-> 아래 ⚠️ 가 지적한 냉각 조건 불일치도 해소됐다 — S3.5 이후 로컬 direct
-> 기준값은 **능동 냉각 8워커 161.5** 로 통일했다.
+> The cooling-condition mismatch flagged by the ⚠️ below is also resolved —
+> since S3.5 the local direct reference has been unified as **161.5 with active
+> cooling and 8 workers.**
 
-**측정 조건: 스케줄러(server .9) 경유 gRPC, INT8, want_float=0,
-governor=performance, Active Cooling(노드마다 전용 팬), round-robin,
-30초(1노드 스윕 20초), 단일 run, preflight 통과.** 정식 S2 아님 —
-반복 run·팬리스 비교·`--with-inference` 미실시. 원본 `results/scaling-20260820/`.
+**Conditions: gRPC via the scheduler (server .9), INT8, want_float=0,
+governor=performance, active cooling (a dedicated fan per node), round-robin,
+30 s (20 s for the 1-node sweep), a single run, preflight passed.** Not the
+formal S2 — no repeated runs, no fanless comparison, no `--with-inference`. Raw
+data `results/scaling-20260820/`.
 
-노드당 동일 부하(concurrency = 8 × 노드수):
+Equal per-node load (concurrency = 8 × node count):
 
-| 구성 | 처리량 | 분배 | 오류율 |
+| Configuration | Throughput | Distribution | Error rate |
 |---|---:|---|---:|
-| 1노드 | 111.6 inf/s | king 100% | 0% |
-| 2노드 | 228.7 inf/s | 50 / 50 | 0% |
-| 3노드 | **337.7 inf/s** | 33 / 33 / 33 | 0% |
+| 1 node | 111.6 inf/s | king 100% | 0% |
+| 2 nodes | 228.7 inf/s | 50 / 50 | 0% |
+| 3 nodes | **337.7 inf/s** | 33 / 33 / 33 | 0% |
 
-1노드 concurrency 스윕(포화점): c8 111.6 → c16 114.0 → c32 **115.1 (포화)**.
+1-node concurrency sweep (the saturation point): c8 111.6 → c16 114.0 → c32
+**115.1 (saturated)**.
 
-**확장 효율 ~98% (거의 선형).** 1노드 포화 115 기준 3노드 337.7 = **2.93배**.
-데이터 병렬(`adrs/001`)이 성립하고 스케줄러가 3노드 동시에도 병목이 아니다.
+**Scaling efficiency ~98% (nearly linear).** Against the 1-node saturation of
+115, three nodes at 337.7 is **2.93×**. Data parallelism (`adrs/001`) holds and
+the scheduler is not a bottleneck even with three nodes.
 
-**단, 클러스터 노드 상한 115 < 로컬 sustained 157 (-27%).** 왕복 p50 69 ms
-인데 노드 보고 추론은 24~28 ms — 40 ms+ 가 스케줄러 gRPC 경유 오버헤드로
-보인다(직렬화 + 1.17 MiB 입력·출력 전송 + 큐·라우팅).
+**But the cluster node ceiling of 115 < the local sustained 157 (−27%).** The
+round-trip p50 is 69 ms while the node reports inference at 24–28 ms — 40 ms+
+appears to be overhead from going through the scheduler's gRPC (serialization +
+transferring 1.17 MiB in and out + queueing and routing).
 
-> ⚠️ **27% 는 순수 gRPC 오버헤드로 확정할 수 없다.** 기준 157 은 **팬리스**
-> (08-11/12) sustained 이고 클러스터 115 는 **Active Cooling**(오늘)이라
-> 냉각 조건이 다르다. 로컬 baseline 을 같은 팬 조건에서 재측정한 뒤 확정한다.
+> ⚠️ **The 27% cannot be attributed purely to gRPC overhead.** The reference of
+> 157 is **fanless** sustained (08-11/12) while the cluster's 115 is **active
+> cooling** (today), so the cooling conditions differ. It gets settled after
+> re-measuring the local baseline under the same fan conditions.
 
-> **핵심 질문 "6 TOPS 세 대는 18 TOPS 가 되는가" 의 첫 답: 클러스터 기준
-> 2.93배(98%).** 병목은 확장이 아니라 노드당 오버헤드다. 이 27% 의 출처는
-> `TimingBreakdown` 단계 분해로 다음에 쪼갠다. `board-worklog.md` §2.25.
+> **The first answer to the central question, "do three 6 TOPS units make
+> 18 TOPS": 2.93× (98%) on a cluster basis.** The bottleneck is not scaling but
+> per-node overhead. The source of that 27% gets broken down next with the
+> `TimingBreakdown` stages. `board-worklog.md` §2.25.
 
-원본 데이터·상세 리포트: `results/scaling-20260820/`.
+Raw data and detailed report: `results/scaling-20260820/`.
 
-> ✅ **30회 반복으로 재현됨 (2026-08-20).** 1/2/3노드 = 112.9±0.5 / 229.0±0.9
-> / **338.4±1.1 inf/s**, speedup 3.00×, error 0%, balance 0%p. SD 극소.
-> "한 번 나온 값"에서 "반복 확인된 결과"로 승격. 실험 보고서:
-> `docs/experiments/S2_GRPC_BASELINE.md`, 원본: `results/baseline-20260820/`.
+> ✅ **Reproduced across 30 runs (2026-08-20).** 1/2/3 nodes = 112.9±0.5 /
+> 229.0±0.9 / **338.4±1.1 inf/s**, speedup 3.00×, error 0%, balance 0 pp. Tiny
+> SD. Promoted from "a value that came out once" to "a repeatedly confirmed
+> result". Experiment report: `docs/experiments/S2_GRPC_BASELINE.md`, raw data:
+> `results/baseline-20260820/`.
 >
-> ✅ **S3 saturation (2026-08-20).** 각 구성 ceiling = **115 / 232 / 342 inf/s**
-> (1/2/3 node), 3N = 2.97× (99%). ceiling 기준으로도 near-linear.
-> `docs/experiments/S3_SATURATION.md`.
+> ✅ **S3 saturation (2026-08-20).** Each configuration's ceiling =
+> **115 / 232 / 342 inf/s** (1/2/3 node), 3N = 2.97× (99%). Near-linear by the
+> ceiling measure too. `docs/experiments/S3_SATURATION.md`.
 >
-> ✅ **S3.5 transport profiling (2026-08-20).** 위 −30% 손실의 정체를 확정.
-> **대역폭 아님**(방향당 링크 51% 사용), **보드 CPU 총량 아님**(63% idle),
-> **커널 softirq 편중 아님**(RPS A/B −0.2%), **서버·스케줄러 아님**(3노드
-> 3.00× 선형). 남은 것은 **스케줄러↔노드 HTTP/2 전송 경로** — bench 는
-> 워커당 1개씩 32 연결을 쓰는데 스케줄러는 노드당 1 연결로 모으고, h2
-> window 는 전부 기본값(64 KB)이다. 노드는 같은 보드 로컬 direct 161.5
-> inf/s 를 내면서 클러스터에서 116 에 그치고 `node_queue` ≈ 0 으로 여유가
-> 남는다. 경로 안에서 ①flow control ②커넥션/TCP ③protobuf·복사 중
-> 무엇인지는 **S3.6 A/B 가 가른다.** 그 결과가 S4 를 `gRPC optimized` 와
-> `io_uring` 중 하나로 확정한다.
+> ✅ **S3.5 transport profiling (2026-08-20).** Settled what the −30% loss above
+> actually is. **Not bandwidth** (51% of the link used per direction), **not
+> board CPU capacity** (63% idle), **not kernel softirq concentration** (RPS A/B
+> −0.2%), **not the server or scheduler** (three nodes scaling 3.00×). What
+> remains is the **scheduler↔node HTTP/2 transport path** — the bench uses 32
+> connections, one per worker, while the scheduler funnels to one connection per
+> node, and the h2 windows are all at the default (64 KB). The node yields
+> 161.5 inf/s local direct on the same board while managing only 116 in the
+> cluster, with `node_queue` ≈ 0 showing headroom. Which of ①flow control
+> ②connection/TCP ③protobuf and copies it is within that path **gets separated
+> by the S3.6 A/B.** That result fixes S4 as either `gRPC optimized` or
+> `io_uring`.
 > `docs/experiments/S3_5_TRANSPORT_PROFILE.md`.
 >
-> ✅ **S3.6 H2/channel A/B (2026-08-20, 20 run).** **노드당 단일 gRPC/HTTP2
-> 커넥션 구조가 처리량을 제한하는 주요 요인임을 확인**했다. 커넥션 1 → 4
-> 하나만 바꿔 **115.3 → 140.1 inf/s (+21.5%)**, 로컬 direct 까지의 gap 46.2 중
-> **54% 를 설정만으로 회수**(아키텍처 변경 없이 커넥션 풀만으로). 단 그 구조
-> 안에서 TCP per-flow / H2 multiplexing·락 / flow control 상호작용 중
-> 무엇인지는 **아직 미분리**.
-> 한편 **64 MB 급 large window 는 이 workload 에서 −36.3% 로 크게 해로웠다** —
-> 기본 64 KB 가 backpressure 로 기능하고 있었다는 뜻이다(기본값 유지).
-> 다만 64 KB→64 MB 는 1000배 차이의 극단 A/B 라 **"window 튜닝 무효" 로는
-> 결론짓지 않는다**(중간값 미측정).
-> 대가로 **p95 는 46% 악화**(393 → 573 ms) — 원인 후보가 5개 있고 전부 미검증.
-> 새 병목으로 CPU0 포화(busy 81%, soft 74%)가 드러났고, 흐름이 4개가 됐으므로
-> S3.5b 의 RPS null 을 다시 볼 여지가 생겼다.
-> **io_uring 은 순서상 뒤로 민다** — syscall/req 는 조건 간 80~94 로 거의
-> 불변인데 처리량은 73.5~140.1 로 두 배 차이가 났다. (syscall *횟수*가 같다는
-> 것과 syscall·복사 *CPU 시간*이 작다는 것은 다른 문제이므로 효과 없음을
-> 뜻하지는 않는다.)
-> **S2·S3 숫자는 아직 갱신하지 않는다** — 1노드 결과이고 3노드면 서버가
-> 12 커넥션을 든다. S3.7 에서 N 확정 후 1N/2N/3N 재측정.
+> ✅ **S3.6 H2/channel A/B (2026-08-20, 20 runs).** **Confirmed the single
+> gRPC/HTTP2 connection per node as the primary factor limiting throughput.**
+> Changing connections 1 → 4 alone gave **115.3 → 140.1 inf/s (+21.5%)**,
+> recovering **54% of the 46.2 gap to local direct through configuration alone**
+> (a connection pool, with no architectural change). But which of TCP per-flow /
+> H2 multiplexing and locking / flow control interaction it is within that
+> structure is **still unseparated**.
+> Meanwhile **a 64 MB-class large window was badly harmful on this workload at
+> −36.3%** — meaning the 64 KB default was functioning as backpressure (the
+> default is kept). But 64 KB→64 MB is a 1000× extreme A/B, so it is **not
+> concluded as "window tuning is ineffective"** (intermediate values unmeasured).
+> The cost is **p95 46% worse** (393 → 573 ms) — five candidate causes, all
+> unverified.
+> CPU0 saturation surfaced as a new bottleneck (busy 81%, soft 74%), and with
+> four flows there is now room to revisit S3.5b's RPS null.
+> **io_uring is pushed back in the ordering** — syscall/req is nearly invariant
+> at 80–94 across conditions while throughput differs twofold, 73.5–140.1. (The
+> syscall *count* being equal and the syscall/copy *CPU time* being small are
+> different questions, so this does not mean it has no effect.)
+> **The S2 and S3 numbers are not updated yet** — they are 1-node results, and
+> at three nodes the server would hold 12 connections. 1N/2N/3N get re-measured
+> after S3.7 fixes N.
 > `docs/experiments/S3_6_H2_CHANNEL_AB.md`.
 >
-> ✅ **S3.7 + S3.8 optimized gRPC (2026-08-20, 총 146 run).** 운영점을
-> **노드당 커넥션 2개 @ concurrency 12** 로 확정하고 scale-out 을 재검증했다.
-> 운영점 정의는 **peak 의 98% 이상을 내는 가장 낮은 concurrency**.
+> ✅ **S3.7 + S3.8 optimized gRPC (2026-08-20, 146 runs total).** The operating
+> point was settled at **2 connections per node @ concurrency 12** and scale-out
+> re-verified. The operating-point definition is **the lowest concurrency
+> delivering at least 98% of peak.**
 >
-> | | baseline (conn1) | optimized (conn2/node) | 개선 |
+> | | baseline (conn1) | optimized (conn2/node) | gain |
 > |---|---:|---:|---:|
 > | 1N | 115.2 | **135.5** | +17.6% |
 > | 2N | 232.0 | **263.3** | +13.5% |
 > | 3N | 341.8 | **387.2** | +13.3% |
 > | scaling | 2.97× (98.9%) | **2.86× (95.3%)** | |
 >
-> 오류 0, 분배 편차 0.0%p. 다만 **scaling efficiency 는 소폭 내려갔다** —
-> 노드당 이득이 +17.6%(1N) → +13.3%(3N) 으로 줄어 1노드 최적화가 다노드에서
-> 온전히 보존되지 않는다. 서버 10G 링크가 67% → **76%** 로 올라온 것이 유력한
-> 후보지만 미확인이다 → 다음은 **서버 쪽 프로파일**.
+> Zero errors, 0.0 pp distribution deviation. But **scaling efficiency slipped
+> slightly** — the per-node gain shrinks from +17.6% (1N) to +13.3% (3N), so the
+> single-node optimization is not fully preserved at multiple nodes. The server
+> 10G link rising from 67% to **76%** is the leading candidate but is
+> unconfirmed → next is a **server-side profile**.
 > `docs/experiments/S3_7_CONNECTION_TUNING.md`, `S3_8_OPTIMIZED_SCALEOUT.md`.
 
 ---
 
-# 3. 소프트웨어 현황
+# 3. Software status
 
-| 크레이트 | 상태 | 비고 |
+| Crate | Status | Note |
 |---|---|---|
-| `npuforge-common` | ✅ | 타입, 오류 코드(16종), 설정, 백엔드 인터페이스 |
-| `npuforge-proto` | ✅ | gRPC 정의. `SchedulerService` / `NodeService` |
-| `npuforge-mock-backend` | ✅ | 결정적 시드. 하드웨어 없이 개발 |
-| `npuforge-rknn` | ✅ | 컨텍스트 풀, 다중 출력, 실장비 검증 |
-| `npuforge-node` | ✅ | 워커 풀, gRPC 서버, 등록·하트비트 |
-| `npuforge-scheduler` | ✅ | 정책 3종, 레지스트리, 재시도 |
-| `npuforge-bench` | ✅ | 부하·집계·run 유효성 판정 |
+| `npuforge-common` | ✅ | types, error codes (16 kinds), configuration, backend interface |
+| `npuforge-proto` | ✅ | gRPC definitions. `SchedulerService` / `NodeService` |
+| `npuforge-mock-backend` | ✅ | deterministic seed. Development without hardware |
+| `npuforge-rknn` | ✅ | context pool, multiple outputs, real-hardware verification |
+| `npuforge-node` | ✅ | worker pool, gRPC server, registration and heartbeat |
+| `npuforge-scheduler` | ✅ | three policies, registry, retries |
+| `npuforge-bench` | ✅ | load, aggregation, run-validity judgement |
 
-**209 tests, clippy `-D warnings`, fmt clean.** (2026-08-14 기준)
+**209 tests, clippy `-D warnings`, fmt clean.** (as of 2026-08-14)
 
-## 3.1 검증한 동작
+## 3.1 Verified behaviour
 
-로컬 Mock 3노드 통합 테스트 (`crates/npuforge-scheduler/tests/mock_cluster.rs`).
-실제 gRPC 를 타므로 전송 경로는 실장비와 같다.
+The local Mock 3-node integration test
+(`crates/npuforge-scheduler/tests/mock_cluster.rs`). It runs over real gRPC, so
+the transport path is the same as on real hardware.
 
-| 항목 | 결과 |
+| Item | Result |
 |---|---|
-| 요청이 3노드에 분산 | ✅ round-robin |
-| 노드 1대 사망 시 우회 | ✅ 6/6 성공 |
-| 전 노드 사망 | ✅ `NPF-1302` + 시도 노드 목록 |
-| 타이밍 분해 | ✅ 노드·스케줄러 구간 모두 |
-| 느린 노드 회피 | ✅ least-queue |
+| Requests spread across 3 nodes | ✅ round-robin |
+| Bypass when 1 node dies | ✅ 6/6 succeeded |
+| All nodes dead | ✅ `NPF-1302` + the list of nodes attempted |
+| Timing breakdown | ✅ both node and scheduler sections |
+| Avoiding a slow node | ✅ least-queue |
 
-실제 프로세스 4개(스케줄러 + 노드 3)로도 확인했다. **스케줄러를 죽였다
-다시 띄우면 세 노드가 약 1.3초 안에 스스로 재등록**한다.
+Also confirmed with four real processes (scheduler + 3 nodes). **Killing the
+scheduler and bringing it back has all three nodes re-register by themselves
+within about 1.3 seconds.**
 
-실장비 RKNN 통합 테스트 6종 (`crates/npuforge-rknn/tests/real_device.rs`)
-도 통과한다 — 출력 9개 반환, 결정성, 4스레드 동시 추론 결과 무오염 등.
+The six real-hardware RKNN integration tests
+(`crates/npuforge-rknn/tests/real_device.rs`) pass too — returning 9 outputs,
+determinism, uncontaminated results under 4-thread concurrent inference, and so
+on.
 
-## 3.2 미구현
+## 3.2 Not implemented
 
-- Prometheus 메트릭
-- REST 관리 API, 대시보드
-- JPEG 디코딩 (현재 RGB8/BGR8 원본만)
-- 후처리(NMS). 노드는 원시 텐서를 그대로 반환한다
+- Prometheus metrics
+- The REST management API and dashboard
+- JPEG decoding (currently raw RGB8/BGR8 only)
+- Postprocessing (NMS). The node returns raw tensors as-is
 
 ---
 
-# 4. 뒤집힌 결론
+# 4. Inverted conclusions
 
-**측정을 다시 해서 결론이 바뀐 것들이다.** 처음 결론을 그대로 발표했다면
-틀린 내용을 말할 뻔했다.
+**Things whose conclusion changed on re-measurement.** Publishing the first
+conclusion would have meant saying something wrong.
 
-## 4.1 "king 이 19°C 더 뜨겁다" → 재현되지 않음
+## 4.1 "king runs 19 °C hotter" → did not reproduce
 
-08-10 지속 부하에서 `king` 만 NPU 91.3°C 로 다른 두 대(70.2/72.1)보다
-19°C 높았다. 물리적 배치 문제로 판단하고 최우선 과제로 올렸다.
+Under 08-10 sustained load, `king` alone hit NPU 91.3 °C, 19 °C above the other
+two (70.2/72.1). It was judged a physical placement problem and raised to top
+priority.
 
-08-11 통제 조건에서 재측정하니 **편차 5.6°C** 였다.
+Re-measured under controlled conditions on 08-11, the **spread was 5.6 °C.**
 
-원인은 배치가 아니라 **부하 프로파일 차이**였다.
+The cause was not placement but **a difference in load profile.**
 
 | | 08-10 | 08-11 |
 |---|---|---|
-| 도구 | `thread_safety_test` | `sustained_load_test` |
-| 부하 | 1→8 스레드 순차 스윕 | 8스레드 고정 |
-| 시작 | king 6분 선행 | 동시 |
+| Tool | `thread_safety_test` | `sustained_load_test` |
+| Load | sequential sweep 1→8 threads | fixed at 8 threads |
+| Start | king led by 6 minutes | simultaneous |
 
-`thread_safety_test` 는 목표 스레드 수 전에 단일/2스레드 기준선을 먼저
-돈다. `king` 은 다른 둘이 8스레드에 들어갈 무렵 이미 훨씬 오래 가열된
-상태였다.
+`thread_safety_test` runs single- and two-thread baselines before reaching the
+target thread count. `king` had been heating for far longer by the time the
+other two entered 8 threads.
 
-결정적 근거: **`queen` 의 최고 온도는 두 측정에서 70.2°C 로 동일**하다.
-움직인 것은 `king` 뿐이다.
+The decisive evidence: **`queen`'s peak temperature was an identical 70.2 °C in
+both measurements.** Only `king` moved.
 
-→ **부하 프로파일이 다르면 온도를 비교하지 않는다.**
+→ **Do not compare temperatures between different load profiles.**
 
-## 4.2 "78 inf/s 는 드라이버 특성" → 범위 축소
+## 4.2 "78 inf/s is a driver characteristic" → scope narrowed
 
-추론당 커널 ioctl 약 80회가 직렬화되는 것을 확인하고, 노드 상한
-78 inf/s 를 드라이버 특성으로 규정했다. 애플리케이션 최적화 3종이
-전부 무의미했던 것과도 맞았다.
+Having confirmed that roughly 80 kernel ioctls per inference get serialized, the
+node ceiling of 78 inf/s was defined as a driver characteristic. It also fit
+with all three application optimizations being meaningless.
 
-그런데 INT8 이 1.85배였다. ioctl 횟수를 확인했다.
-
-```
-strace -c -f -e trace=ioctl, 1스레드 20초
-  FP16  추론 315회  15.7 inf/s  ioctl 24,079  추론당 76.4
-  INT8  추론 718회  35.8 inf/s  ioctl 54,707  추론당 76.2
-```
-
-**횟수는 같은데 처리량이 2.28배다.** 상한을 정하는 것은 ioctl 횟수가
-아니라 **직렬화 구간에서 한 건이 붙잡고 있는 시간**이다.
-
-CPU governor 실험(+7%)이 이를 보강한다. 그 시간에는 NPU 실행뿐 아니라
-**CPU 전후처리도 포함**된다.
-
-→ "애플리케이션 최적화로 못 넘는다"는 유효하다. 다만 **양자화는
-  애플리케이션 최적화가 아니라 모델 변경**이다.
-
-## 4.3 "RKNN 은 thread-safe" → 맞지만 시퀀스는 원자적이지 않다
-
-`environment-matrix.md` §3.1 은 "RKNN Runtime 2.3.0 은 thread-safe"로
-결론나 있었다. 컨텍스트 하나를 공유하면 구현이 단순해진다.
-
-그런데 그 검증은 **API 반환 코드만 셌고 출력 내용을 대조하지 않았다.**
-
-추론 한 건은 세 번의 호출이다.
+Then INT8 came in at 1.85×. The ioctl counts were checked.
 
 ```
-rknn_inputs_set  →  rknn_run  →  rknn_outputs_get
+strace -c -f -e trace=ioctl, 1 thread, 20 s
+  FP16  315 inferences  15.7 inf/s  24,079 ioctls  76.4 per inference
+  INT8  718 inferences  35.8 inf/s  54,707 ioctls  76.2 per inference
 ```
 
-개별 호출이 thread-safe 여도 **시퀀스는 원자적이지 않다.**
+**The count is the same and throughput is 2.28×.** What sets the ceiling is not
+the ioctl count but **how long one inference holds the serialized section.**
 
-| 구성 | API 오류 | **결과 불일치** |
+The CPU governor experiment (+7%) reinforces this. That time includes not only
+NPU execution but **the CPU work either side of it.**
+
+→ "It cannot be exceeded by application optimization" holds. But **quantization
+  is a model change, not an application optimization.**
+
+## 4.3 "RKNN is thread-safe" → true, but the sequence is not atomic
+
+`environment-matrix.md` §3.1 had concluded that "RKNN Runtime 2.3.0 is
+thread-safe". Sharing one context would simplify the implementation.
+
+But that verification **counted only API return codes and never compared output
+contents.**
+
+One inference is three calls.
+
+```
+rknn_inputs_set  ->  rknn_run  ->  rknn_outputs_get
+```
+
+Even with each call thread-safe, **the sequence is not atomic.**
+
+| Configuration | API errors | **Result mismatches** |
 |---|---:|---:|
-| 컨텍스트 공유 | 0 | **200 / 200 (100%)** |
-| 스레드별 전용 컨텍스트 | 0 | 0 / 200 (0%) |
+| Shared context | 0 | **200 / 200 (100%)** |
+| Per-thread dedicated context | 0 | 0 / 200 (0%) |
 
-**공유 컨텍스트는 오류 없이 100% 틀린 답을 낸다.**
+**A shared context produces 100% wrong answers with no errors.**
 
-이 결함의 성질이 특히 나쁘다.
+The nature of this defect is especially bad.
 
-- 예외도 오류 코드도 없다
-- 단일 스레드에서는 절대 재현되지 않는다
-- **처리량 지표는 오히려 좋아 보인다** (§3.1 에서 공유 34.8 > 전용 33.2 —
-  틀린 답을 더 빨리 내고 있었다)
-- 검출 결과도 다른 프레임의 것이라 육안으로는 그럴듯하다
+- No exception and no error code
+- Never reproduces single-threaded
+- **The throughput metric actually looks better** (in §3.1, shared 34.8 >
+  dedicated 33.2 — it was producing wrong answers faster)
+- The detections come from another frame, so they look plausible to the eye
 
-그대로 갔다면 **처리량은 전부 유효하고 검출만 조용히 틀린 채로** 발표까지
-갔을 것이다.
+Left alone, it would have reached a public talk **with all throughput valid and
+only the detections quietly wrong.**
 
-→ `RknnContext::infer` 가 `&mut self` 를 받는다. **컴파일러가 동시 호출을
-  막는다.** 주석으로 규칙을 적는 것과 타입으로 막는 것은 다르다.
+→ `RknnContext::infer` takes `&mut self`. **The compiler blocks concurrent
+  calls.** Writing a rule in a comment and blocking it with a type are different
+  things.
 
 ---
 
-# 5. 검증했지만 효과 없던 것
+# 5. Verified but ineffective
 
-노드 내부에서 짜낼 것이 거의 없다는 근거다.
+The basis for there being almost nothing left to squeeze inside the node.
 
-| 시도 | 결과 | 판단 |
+| Attempt | Result | Verdict |
 |---|---:|---|
-| `core_mask` 수동 코어 배정 | **+0.1%** | 안 쓴다. `CORE_AUTO` 분배가 이미 균등 |
-| zero-copy 버퍼 재사용 | **-1.8%** | 안 쓴다. 가설 반증 |
+| Manual core assignment via `core_mask` | **+0.1%** | not used. `CORE_AUTO`'s distribution is already even |
+| Zero-copy buffer reuse | **−1.8%** | not used. Hypothesis refuted |
 
-`core_mask` 는 4스레드에서 +9% 였지만 **8스레드에서 +0.1% 로 소멸**한다.
-`CORE_0_1` 은 8스레드에서 -11.5% 로 오히려 손해다.
+`core_mask` was +9% at 4 threads but **vanishes to +0.1% at 8.** `CORE_0_1` is
+actually a loss at −11.5% at 8 threads.
 
-> **`want_float=0` 은 원래 이 표에 있었다.** 08-10 측정에서 FP16 +5.4% 로
-> "효과 없음"에 가깝게 분류했다. 그러나 그 측정은 1스레드 위주 조건이었고,
-> 08-12 에 8스레드 120초로 다시 재니 **INT8 +17.3% / FP16 +15.7%** 였다.
-> 출력 변환이 직렬화 구간을 붙잡는 시간은 동시 스레드가 늘수록 커진다.
-> → §2.2 로 옮겼다. **효과 없던 것이 아니라, 조건이 부족한 측정이었다.**
-> `discuss.md` §12
-
----
-
-# 6. 측정 실패 목록
-
-**이 프로젝트에서 가장 재사용 가치가 높은 결과다.** 전부 "성공처럼 보인"
-실패다.
-
-## 6.1 지표가 무엇을 세는지 확인하지 않음 (4회)
-
-| # | 무엇 | 실제 |
-|---|---|---|
-| 1 | `RKNN_QUERY_PERF_RUN.run_duration` 을 NPU 점유시간으로 읽음 | 큐 대기가 포함된 값 |
-| 2 | NPU load 를 `delayms=3000` 인 채로 0.2초 간격 샘플링 | 3초 평균을 읽고 있었음 |
-| 3 | thread-safety 를 API 반환 코드로만 판정 | 결과 내용을 대조하지 않음 |
-| 4 | throttling 을 **NPU 클럭만으로** 판정 | CPU 가 A72 2208→816MHz 로 꺾이고 있었다 |
-
-1번은 모순으로 자가 발견했다(2코어 NPU 에서 "5.03 코어 사용 중").
-2번은 ChatGPT 검토가 지적했다. 3번은 백엔드를 구현하며 의심해 찾았다.
-4번은 같은 로그에 CPU 클럭이 **이미 기록되어 있었는데** 판정에 쓰지
-않았다 — FP16 재측정값이 84.3 이 아니라 66.9 로 나와서야 찾았다 (§2.3).
-
-**공통점: 지표 이름을 보고 의미를 짐작했다.**
-
-## 6.2 전제가 바뀐 것을 모름
-
-| 무엇 | 결과 |
-|---|---|
-| 문서의 `king` IP 가 낡음 (`.22`, 실제 `.12`) | "노드가 죽었다"고 오판, 서브넷 전체 스캔 |
-| 부하 프로파일이 다른 두 측정을 비교 | 19°C 격차로 오해 (§4.1) |
-| 보드 리셋 원인 3회 오판 | 공용 PSU → 부트로더 → 12V 입력. 실제는 **어댑터 전류 부족** |
-
-`~/.ssh/config` 에는 처음부터 올바른 IP 가 있었다. **문서에 박은 IP 만
-낡았다.** → 보드 접속은 IP 가 아니라 별칭으로 한다.
-
-## 6.3 실패가 성공처럼 보이는 원격 실행
-
-`preflight-check.sh` 를 만들며 발견했다. 검사가 **조용히 작동하지 않았다.**
-
-**`pgrep -f` 는 자기 자신을 센다.** ssh 래퍼의 명령줄에 패턴 문자열이
-들어 있어 매칭된다. 대괄호 트릭(`[s]ustained`)도 같은 명령줄에 괄호 없는
-형태가 섞이면 무력하다.
-
-| 상황 | 실제 | pgrep 보고 |
-|---|---|---|
-| 부하 실행 중 | 1개 | **0 (놓침)** |
-| 부하 없음 | 0개 | **2 (자기 셸)** |
-
-**`cd DIR && setsid nohup ... &` 는 뜨지 않는다.** `&` 가 리스트 전체에
-걸리는데 ssh 가 즉시 끊기면 서브셸이 `setsid` 에 닿기 전에 죽는다.
-**종료 코드 0, stderr 비어 있음.** 확인하지 않으면 "부하 없는 상태의
-온도"를 15분간 측정한다.
-
-**ssh 안 heredoc + sudo 중첩은 파일을 만들지 않는다.** systemd 유닛
-배포에서 겪었다. 이것도 종료 코드 0 이었다.
-
-→ 전부 `scripts/lib/remote.sh` 의 함수로 굳혔다.
-
-## 6.4 "못 읽음"을 "일치"로 판정
-
-`/sys/kernel/debug/rknpu/version` 은 root 만 읽을 수 있다. 세 노드 모두
-빈 값을 냈는데 **값이 같다는 이유로 통과**시켰다. 6.1 의 변종이다.
-
-→ 빈 값·`unknown` 같은 자리표시자는 실패로 처리한다.
-
-## 6.5 도구화
-
-같은 실수를 반복하지 않도록 검사를 도구에 넣었다.
-
-| 도구 | 막는 것 |
-|---|---|
-| `preflight-check.sh` | 별칭↔hostname, 해시 일치, governor, 온도, 전압, 잔존 부하, **추론 정확도** |
-| `npuforge-bench` | 예열 제외, `boot_id` 로 재부팅 감지, 표본 부족 판정, 실패를 처리량에서 제외 |
-| `run-thermal-comparison.sh` | 동시 시작, 해시 검증, 부하 실제 기동 확인 |
-| `scripts/lib/remote.sh` | 원격 실행 함정 |
-
-**성능 측정 전에 정확도부터 확인한다** — `preflight --with-inference` 는
-세 보드가 같은 입력에 같은 답을 내는지 본다. 틀린 답을 빨리 내는 구성이
-벤치마크에서 이기면 안 된다.
+> **`want_float=0` was originally in this table.** The 08-10 measurement put it
+> at FP16 +5.4%, close to "no effect". But that measurement was mostly a
+> single-thread condition, and re-measuring on 08-12 at 8 threads for 120 s gave
+> **INT8 +17.3% / FP16 +15.7%.** The time output conversion holds the serialized
+> section grows with the number of concurrent threads.
+> → moved to §2.2. **It was not ineffective; the measurement's conditions were
+> inadequate.** `discuss.md` §12
 
 ---
 
-# 7. 재현 방법
+# 6. The list of measurement failures
 
-## 7.1 하드웨어 없이
+**The highest reuse-value result this project has.** All of them are failures
+that "looked like success".
+
+## 6.1 Not checking what a metric counts (4 times)
+
+| # | What | Actually |
+|---|---|---|
+| 1 | Reading `RKNN_QUERY_PERF_RUN.run_duration` as NPU occupancy time | a value that included queue wait |
+| 2 | Sampling NPU load at 0.2 s intervals with `delayms=3000` still set | it was reading a 3-second average |
+| 3 | Judging thread-safety by API return codes alone | output contents were never compared |
+| 4 | Judging throttling **by NPU clock alone** | the CPU was bending from A72 2208 to 816 MHz |
+
+Number 1 was self-discovered through a contradiction ("5.03 cores in use" on a
+2-core NPU). Number 2 was pointed out by a ChatGPT review. Number 3 was found by
+suspicion while implementing the backend. Number 4 had the CPU clocks **already
+recorded in the same log** and simply did not use them in the verdict — it was
+found only when the FP16 re-measurement came out at 66.9 rather than 84.3
+(§2.3).
+
+**What they share: reading a metric's name and assuming its meaning.**
+
+## 6.2 Not noticing a changed premise
+
+| What | Result |
+|---|---|
+| A stale `king` IP in the documents (`.22`, actually `.12`) | misdiagnosed as "the node is dead"; scanned the whole subnet |
+| Comparing two measurements with different load profiles | a 19 °C gap was misread (§4.1) |
+| Misdiagnosing the cause of board resets three times | shared PSU → bootloader → 12V input. Actually **insufficient adapter current** |
+
+`~/.ssh/config` had had the correct IP all along. **Only the IP pinned into the
+documents was stale.** → Boards are reached by alias, not by IP.
+
+## 6.3 Remote execution where failure looks like success
+
+Found while building `preflight-check.sh`. The check **was silently not
+working.**
+
+**`pgrep -f` counts itself.** The ssh wrapper's command line contains the
+pattern string, so it matches. The bracket trick (`[s]ustained`) is also
+neutralised once a form without brackets appears on the same command line.
+
+| Situation | Actual | pgrep reports |
+|---|---|---|
+| Load running | 1 | **0 (missed)** |
+| No load | 0 | **2 (its own shell)** |
+
+**`cd DIR && setsid nohup ... &` does not come up.** The `&` applies to the
+whole list, and if ssh disconnects immediately the subshell dies before reaching
+`setsid`. **Exit code 0, empty stderr.** Without checking, you measure "the
+temperature with no load" for fifteen minutes.
+
+**A heredoc inside ssh nested with sudo does not create the file.** Encountered
+while deploying a systemd unit. This too gave exit code 0.
+
+→ All of them hardened into functions in `scripts/lib/remote.sh`.
+
+## 6.4 Judging "could not read" as "identical"
+
+`/sys/kernel/debug/rknpu/version` is readable only by root. All three nodes
+returned an empty value and it **passed on the grounds that the values matched.**
+A variant of 6.1.
+
+→ Empty values and placeholders such as `unknown` are treated as failures.
+
+## 6.5 Tooling
+
+To stop the same mistakes recurring, the checks were put into tools.
+
+| Tool | What it blocks |
+|---|---|
+| `preflight-check.sh` | alias↔hostname, hash matching, governor, temperature, voltage, residual load, **inference accuracy** |
+| `npuforge-bench` | warmup exclusion, reboot detection via `boot_id`, insufficient-sample verdicts, excluding failures from throughput |
+| `run-thermal-comparison.sh` | simultaneous start, hash verification, confirming load actually started |
+| `scripts/lib/remote.sh` | the remote execution pitfalls |
+
+**Accuracy is checked before performance** — `preflight --with-inference` checks
+that the three boards give the same answer to the same input. A configuration
+that produces wrong answers fast must not win a benchmark.
+
+---
+
+# 7. Reproduction
+
+## 7.1 Without hardware
 
 ```bash
 cargo test --workspace          # 209 tests
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Mock 3노드 클러스터도 하드웨어 없이 돈다.
+The Mock 3-node cluster also runs without hardware.
 
 ```bash
 cargo build --release -p npuforge-scheduler -p npuforge-node -p npuforge-bench
@@ -490,16 +528,17 @@ for i in 1 2 3; do ./target/release/npuforge-node --config configs/mock/node-0$i
   --model yolov8n --concurrency 6 --duration 15
 ```
 
-## 7.2 실장비
+## 7.2 On real hardware
 
-전제: `~/.ssh/config` 에 `npuforge-k/q/j` 별칭, `NPUFORGE_SUDO_PASS` 설정.
+Prerequisites: the `npuforge-k/q/j` aliases in `~/.ssh/config`, and
+`NPUFORGE_SUDO_PASS` set.
 
 ```bash
-bash scripts/preflight-check.sh --with-inference   # 통과 전에는 측정 금지
-bash scripts/run-thermal-comparison.sh 900 8       # 열 비교
+bash scripts/preflight-check.sh --with-inference   # no measuring until it passes
+bash scripts/run-thermal-comparison.sh 900 8       # thermal comparison
 ```
 
-## 7.3 모델 변환
+## 7.3 Model conversion
 
 ```bash
 python tools/model-converter/fetch_calibration.py --out datasets/coco-calib --count 200
@@ -509,103 +548,109 @@ docker run --rm -v "$PWD/models:/work/models" -v "$PWD/datasets:/work/datasets" 
   --dataset datasets/coco-calib --calib-limit 200
 ```
 
-> **모델은 한 번만 변환해 같은 파일을 세 노드에 배포한다.**
-> INT8 변환은 바이트 재현성이 없다 — 같은 입력으로 3회 변환하니 해시가
-> 매번 달랐다(1.8% 바이트 상이). 다만 **추론 결과는 완전히 동일**하다
-> (9개 텐서 전부 cosine 1.000000). 차이는 직렬화에 있고 계산에는 없다.
+> **The model is converted once and the same file deployed to all three nodes.**
+> INT8 conversion is not byte-reproducible — converting three times from the
+> same input gave a different hash each time (1.8% of bytes differing). But
+> **the inference results are completely identical** (all 9 tensors at cosine
+> 1.000000). The difference is in serialization, not in computation.
 >
-> `model.toml` 의 `sha256` 은 **배포 무결성**을 보장하지 변환 레시피의
-> 동일성을 보장하지 않는다.
+> `model.toml`'s `sha256` guarantees **deployment integrity**, not identity of
+> the conversion recipe.
 
 ---
 
-# 8. 다음에 할 것
+# 8. What comes next
 
-## 8.1 차단된 것 — 10G aggregation 필요
+## 8.1 Blocked — 10G aggregation is needed
 
-raw RGB 입력 한 장은 `640 × 640 × 3 = 1,228,800 byte` 다.
-
-```text
-INT8  1,228,800 × 157.2 × 8 = 1.545 Gbps / node   →  3노드 4.636 Gbps
-FP16  1,228,800 ×  84.3 × 8 = 0.829 Gbps / node   →  3노드 2.486 Gbps
-```
-
-> **2026-08-12 정정.** 이전 문서에 1.43 / 4.3 Gbps 로 적혀 있었다.
-> MiB/s 를 Gbps 로 옮기며 2진 접두(÷1024)를 썼기 때문이다.
-> **네트워크 속도는 10진이다.** 올바른 값은 위와 같다.
-
-### 출력이 더 크다
-
-위는 **입력(TX)만** 이다. 노드는 후처리를 하지 않고 원시 텐서 9개를
-반환하는데, `want_float=1` 이면 출력이 **입력의 3.96배**가 된다.
+One raw RGB input is `640 × 640 × 3 = 1,228,800 byte`.
 
 ```text
-입력                      1,228,800 byte
-출력 (want_float=1, f32)  4,872,000 byte
-출력 (want_float=0, int8) 1,218,000 byte
+INT8  1,228,800 x 157.2 x 8 = 1.545 Gbps / node   ->  3 nodes 4.636 Gbps
+FP16  1,228,800 x  84.3 x 8 = 0.829 Gbps / node   ->  3 nodes 2.486 Gbps
 ```
 
-3노드 포화 시 스케줄러 링크 부하다.
+> **Corrected 2026-08-12.** Earlier documents had 1.43 / 4.3 Gbps, because
+> converting MiB/s to Gbps used the binary prefix (÷1024). **Network speeds are
+> decimal.** The correct values are above.
 
-| 구성 | 모델 | 3노드 TX | 3노드 RX | 10G 로 되나 |
+### The output is larger
+
+The above is **input (TX) only.** The node does not postprocess and returns nine
+raw tensors, and with `want_float=1` the output is **3.96× the input.**
+
+```text
+input                       1,228,800 byte
+output (want_float=1, f32)  4,872,000 byte
+output (want_float=0, int8) 1,218,000 byte
+```
+
+The scheduler-side link load at three-node saturation:
+
+| Configuration | Model | 3-node TX | 3-node RX | Fits in 10G? |
 |---|---|---:|---:|---|
-| `want_float=1` (구 기본값) | INT8 | 4.64 Gbps | **18.38 Gbps** | **불가** |
-| `want_float=1` (구 기본값) | FP16 | 2.49 Gbps | **9.86 Gbps** | 겨우 |
-| **`want_float=0` (현재 기본값)** | INT8 | 4.64 Gbps | 4.60 Gbps | 가능 |
-| **`want_float=0` (현재 기본값)** | FP16 | 2.49 Gbps | 2.46 Gbps | 가능 |
+| `want_float=1` (old default) | INT8 | 4.64 Gbps | **18.38 Gbps** | **no** |
+| `want_float=1` (old default) | FP16 | 2.49 Gbps | **9.86 Gbps** | barely |
+| **`want_float=0` (current default)** | INT8 | 4.64 Gbps | 4.60 Gbps | yes |
+| **`want_float=0` (current default)** | FP16 | 2.49 Gbps | 2.46 Gbps | yes |
 
-**`want_float=1` 이었다면 10G 로도 INT8 3노드를 감당하지 못했다.**
+**Had `want_float=1` remained, even 10G could not have carried three INT8
+nodes.**
 
-→ M3 전에 둘 중 하나가 필요했다.
-  **(A)** `want_float=0` 전환 — 출력이 4분의 1이 된다
-  **(B)** 노드에서 후처리(NMS) 수행 — 응답이 수 KB 로 줄지만 미구현
+→ One of two things was needed before M3.
+  **(A)** switch to `want_float=0` — the output becomes a quarter
+  **(B)** postprocess (NMS) on the node — the response shrinks to a few KB, but
+  it is unimplemented
 
-  §5 에서 "선택적 최적화, 보류"로 분류했던 `want_float=0` 이
-  **M3 의 전제 조건으로 승격**했다. **승격 근거는 처리량이 아니라 RX
-  대역폭이었다.**
+  `want_float=0`, filed in §5 as "an optional optimization, deferred", was
+  **promoted to a precondition for M3.** **The grounds for the promotion were
+  not throughput but RX bandwidth.**
 
-> ✅ **2026-08-12 (A) 완료.** 노드 설정 `[worker] want_float` 기본값을
-> `false` 로 바꾸고, blob 을 **v2** 로 올려 텐서마다 `qnt_type`·`scale`·
-> `zero_point` 를 함께 보낸다. 이것 없이 int8 을 보내면 받는 쪽이 해석할
-> 수 없다. 실보드에서 역양자화 결과가 float32 와 일치함을 확인했다
-> (텐서 9개, **최대 오차 9.5e-7** — float32 정밀도 한계).
-> 처리량도 함께 올랐다 — **INT8 +17.3% / FP16 +15.7%** (§2.2, `discuss.md` §12).
+> ✅ **(A) completed 2026-08-12.** The node configuration `[worker] want_float`
+> default changed to `false`, and the blob was bumped to **v2** to carry
+> `qnt_type`, `scale` and `zero_point` per tensor. Without those, sending int8
+> leaves the receiver unable to interpret it. Dequantization was confirmed on a
+> real board to match float32 (9 tensors, **maximum error 9.5e-7** — the limit
+> of float32 precision).
+> Throughput rose alongside — **INT8 +17.3% / FP16 +15.7%** (§2.2,
+> `discuss.md` §12).
 >
-> 덧붙여, `sustained_load_test` 는 처음부터 `want_float=0` 을 하드코딩하고
-> 있었다. 즉 §2.2 의 157.2 / 84.3 은 **이미 `want_float=0` 기준**이었고,
-> 이번 전환은 **Rust 백엔드를 측정 조건에 맞춘 것**이다.
+> Additionally, `sustained_load_test` had hardcoded `want_float=0` from the
+> beginning. So §2.2's 157.2 / 84.3 were **already on `want_float=0`**, and this
+> change **brought the Rust backend in line with the measurement conditions.**
 
-### 정리
+### Summary
 
-- worker 링크(2.5G)가 아니라 **aggregation 링크가 먼저 막힌다**
-- 스케줄러 쪽에 **10G** 가 필요하다
-- 그 위에 **출력 크기를 줄이는 조치**가 반드시 따라와야 한다
+- It is the **aggregation link, not the worker links (2.5G), that fills up
+  first**
+- **10G** is needed on the scheduler side
+- **A measure to reduce output size** has to accompany it
 
-**입력만 계산하고 출력을 보지 않은 것이 이 절의 원래 오류였다.**
-§6 의 실패 목록에 같은 유형이 이미 세 건 있다.
+**Calculating the input and not looking at the output was this section's
+original error.** The failure list in §6 already has three of the same type.
 
-## 8.2 스위치 없이 가능한 것
+## 8.2 Possible without the switch
 
-- Prometheus 메트릭
-- `dealer` NTP 서버 구성
-- 정식 S0 열 특성 (30분 × 팬리스/냉각 2조건)
-- `ondemand` vs `performance` 300초 비교 — §2.2 의 +7% 는 120초 값이다
-- INT8 의 열 거동 (연산량이 줄면 발열도 주는지)
+- Prometheus metrics
+- Configuring an NTP server on `dealer`
+- The formal S0 thermal characterisation (30 min × fanless/cooled, 2 conditions)
+- `ondemand` vs `performance` over 300 s — §2.2's +7% is a 120-second value
+- INT8's thermal behaviour (does less computation mean less heat)
 
 ---
 
-# 9. 문서 안내
+# 9. Document guide
 
-| 문서 | 내용 |
+| Document | Content |
 |---|---|
-| `../adrs/` | **왜 그렇게 정했는지.** 결정 28건, 주제순 |
-| `TODO.md` | **지금 뭘 해야 하는지.** 재개 절차가 최상단에 |
-| `RESULTS.md` | 이 문서. 결과 모음 |
-| `discuss.md` | 논의와 판단 근거. 시각순 11개 절 |
-| `board-worklog.md` | 작업 이력. 실패한 가설도 보존 |
-| `environment-matrix.md` | 확정된 환경 값 |
-| `infrastructure.md` | 현재 구성 스냅샷 |
-| `00-PRD.md` ~ `03-*.md` | 요구사항·설계 명세 |
+| `../adrs/` | **Why it was decided that way.** 28 decisions, by topic |
+| `TODO.md` | **What to do now.** The resumption procedure is at the top |
+| `RESULTS.md` | This document. A collection of results |
+| `discuss.md` | The discussion and reasoning. 11 chronological sections |
+| `board-worklog.md` | Work history. Failed hypotheses are preserved |
+| `environment-matrix.md` | Settled environment values |
+| `infrastructure.md` | A snapshot of the current setup |
+| `00-PRD.md` – `03-*.md` | Requirements and design specifications |
 
-수치가 문서 간에 다르면 **`environment-matrix.md` 가 기준**이다
-(`00-PRD.md` §0 의 문서 권위 순서).
+When numbers disagree between documents, **`environment-matrix.md` is the
+authority** (the document authority order in `00-PRD.md` §0).

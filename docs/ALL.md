@@ -25,8 +25,8 @@
 - [NPUDure Hardware Setup Guide](#02-hardware-setup)  ·  `docs/02-HARDWARE-SETUP.md`
 - [NPUDure Development Requirements](#03-development-requirements)  ·  `docs/03-DEVELOPMENT-REQUIREMENTS.md`
 - [FAQ](#faq)  ·  `docs/FAQ.md`
-- [기술 용어 정리 (Glossary)](#glossary)  ·  `docs/GLOSSARY.md`
-- [NPUDure 인프라 현황](#infrastructure)  ·  `docs/infrastructure.md`
+- [Glossary](#glossary)  ·  `docs/GLOSSARY.md`
+- [NPUDure infrastructure status](#infrastructure)  ·  `docs/infrastructure.md`
 - [NPUDure Environment Matrix](#environment-matrix)  ·  `docs/environment-matrix.md`
 - [호스트 인벤토리](#hosts-readme)  ·  `docs/hosts/README.md`
 - [호스트 인벤토리 — server](#hosts-server-i7-4790-20260826)  ·  `docs/hosts/server-i7-4790-20260826.md`
@@ -43,7 +43,7 @@
 - [S3.9a — Scale-out Efficiency Loss Profiling](#experiments-s3-9a-scaleout-profile)  ·  `docs/experiments/S3_9A_SCALEOUT_PROFILE.md`
 - [S3.9b — Node-side Residual Cost Profiling](#experiments-s3-9b-node-residual)  ·  `docs/experiments/S3_9B_NODE_RESIDUAL.md`
 - [S3 — Per-configuration Saturation](#experiments-s3-saturation)  ·  `docs/experiments/S3_SATURATION.md`
-- [NPUDure 측정 결과 — 1차 정리](#results)  ·  `docs/RESULTS.md`
+- [NPUDure measurement results — first pass](#results)  ·  `docs/RESULTS.md`
 - [NPUDure 기술 논의](#discuss)  ·  `docs/discuss.md`
 - [NPUDure 보드 작업 로그](#board-worklog)  ·  `docs/board-worklog.md`
 - [NPUDure 진행 현황](#todo)  ·  `docs/TODO.md`
@@ -5585,634 +5585,667 @@ README limitations:
 
 <a id="glossary"></a>
 
-# 기술 용어 정리 (Glossary)
+# Glossary
 
-- 최종 갱신: **2026-08-21**
-- 범위: S2~S4 실험 계보에서 실제로 등장한 용어 전부. 정의만 적지 않고
-  **이 프로젝트에서 어떤 값·판단과 묶여 있는지**를 함께 적는다.
-- 관련: [`experiments/README.md`](#experiments-readme)(실험 대장),
-  [`01-TECHSPEC.md`](#01-techspec), [`RESULTS.md`](#results)
+*[한국어 원문](GLOSSARY.ko.md)*
 
----
-
-## 1. 실험 ID 체계
-
-| ID | 질문 | 결과 요약 |
-|---|---|---|
-| **S0-A** | 팬리스 지속 부하에서 운영점이 유지되는가 | 열화 11.3%, CPU 2208→816 MHz |
-| **S0-B** | 능동 냉각 지속 부하 | 열화 1.9%, 클럭 강등 0회 |
-| **S0-C** | 부하 인지 정책이 열 불균질 손실을 회수하는가 | 1차 herding 버그 발견 → 2·3차 회수 확인 → 4차 게이트 미달 |
-| **S0-D** | 이질을 결정론적으로 만들 수 있는가 | 가능. 클럭 캡으로 편차 1.12~3.93× |
-| **S2** | 노드를 늘리면 선형으로 늘어나는가 | 112.9 / 229.0 / 338.4, 3.00× |
-| **S3** | 각 구성의 진짜 상한(ceiling)은 | 115.2 / 232.0 / 341.8 |
-| **S3.5** | −30% 손실이 어디서 오는가 | 전송 경로로 좁힘 |
-| **S3.5b** | CPU0 softirq 편중이 원인인가 | null (−0.2%) |
-| **S3.6** | flow control 인가 커넥션인가 | 커넥션. window 확대는 역효과 |
-| **S3.7a** | 커넥션 몇 개가 최적인가 (고정 부하) | c4 에서 knee |
-| **S3.7b** | 각 구성의 **운영점**은 | 셋 다 c12. conn2 가 우세 |
-| **S3.7c** | 운영점에서 RPS 는 효과가 있는가 | null (−0.8%) |
-| **S3.8** | 최적화가 scale-out 을 해치는가 | 387.2 inf/s, eff 95.3% |
-| **S3.9a** | 3N efficiency 손실의 출처 | 서버 자원 배제, tail 증가 |
-| **S3.9b** | 노드 쪽 남은 비용 | syscall 은 ~1%. 유저 시간이 커널보다 크다 |
-| **S4** | io_uring 이 필요한가 | **아니다 — 측정으로 반박됨**(S3.9b) |
-
-> **명명 규칙** — 정수(S2, S3)는 원래 계획된 실험. 소수점(S3.5, S3.7a)은
-> 측정 결과가 새로 요구한 실험이다. 계획이 아니라 **데이터가 다음 실험을
-> 정했다**는 기록이기도 하다.
+- Last updated: **2026-08-21**
+- Scope: every term that actually appears in the S2–S4 experiment lineage. Not
+  just definitions — **what value or judgement each is tied to in this project**
+  is written alongside.
+- Related: [`experiments/README.md`](#experiments-readme) (the experiment
+  ledger), [`01-TECHSPEC.md`](#01-techspec), [`RESULTS.md`](#results)
 
 ---
 
-## 2. 측정 방법론
+## 1. Experiment ID scheme
 
-| 용어 | 뜻 | 이 프로젝트에서 |
+| ID | Question | Result summary |
 |---|---|---|
-| **closed-loop** | 동시 요청 수(concurrency)를 고정하고, 응답이 와야 다음 요청을 보내는 부하 모델 | bench 가 이 방식. 절대 지연을 SLA 로 인용하면 안 되고 **구성 간 비교에만** 쓴다 |
-| **open-loop** | 응답과 무관하게 정해진 도착률로 계속 보내는 모델 | 미사용 |
-| **coordinated omission** | closed-loop 에서 시스템이 느려지면 요청 자체가 덜 발생해 **지연이 과소 측정**되는 현상 | bench `--help` 에 경고로 명시 |
-| **Little's law** | `동시요청수 = 처리량 × 평균지연` | S3.9a 에서 efficiency 손실이 **평균 지연 증가와 정확히 일치**함을 보이는 데 사용 |
-| **saturation / ceiling** | 부하를 더 줘도 처리량이 안 오르는 상한 | S3 가 구성별로 측정 |
-| **operating point (운영점)** | 실제로 운전할 부하 지점 | **peak 의 98% 이상을 내는 가장 낮은 concurrency** 로 정의(코드 상수) |
-| **concurrency knee** | 장치를 포화시키는 데 필요한 동시 요청 수 | 시험 범위에서 **c12/node**, 커넥션 수와 무관하게 관측 |
-| **connection knee** | 그 요청을 몇 갈래 커넥션으로 나눌지의 최적점 | 고정 부하에서 c4, 운영점 기준으로 **conn2** |
-| **overload region** | 포화 이후 구간. 처리량은 그대로고 지연만 증가 | c24~c64 전 구간. **여기서 구성을 비교하면 결론이 뒤집힌다** |
-| **short-run / sustained operating point** | 60초 기준 / thermal steady-state 기준 운영점 | 능동 냉각에서는 같고(−1.9%), 팬리스에서는 갈라진다(−11.3%) |
-| **steady-state** | 시간에 따라 값이 더 안 변하는 구간 | S0 정의: **마지막 1/3 구간 평균** |
-| **degradation** | `1 − steady / peak` | 판정: <3% 없음 / 3~10% 경미 / >10% 뚜렷 |
-| **scaling / efficiency** | `tp_N / tp_1` / `그것을 N 으로 나눈 값` | optimized 3N: 2.86× / 95.3% |
-| **rotation (조건 회전)** | 반복마다 조건 순서를 바꿔 시간·온도 드리프트를 상쇄 | 모든 A/B 하네스에 적용 |
-| **preheat / reheat** | 측정 전 부하로 열 상태를 맞추는 것 | S0-C 재실행에서 **정책마다** 재예열 |
-| **freeze (동결)** | 측정 중 코드·설정·모델을 바꾸지 않는 것 | 바이너리를 `*.frozen-<commit>` 으로 보존 |
-| **verdict** | bench 가 run 유효성을 스스로 판정한 결과 | `valid` + `reasons`. 이상 run 도 지우지 않는다 |
-| **preflight** | 측정 직전 하드 실패 검사 | 별칭↔hostname, 해시, governor, 온도, 전압, **추론 정확도** |
-| **probe bench** | 본측정 전 짧게 던져 조건을 확인하는 부하 | 노드 수 검증에 사용 — S3.8 에서 6개 구성을 걸러냈다 |
-| **capacity heterogeneity** | 노드간 처리 능력 편차 | 열 유래(S0-A/C)와 **클럭 캡 유래**(S0-D)를 구분해 적는다. 스케줄러가 보는 것은 capacity 이지 그 원인이 아니다 |
-| **이질 게이지** | 편차를 재는 관측량 | **round-robin 의 노드별 p50 최대/최소.** RR 은 적응하지 않으므로 균등 부하 아래 raw capacity 편차가 그대로 드러난다 |
-| **utime / stime** | 유저 / 커널 CPU 시간 | `/proc/PID/stat`. 커널에 syscall 진입·TCP 스택·`copy_to_user`, 유저에 직렬화·유저공간 copy·HTTP/2 프레이밍. **io_uring 이 줄이는 것은 stime 의 일부** |
-| **한쪽 방향 검정** | 편향 방향이 정해진 측정 | `strace -c` 는 ptrace 로 값을 **부풀린다** → 부풀린 값이 작으면 실제는 확정적으로 더 작다 |
+| **S0-A** | Does the operating point hold under fanless sustained load | degradation 11.3%, CPU 2208→816 MHz |
+| **S0-B** | Sustained load with active cooling | degradation 1.9%, 0 clock downgrades |
+| **S0-C** | Do load-aware policies recover the thermal heterogeneity loss | 1st found the herding bug → 2nd and 3rd confirmed recovery → 4th missed the gate |
+| **S0-D** | Can heterogeneity be produced deterministically | Yes. Clock caps give spreads of 1.12–3.93× |
+| **S2** | Does adding nodes scale linearly | 112.9 / 229.0 / 338.4, 3.00× |
+| **S3** | What is each configuration's true ceiling | 115.2 / 232.0 / 341.8 |
+| **S3.5** | Where does the −30% loss come from | narrowed to the transport path |
+| **S3.5b** | Is CPU0 softirq concentration the cause | null (−0.2%) |
+| **S3.6** | Flow control or connections | connections. Enlarging the window backfires |
+| **S3.7a** | How many connections is optimal (fixed load) | knee at c4 |
+| **S3.7b** | What is each configuration's **operating point** | c12 for all three. conn2 comes out ahead |
+| **S3.7c** | Does RPS help at the operating point | null (−0.8%) |
+| **S3.8** | Does the optimization hurt scale-out | 387.2 inf/s, eff 95.3% |
+| **S3.9a** | Where does the 3N efficiency loss come from | server resources excluded, tail rises |
+| **S3.9b** | The remaining node-side cost | syscalls are ~1%. User time exceeds kernel time |
+| **S4** | Is io_uring needed | **No — refuted by measurement** (S3.9b) |
 
-### 2.1 percentile 집계
+> **Naming rule** — integers (S2, S3) are experiments planned from the start.
+> Decimals (S3.5, S3.7a) are experiments the measurements newly demanded. It is
+> also a record that **the data, not the plan, decided the next experiment.**
 
-| 용어 | 뜻 |
+---
+
+## 2. Measurement methodology
+
+| Term | Meaning | In this project |
+|---|---|---|
+| **closed-loop** | a load model holding concurrency fixed, sending the next request only after a response arrives | the bench works this way. Absolute latency must not be quoted as an SLA and is used **only for comparison between configurations** |
+| **open-loop** | a model that keeps sending at a set arrival rate regardless of responses | not used |
+| **coordinated omission** | in a closed loop, a slowing system produces fewer requests so **latency is under-measured** | flagged as a warning in the bench `--help` |
+| **Little's law** | `concurrency = throughput x mean latency` | used in S3.9a to show the efficiency loss **matches the rise in mean latency exactly** |
+| **saturation / ceiling** | the limit beyond which more load does not raise throughput | measured per configuration by S3 |
+| **operating point** | the load point at which it would actually be run | defined as **the lowest concurrency delivering at least 98% of peak** (a code constant) |
+| **concurrency knee** | the number of concurrent requests needed to saturate the device | **c12/node** within the tested range, observed independently of connection count |
+| **connection knee** | the optimum for how many connections to split those requests across | c4 at fixed load, **conn2** by operating point |
+| **overload region** | past saturation. Throughput is flat and only latency rises | the whole c24–c64 range. **Comparing configurations here inverts the conclusion** |
+| **short-run / sustained operating point** | the operating point on a 60-second basis / on a thermal steady-state basis | identical under active cooling (−1.9%), divergent when fanless (−11.3%) |
+| **steady-state** | the region where values no longer change with time | S0's definition: **the mean of the last third** |
+| **degradation** | `1 − steady / peak` | verdicts: <3% none / 3–10% slight / >10% pronounced |
+| **scaling / efficiency** | `tp_N / tp_1` / that divided by N | optimized 3N: 2.86× / 95.3% |
+| **rotation** | changing the condition order each repetition to cancel time and temperature drift | applied in every A/B harness |
+| **preheat / reheat** | matching the thermal state with load before measuring | on the S0-C re-run, **per policy** |
+| **freeze** | not changing code, configuration or model during measurement | binaries preserved as `*.frozen-<commit>` |
+| **verdict** | the bench's own judgement of run validity | `valid` + `reasons`. Anomalous runs are not deleted |
+| **preflight** | a hard-failing check immediately before measuring | alias↔hostname, hashes, governor, temperature, voltage, **inference accuracy** |
+| **probe bench** | a short load thrown before the real measurement to confirm conditions | used for node-count verification — it filtered out 6 configurations in S3.8 |
+| **capacity heterogeneity** | the spread in processing capability between nodes | thermally induced (S0-A/C) and **clock-cap induced** (S0-D) are recorded separately. What the scheduler sees is capacity, not its cause |
+| **heterogeneity gauge** | the observed quantity used to measure the spread | **round-robin's per-node p50 max/min.** RR does not adapt, so the raw capacity spread shows through directly under even load |
+| **utime / stime** | user / kernel CPU time | from `/proc/PID/stat`. Kernel holds syscall entry, the TCP stack and `copy_to_user`; user holds serialization, user-space copies and HTTP/2 framing. **What io_uring reduces is a portion of stime** |
+| **one-directional test** | a measurement whose bias direction is known | `strace -c` **inflates** values through ptrace → if the inflated value is small, the real one is conclusively smaller |
+
+### 2.1 Percentile aggregation
+
+| Term | Meaning |
 |---|---|
-| **nearest-rank** | 보간 없이 "정렬 후 그 지점 이상 첫 값". bench 가 쓰는 방식 |
-| **run-level percentile** | 한 run 안에서 그 run 의 요청들로 계산한 percentile |
-| **pooled percentile** | 여러 run 의 요청을 **전부 합쳐** 다시 계산한 percentile |
-| **주의** | 이 저장소의 표는 전부 **run-level 의 평균**이다. pooled 가 아니다. run-level 평균은 각 run 의 최악 구간이 희석돼 **tail 을 낮게 보이게 한다**. 조건 간 비교에는 유효하나 절대값을 "이 시스템의 p99" 로 인용하면 안 된다 |
+| **nearest-rank** | no interpolation: "sort, then the first value at or past that point". What the bench uses |
+| **run-level percentile** | a percentile computed within one run over that run's requests |
+| **pooled percentile** | a percentile computed after **combining all runs'** requests |
+| **caveat** | every table in this repository is **the average of run-level values**, not pooled. Run-level averaging dilutes each run's worst window and **makes the tail read low**. Valid for comparing conditions, but the absolute values must not be quoted as "this system's p99" |
 
 ---
 
-## 3. 성능 지표
+## 3. Performance metrics
 
-| 용어 | 뜻 |
+| Term | Meaning |
 |---|---|
-| **inf/s** | 초당 추론 건수(throughput) |
-| **p50 / p95 / p99 / max** | 지연 분포의 백분위. p50=중앙값 |
-| **tail latency** | 상위 백분위(p95/p99) 지연. "일부 요청이 얼마나 늦는가" |
-| **tail amplification** | 처리량이 올라도 tail 이 더 크게 나빠지는 현상 |
-| **balance (%p)** | 노드 간 요청 분배 편차. 0 이면 완전 균등 |
-| **error_rate** | 실패 비율. 이 저장소 전 실험에서 **0** |
-| **TimingBreakdown** | 응답에 실려 오는 11단계 시간 분해 (proto `Timing`) |
-| `scheduler_queue` | 스케줄러 내부 대기 |
-| `scheduler_route` | 정책 선택 시간 |
-| `network_to_node` / `network_to_client` | **왕복 전체 − 노드 내부 시간**을 절반씩 나눈 값. 서로 다른 장치의 절대 시각을 빼지 않기 위한 방법 |
-| `node_queue` | 노드 워커 풀 대기 |
-| `decode / preprocess / npu_input / inference / postprocess` | 노드 내부 단계. 이 프로젝트는 raw RGB 입력·raw tensor 출력이라 inference 외에는 ~0 |
-| `end_to_end` | 스케줄러가 잰 전체 |
-| **syscalls/req · ctx switches/req · cycles/req** | TECHSPEC §15.4 가 요구하는 io_uring 판단 지표 |
+| **inf/s** | inferences per second (throughput) |
+| **p50 / p95 / p99 / max** | percentiles of the latency distribution. p50 = median |
+| **tail latency** | high-percentile (p95/p99) latency. "How late do some requests get" |
+| **tail amplification** | the tail worsening more than throughput improves |
+| **balance (pp)** | request distribution deviation between nodes. 0 is perfectly even |
+| **error_rate** | failure ratio. **0** across every experiment in this repository |
+| **TimingBreakdown** | the 11-stage time breakdown carried in the response (proto `Timing`) |
+| `scheduler_queue` | waiting inside the scheduler |
+| `scheduler_route` | policy selection time |
+| `network_to_node` / `network_to_client` | **the full round trip minus node-internal time**, split in half. A method for avoiding subtraction of absolute clocks on different machines |
+| `node_queue` | waiting on the node's worker pool |
+| `decode / preprocess / npu_input / inference / postprocess` | node-internal stages. This project uses raw RGB input and raw tensor output, so everything except inference is ~0 |
+| `end_to_end` | the total as measured by the scheduler |
+| **syscalls/req · ctx switches/req · cycles/req** | the io_uring decision metrics TECHSPEC §15.4 requires |
 
 ---
 
-## 4. 네트워크 · 커널
+## 4. Network and kernel
 
-| 용어 | 뜻 | 이 프로젝트에서 |
+| Term | Meaning | In this project |
 |---|---|---|
-| **full-duplex** | 송신·수신이 각자의 대역폭을 갖는 것 | **두 방향을 한 링크 예산에 합산하면 안 된다.** S3.8 에서 이 실수로 "10G 76%" 를 썼다가 S3.9a 에서 철회(실제 방향당 40%) |
-| **goodput** | 헤더를 뺀 실제 payload 처리량 | iperf3 가 재는 값. 보드 링크 실측 2.34 Gbps |
-| **MTU** | 한 프레임에 담기는 최대 payload. 여기선 1500 | |
-| **RSS** (Receive Side Scaling) | NIC 이 **하드웨어 다중 큐**로 패킷을 여러 코어에 분산 | 서버 NIC 은 RX 큐 24개. 보드는 **1개** |
-| **RPS** (Receive Packet Steering) | 커널이 **소프트웨어로** flow 해시 기준 분산 | 보드에서 시도했으나 두 번 다 null. **흐름이 1개면 나눌 대상이 없다** |
-| **softirq / NET_RX** | 커널이 인터럽트 후처리를 하는 경량 컨텍스트. 네트워크 수신 처리가 여기서 돈다 | 보드 CPU0 %soft 51.5% → 단일 큐 때문 |
-| **IRQ affinity** | 인터럽트를 어느 코어가 받을지 | 보드는 NIC IRQ 가 CPU0 고정 |
-| **cwnd / ssthresh** | TCP 혼잡 윈도 / 느린 시작 임계값 | 3N 에서 cwnd 176 → 106~119 로 눌림 |
-| **retransmission (재전송)** | 손실·지연으로 다시 보낸 세그먼트 | 커넥션당 재전송률 0.055% → **0.19%** (3.5배) |
-| **incast / speed mismatch** | 빠른 링크(10G)에서 느린 링크(2.5G)로 몰릴 때 스위치 egress 에 생기는 버퍼링·손실 | 3N efficiency 손실의 **유력 가설(미검증)** |
-| **bufferbloat** | 과도한 버퍼가 지연을 부풀리는 현상 | 64 MB window 확대 시 −36.3% 의 해석 가설 |
-| **/proc/stat · /proc/net/dev · /proc/interrupts · /proc/softirqs** | 커널이 노출하는 카운터 | 서버에 sysstat 이 없어 이것들의 델타로 직접 계산 |
-| **ss -tin** | 소켓별 TCP 상태(rtt, cwnd, retrans, bytes_sent) | 커넥션 수·혼잡 상태 관측 |
+| **full-duplex** | send and receive each having their own bandwidth | **the two directions must not be summed into one link budget.** S3.8 made this mistake and wrote "10G 76%", withdrawn in S3.9a (the real figure is 40% per direction) |
+| **goodput** | actual payload throughput excluding headers | what iperf3 measures. Board link measured at 2.34 Gbps |
+| **MTU** | the maximum payload in one frame. 1500 here | |
+| **RSS** (Receive Side Scaling) | the NIC spreading packets across cores via **hardware multi-queue** | the server NIC has 24 RX queues. The boards have **one** |
+| **RPS** (Receive Packet Steering) | the kernel spreading **in software** by flow hash | attempted on the boards, null both times. **With one flow there is nothing to divide** |
+| **softirq / NET_RX** | the lightweight context in which the kernel does post-interrupt work. Network receive processing runs here | board CPU0 %soft 51.5% → because of the single queue |
+| **IRQ affinity** | which core takes an interrupt | on the boards the NIC IRQ is pinned to CPU0 |
+| **cwnd / ssthresh** | TCP congestion window / slow-start threshold | at 3N, cwnd is suppressed from 176 to 106–119 |
+| **retransmission** | segments resent due to loss or delay | per-connection retransmit rate 0.055% → **0.19%** (3.5×) |
+| **incast / speed mismatch** | buffering and loss at the switch egress when traffic funnels from a fast link (10G) to a slow one (2.5G) | the **leading (unverified) hypothesis** for the 3N efficiency loss |
+| **bufferbloat** | excessive buffering inflating latency | the interpretive hypothesis for the −36.3% from enlarging the window to 64 MB |
+| **/proc/stat · /proc/net/dev · /proc/interrupts · /proc/softirqs** | counters the kernel exposes | the server has no sysstat, so figures were computed directly from their deltas |
+| **ss -tin** | per-socket TCP state (rtt, cwnd, retrans, bytes_sent) | observing connection count and congestion state |
 
 ---
 
-## 5. HTTP/2 · gRPC
+## 5. HTTP/2 and gRPC
 
-| 용어 | 뜻 | 이 프로젝트에서 |
+| Term | Meaning | In this project |
 |---|---|---|
-| **HTTP/2 multiplexing** | 하나의 TCP 커넥션에서 여러 스트림을 동시에 실어 나르는 것 | 그래서 "커넥션이 1개" 만으로 병목이라 단정할 수 없다 |
-| **stream** | 커넥션 안의 논리적 요청/응답 한 쌍 | 요청 1건 = 스트림 1개 |
-| **flow control window** | 수신자가 "여기까지 받을 수 있다" 고 광고하는 크기. **스트림 단위**와 **커넥션 단위**가 따로 있다 | h2 기본 65,535 byte. 이 프로젝트는 메시지가 1.2 MB |
-| **WINDOW_UPDATE** | window 를 다시 열어주는 프레임 | window 가 작으면 이 왕복이 반복돼 stop-and-wait 가 된다 |
-| **DATA frame** | 실제 payload 를 나르는 프레임 | 응답 1.218 MB 를 약 14.4 KB 씩 쪼개 보냄(write syscall 84.4회/req) |
-| **head-of-line blocking** | 앞선 것이 막히면 뒤가 다 막히는 현상 | 다중화된 스트림이 같은 커넥션 자원을 다툴 때 |
-| **tonic** | Rust gRPC 구현 (hyper + h2 기반) | v0.12.3 |
-| **h2 / hyper** | HTTP/2 프로토콜 / HTTP 라이브러리 | h2 0.4.15, hyper 1.11.0 |
-| **prost** | Protocol Buffers 코드 생성기 | `.proto` → Rust 타입 |
-| **protoc** | protobuf 컴파일러 | 빌드 전제. Windows 개발 PC 에는 없어 서버·보드에서 빌드 |
-| **`node_connections`** | **노드당** gRPC 커넥션 수 (이 프로젝트가 추가한 설정) | 1N→2, 2N→4, 3N→6 total. **클러스터 전체 합이 아니다** |
+| **HTTP/2 multiplexing** | carrying several streams concurrently over one TCP connection | which is why "one connection" alone does not establish a bottleneck |
+| **stream** | one logical request/response pair inside a connection | 1 request = 1 stream |
+| **flow control window** | the size a receiver advertises as "I can take this much". There are separate **per-stream** and **per-connection** windows | h2 defaults to 65,535 bytes. This project's messages are 1.2 MB |
+| **WINDOW_UPDATE** | the frame that reopens the window | with a small window this round trip repeats and becomes stop-and-wait |
+| **DATA frame** | the frame carrying the actual payload | the 1.218 MB response is split into roughly 14.4 KB pieces (84.4 write syscalls per request) |
+| **head-of-line blocking** | everything behind being blocked by what is in front | when multiplexed streams contend for the same connection resources |
+| **tonic** | the Rust gRPC implementation (built on hyper + h2) | v0.12.3 |
+| **h2 / hyper** | the HTTP/2 protocol / HTTP library | h2 0.4.15, hyper 1.11.0 |
+| **prost** | the Protocol Buffers code generator | `.proto` → Rust types |
+| **protoc** | the protobuf compiler | a build prerequisite. Absent on the Windows development PC, so builds happen on the server and boards |
+| **`node_connections`** | gRPC connections **per node** (a setting this project added) | 1N→2, 2N→4, 3N→6 total. **Not a cluster-wide sum** |
 
 ---
 
-## 6. 스케줄링
+## 6. Scheduling
 
-| 용어 | 뜻 | 이 프로젝트에서 |
+| Term | Meaning | In this project |
 |---|---|---|
-| **round-robin (RR)** | 상태를 보지 않고 순서대로 배정 | 기본값. 구조적으로 균등하지만 **느려진 노드에도 똑같이 보낸다** |
-| **least-queue / LOR** (least-outstanding-requests) | 미완료 요청이 가장 적은 노드 선택 | 서비스 **속도**는 모른다. 동시 버스트에서는 균등 분배가 정상 동작 |
-| **ECT** (Estimated Completion Time) | `(미완료+1) × EWMA_inference + EWMA_network + 패널티` 로 완료 예상시각을 추정 | 서비스 속도 차이를 반영할 수 있는 유일한 정책. 단 **EWMA 가 채워져야** 동작 |
-| **EWMA** | 지수 이동 평균 | 추론시간·네트워크 왕복시간 추적 |
-| **herding (herd behavior)** | 여러 결정 주체가 **같은 낡은 정보**를 보고 동시에 같은 선택을 하는 현상 | S0-C 의 원인. 처리량 55~58% 붕괴 |
-| **stale state / state freshness** | 상태 정보가 낡은 정도 | 하트비트 1초 vs 디스패치 ~3ms → **수백 배 차이** |
-| **control-loop sampling problem** | 피드백 주기가 시스템 변화 주기보다 길어 제어가 실패하는 문제 | herding 의 상위 개념. 정책 튜닝 문제가 아니다 |
-| **reservation (예약)** | 선택과 동시에 부하를 점유 표시하는 것 | `select_and_reserve()` 가 한 임계구역에서 처리 |
-| **RAII guard** | 값이 스코프를 벗어날 때 자동 정리되는 패턴 | `Reservation` 의 `Drop` 이 감소 — 성공·오류·타임아웃·취소·재시도 **모든 경로**를 닫는다 |
-| **`local_in_flight`** | 스케줄러가 보냈지만 아직 안 끝난 요청 수 (즉시 갱신) | 정책의 **1차 신호**. 하트비트 값과 더하지 않는다(같은 요청을 두 번 세게 됨) |
-| **`health.in_flight` / `queue_depth`** | 노드가 하트비트에 실어 보낸 관측값 (최대 1초 stale) | health 판정·tiebreaker 용도로만 |
-| **busy_queue_depth / degraded / disable temperature** | 노드 상태 분류 임계치 | 8 / 80°C / 90°C |
-| **drain** | 새 요청을 안 보내고 큐를 비우는 상태 | 운영자 지정 상태 |
+| **round-robin (RR)** | assigning in order without looking at state | the baseline. Structurally even, but **it sends the same amount to a slowed node** |
+| **least-queue / LOR** (least-outstanding-requests) | choosing the node with the fewest outstanding requests | it does not know service **speed**. Under a simultaneous burst, even distribution is correct behaviour |
+| **ECT** (Estimated Completion Time) | estimating the completion time as `(outstanding+1) x EWMA_inference + EWMA_network + penalties` | the only policy able to reflect service-speed differences. But **the EWMAs have to be populated** for it to work |
+| **EWMA** | exponentially weighted moving average | tracking inference time and network round trip |
+| **herding (herd behaviour)** | several decision-makers looking at **the same stale information** and making the same choice simultaneously | the cause in S0-C. Throughput collapsed 55–58% |
+| **stale state / state freshness** | how out of date the state information is | heartbeat 1 s vs dispatch ~3 ms → **hundreds of times apart** |
+| **control-loop sampling problem** | control failing because the feedback period is longer than the system's rate of change | the general form of herding. Not a policy tuning problem |
+| **reservation** | marking load as occupied at the moment of selection | handled in one critical section by `select_and_reserve()` |
+| **RAII guard** | a pattern where a value cleans up automatically on leaving scope | `Reservation`'s `Drop` decrements it — closing **every path**: success, error, timeout, cancellation and retry |
+| **`local_in_flight`** | the count of requests the scheduler has sent but that have not finished (updated immediately) | the policy's **primary signal**. Not added to the heartbeat value (that would count the same request twice) |
+| **`health.in_flight` / `queue_depth`** | observed values the node carries in its heartbeat (up to 1 s stale) | used only for health verdicts and tie-breaking |
+| **busy_queue_depth / degraded / disable temperature** | thresholds for classifying node state | 8 / 80 °C / 90 °C |
+| **drain** | the state of sending no new requests and emptying the queue | an operator-specified state |
 
 ---
 
-## 7. 하드웨어 · 열
+## 7. Hardware and thermal
 
-| 용어 | 뜻 | 이 프로젝트에서 |
+| Term | Meaning | In this project |
 |---|---|---|
-| **RK3576** | Rockchip SoC. 4×Cortex-A72 + 4×Cortex-A53, NPU 2코어 | 노드 보드 3대 |
-| **big.LITTLE** | 고성능/저전력 코어를 섞은 구성 | A72 2208 MHz(policy4), A53 2016 MHz(policy0) |
-| **cpufreq governor** | CPU 주파수 정책 | `performance` 고정(최대 클럭 유지). 대안 `ondemand` |
-| **devfreq** | CPU 외 장치(NPU·GPU·DDR)의 주파수 관리 | NPU 300~950 MHz |
-| **thermal zone** | 커널이 노출하는 온도 센서 | soc / bigcore / little-core / ddr / **npu** / gpu 6개 |
-| **thermal throttling** | 온도로 클럭을 낮추는 것 | **NPU 는 한 번도 안 떨어졌다.** 떨어지는 것은 CPU |
-| **thermal steady-state** | 발열과 방열이 균형을 이룬 온도 평탄역 | 능동 냉각 58~61°C(5분), 팬리스 86~88°C |
-| **thermal heterogeneity (열 불균질)** | 같은 모델 보드인데 열 조건이 달라 성능이 갈리는 것 | 팬리스에서 king 816 / jack 1200 / queen 1416 MHz |
-| **boot_id** | 부팅마다 바뀌는 식별자 | run 도중 보드 리셋 감지 → 그 측정은 무효 |
-| **입력 전압 감시** | 어댑터 용량 부족 조기 경보 | 5.00 V 미만이면 preflight 실패 |
-| **2.5GbE / 10GbE** | 링크 속도 | 보드 2.5G, 서버 10G. **속도 불일치가 §4 의 incast 가설** |
+| **RK3576** | a Rockchip SoC. 4×Cortex-A72 + 4×Cortex-A53, 2-core NPU | the three node boards |
+| **big.LITTLE** | a configuration mixing high-performance and low-power cores | A72 2208 MHz (policy4), A53 2016 MHz (policy0) |
+| **cpufreq governor** | the CPU frequency policy | fixed to `performance` (holds the maximum clock). The alternative is `ondemand` |
+| **devfreq** | frequency management for non-CPU devices (NPU, GPU, DDR) | NPU 300–950 MHz |
+| **thermal zone** | a temperature sensor the kernel exposes | six: soc / bigcore / little-core / ddr / **npu** / gpu |
+| **thermal throttling** | lowering the clock because of temperature | **the NPU never dropped once.** What drops is the CPU |
+| **thermal steady-state** | the temperature plateau where heat generation and dissipation balance | 58–61 °C under active cooling (within 5 min), 86–88 °C fanless |
+| **thermal heterogeneity** | identical board models diverging in performance because their thermal conditions differ | fanless: king 816 / jack 1200 / queen 1416 MHz |
+| **boot_id** | an identifier that changes on every boot | detects a board reset mid-run → that measurement is void |
+| **input voltage monitoring** | early warning of insufficient adapter capacity | preflight fails below 5.00 V |
+| **2.5GbE / 10GbE** | link speeds | boards 2.5G, server 10G. **The speed mismatch is §4's incast hypothesis** |
 
 ---
 
-## 8. 모델 · NPU 런타임
+## 8. Model and NPU runtime
 
-| 용어 | 뜻 | 이 프로젝트에서 |
+| Term | Meaning | In this project |
 |---|---|---|
-| **RKNN** | Rockchip NPU 런타임 | `librknnrt.so` 2.3.0 |
-| **RKNPU driver** | 커널 드라이버 | v0.9.8 |
-| **YOLOv8n** | 객체 검출 모델 | 입력 640×640×3 |
-| **INT8 양자화** | 가중치·활성을 8비트 정수로 | FP16 대비 처리량 +17.3% |
-| **`want_float`** | 출력을 float 로 역양자화해 받을지 | **0**(정수 그대로). 출력 크기 4분의 1, 처리량 +17.3% |
-| **blob v2** | 텐서 여러 개를 담는 자체 직렬화 형식 | 텐서당 36 byte 헤더에 `scale`·`zero_point` 동봉 |
-| **payload 크기** | | 요청 **1,228,800 B**, 응답 **1,218,000 B** (합 2,446,800 B/추론) |
-| **postprocess (DFL + NMS)** | 검출 결과 디코딩과 중복 제거 | **현재 노드에서 안 한다.** raw tensor 를 그대로 보냄 → 응답이 1.2 MB. 노드에서 하면 수 KB 로 줄어든다(미구현 아이디어) |
-| **warmup** | 첫 추론의 초기화 비용을 제외하기 위한 예열 | 집계에서 제외 |
-| **worker_count** | 노드의 동시 추론 워커 수 | 8. **워커가 독립적이지 않다** — 로컬 direct 8워커가 161.5 inf/s |
+| **RKNN** | the Rockchip NPU runtime | `librknnrt.so` 2.3.0 |
+| **RKNPU driver** | the kernel driver | v0.9.8 |
+| **YOLOv8n** | the object detection model | input 640×640×3 |
+| **INT8 quantization** | weights and activations as 8-bit integers | +17.3% throughput against FP16 |
+| **`want_float`** | whether to receive the output dequantized to float | **0** (integers as-is). Output size a quarter, throughput +17.3% |
+| **blob v2** | our own serialization format holding several tensors | a 36-byte header per tensor carrying `scale` and `zero_point` |
+| **payload size** | | request **1,228,800 B**, response **1,218,000 B** (2,446,800 B per inference combined) |
+| **postprocess (DFL + NMS)** | decoding detections and removing duplicates | **currently not done on the node.** Raw tensors are sent as-is → a 1.2 MB response. Doing it on the node would shrink it to a few KB (an unimplemented idea) |
+| **warmup** | preheating to exclude the first inference's initialisation cost | excluded from aggregation |
+| **worker_count** | the node's number of concurrent inference workers | 8. **The workers are not independent** — local direct with 8 workers reaches 161.5 inf/s |
 
 ---
 
-## 9. 소프트웨어 스택
+## 9. Software stack
 
-| 용어 | 뜻 |
+| Term | Meaning |
 |---|---|
-| **tokio** | Rust 비동기 런타임. 노드는 multi_thread(워커 = 코어 수 8) |
-| **`spawn_blocking`** | 블로킹 작업을 별도 스레드 풀로 보내는 tokio API. RKNN FFI 호출이 여기서 돈다 |
-| **async worker vs blocking pool** | 네트워크·protobuf 는 async 워커 8개, 추론은 blocking 풀 — **같은 8코어를 나눠 쓴다** |
-| **`parking_lot`** | 더 빠른 Mutex/RwLock 구현 |
-| **`Arc<AtomicU32>`** | 스레드 간 공유되는 원자적 카운터 |
-| **`Bytes`** | 참조 카운팅되는 바이트 버퍼(복사 없이 공유) |
-| **`to_vec()`** | 복사를 만드는 호출. 남은 gap 후보 중 하나 |
-| **feature flag** | 컴파일 시 기능 선택. 노드는 `--features rknn` 필요 (없으면 Mock 백엔드가 빌드됨) |
-| **`RKNN_SDK_PATH`** | 빌드 시 `rknn_api.h` 위치 |
+| **tokio** | the Rust async runtime. The node uses multi_thread (workers = 8 cores) |
+| **`spawn_blocking`** | the tokio API that moves blocking work to a separate thread pool. RKNN FFI calls run here |
+| **async worker vs blocking pool** | network and protobuf on 8 async workers, inference on the blocking pool — **sharing the same 8 cores** |
+| **`parking_lot`** | a faster Mutex/RwLock implementation |
+| **`Arc<AtomicU32>`** | an atomic counter shared between threads |
+| **`Bytes`** | a reference-counted byte buffer (shared without copying) |
+| **`to_vec()`** | a call that creates a copy. One of the candidates for the remaining gap |
+| **feature flag** | compile-time feature selection. The node needs `--features rknn` (without it the Mock backend gets built) |
+| **`RKNN_SDK_PATH`** | the location of `rknn_api.h` at build time |
 
 ---
 
-## 10. 진단 도구
+## 10. Diagnostic tools
 
-| 도구 | 용도 | 비고 |
+| Tool | Purpose | Note |
 |---|---|---|
-| **iperf3** | 링크 대역폭 실측 | 보드→서버 2.34 Gbps |
-| **mpstat** | 코어별 CPU 분해(%usr/%sys/%soft/%idle) | 보드에만 있음 |
-| **pidstat** | 프로세스·스레드별 CPU | 보드에만 있음 |
-| **ethtool** | 링크 속도·NIC 통계·offload 설정 | 양쪽 다 있음 |
-| **ss** | 소켓 상태 | 커넥션 수·TCP 내부 상태 |
-| **perf** | PMU 기반 프로파일링 | **양쪽 다 없음.** cycles/req 는 근사값 |
-| **`/proc` 델타** | sysstat 없이 CPU·네트워크·syscall 집계 | 서버 프로파일에 사용 |
-| **thermal-logger.sh** | 보드 온도·주파수·전압 1초 샘플러 | |
+| **iperf3** | measuring link bandwidth | board→server 2.34 Gbps |
+| **mpstat** | per-core CPU breakdown (%usr/%sys/%soft/%idle) | on the boards only |
+| **pidstat** | per-process and per-thread CPU | on the boards only |
+| **ethtool** | link speed, NIC statistics, offload settings | on both |
+| **ss** | socket state | connection count and TCP internal state |
+| **perf** | PMU-based profiling | **on neither.** cycles/req is an approximation |
+| **`/proc` deltas** | aggregating CPU, network and syscalls without sysstat | used for the server profile |
+| **thermal-logger.sh** | a 1-second sampler of board temperature, frequency and voltage | |
 
 ---
 
-## 11. 이 프로젝트의 구성요소
+## 11. This project's components
 
-| 이름 | 역할 |
+| Name | Role |
 |---|---|
-| `npuforge-scheduler` | 중앙 스케줄러. 클라이언트 요청을 노드로 분배 (x86_64, 서버) |
-| `npuforge-node` | 노드 에이전트. NPU 추론 수행 (aarch64, 보드 3대) |
-| `npuforge-bench` | 부하 생성·집계·run 유효성 판정 |
-| `npuforge-proto` | `.proto` 단일 출처 |
-| `npuforge-rknn` | RKNN 백엔드 |
-| `npuforge-mock-backend` | 하드웨어 없이 개발·테스트용 |
-| `npuforge-common` | 타입·오류코드·설정·백엔드 인터페이스 |
-| **king / queen / jack** | 노드 보드 3대의 이름 (SSH 별칭 `npuforge-k/q/j`) |
-| **server** | 스케줄러 + bench 호스트 (`npuforge-server`) |
+| `npuforge-scheduler` | the central scheduler. Distributes client requests to nodes (x86_64, on the server) |
+| `npuforge-node` | the node agent. Performs NPU inference (aarch64, on the three boards) |
+| `npuforge-bench` | load generation, aggregation and run-validity judgement |
+| `npuforge-proto` | the single source for `.proto` |
+| `npuforge-rknn` | the RKNN backend |
+| `npuforge-mock-backend` | for development and testing without hardware |
+| `npuforge-common` | types, error codes, configuration and the backend interface |
+| **king / queen / jack** | the names of the three node boards (SSH aliases `npuforge-k/q/j`) |
+| **server** | the scheduler and bench host (`npuforge-server`) |
 
-### 11.1 오류 코드
+### 11.1 Error codes
 
-| 코드 | 뜻 |
+| Code | Meaning |
 |---|---|
-| `NPF-0000` | 성공 |
-| `NPF-1002` | payload 크기 초과 |
-| `NPF-1303` | 노드 과부하(큐 가득) |
-| `NodeUnavailable` | 전송 실패 → 헬스 카운터에 반영 |
-| `NoAvailableNode` | 처리 가능한 노드 없음 |
+| `NPF-0000` | success |
+| `NPF-1002` | payload size exceeded |
+| `NPF-1303` | node overloaded (queue full) |
+| `NodeUnavailable` | transmission failure → reflected in the health counters |
+| `NoAvailableNode` | no node able to handle it |
 
 ---
 
-## 12. 이 프로젝트에서 정한 실험 규칙
+## 12. Experimental rules fixed by this project
 
-측정 전에 정하고 **결과에 맞춰 바꾸지 않는** 값들이다.
+Values fixed before measuring and **not changed to fit the results.**
 
-| 규칙 | 값 | 근거 |
+| Rule | Value | Basis |
 |---|---|---|
-| operating concurrency | peak 의 **98%** 이상을 내는 가장 낮은 concurrency | 99% 는 run 간 SD(±1 inf/s)와 겹친다 |
-| steady-state | 마지막 **1/3** 구간 평균 | |
-| degradation 판정 | <3% / 3~10% / >10% | |
-| Selected operating point | 처리량 최대의 **97%** 이상 중 p95 최소 | 통계적 최적이 아니라 **engineering heuristic** |
-| 정책 이동 판정 | 분배 **3%p** 이상 이동 = 이동, 처리량 **2%** 이상 = 회수 | |
-| 강한 이질 게이트 | RR 노드 p50 최대/최소 **≥ 2.0×** | S0-A 2.4× ↔ S0-C 2차 1.33× 사이 (S0-C §17.2) |
-| LQ vs ECT 판정 밴드 | 처리량 **2%**, p99 **5%** | n=4 에서 그보다 작은 차이는 못 쓴다 (S0-C §17.3) |
-| 현직 tie-break | 밴드를 못 넘으면 **기존 기본값 유지** | 현직을 끌어내리려면 적극적 근거가 필요하다 |
+| operating concurrency | the lowest concurrency delivering at least **98%** of peak | 99% overlaps the run-to-run SD (±1 inf/s) |
+| steady-state | the mean of the last **third** | |
+| degradation verdict | <3% / 3–10% / >10% | |
+| Selected operating point | the lowest p95 among those within **97%** of maximum throughput | an **engineering heuristic**, not a statistical optimum |
+| policy shift verdict | a distribution shift of **3 pp** or more = a shift; throughput of **2%** or more = recovery | |
+| strong heterogeneity gate | RR per-node p50 max/min **≥ 2.0×** | between S0-A's 2.4× and S0-C 2nd's 1.33× (S0-C §17.2) |
+| LQ vs ECT decision bands | throughput **2%**, p99 **5%** | at n=4, anything smaller is unusable (S0-C §17.3) |
+| incumbent tie-break | if the band is not cleared, **keep the existing default** | unseating an incumbent requires positive grounds |
 
 ---
 
-## 13. 방법론 교훈에서 나온 표현
+## 13. Phrases that came out of the methodology lessons
 
-| 표현 | 뜻 |
+| Phrase | Meaning |
 |---|---|
-| **"배제는 조건부다"** | 한 번 배제한 병목 후보도 조건이 바뀌면 다시 열린다. 판정에는 **어떤 조건에서** 가 붙어야 한다 |
-| **"Optimize at the operating point, not in the overload region"** | 과부하 구간에서 구성을 비교하면 configuration effect 가 아니라 overload behavior 를 본다 |
-| **"조용한 실패를 큰 소리로"** | 하네스가 조건 미달이면 그냥 멈춘다. 노드 수 검증·설정 주입 검증·TCP 커넥션 수 물증 |
-| **"프로세스가 떠 있다 ≠ 트래픽을 받는다"** | 노드 수는 probe bench 의 **응답 노드 ID 분포**로 확인한다 |
-| **"두 측정이 일치해도 해석이 옳다는 뜻은 아니다"** | 둘 다 같은 편향이면 재현성은 편향만 확인해 준다 |
-| **"성능이 이상하면 구현이 의도대로 도는가를 먼저"** | 55% 는 품질 차이의 크기가 아니다 |
-| **"두 측정량을 곱하지 않는다"** | 처리량 손실 %와 지연 구성비 %는 다른 축 |
-| **"비용이지 제약이 아니다"** | 포화되지 않은 자원의 사용량(CPU-ms/req)을 줄여도 처리량은 오르지 않는다. S4 판정의 핵심 |
-| **"계기가 다른 물리량을 재고 있을 수 있다"** | 출력이 예상과 다르면 **계측기부터 의심한다.** 임계를 옮기는 것과 계기를 고치는 것은 다르다 |
-| **"중단했다를 믿지 말고 공유 자원 쪽에서 확인한다"** | 로컬 프로세스 관측은 플랫폼에 따라 거짓말을 한다. 클러스터가 비었는지는 **클러스터에게 묻는다** |
-| **"손으로 관리하는 파생 수치는 갈라진다"** | run 합계·백분율은 스크립트가 세게 하고 출처를 적는다 |
+| **"exclusions are conditional"** | a bottleneck candidate once excluded reopens when conditions change. A verdict has to carry **under what conditions** |
+| **"Optimize at the operating point, not in the overload region"** | comparing configurations in the overload region shows overload behaviour rather than a configuration effect |
+| **"turn silent failures loud"** | the harness simply stops when a condition is not met. Node-count verification, configuration-injection verification, evidence of the TCP connection count |
+| **"a process being up ≠ receiving traffic"** | node count is confirmed from the probe bench's **distribution of responding node IDs** |
+| **"two measurements agreeing does not mean the interpretation is right"** | if both share a bias, reproducibility only confirms the bias |
+| **"when performance looks wrong, ask first whether the implementation is doing what it was meant to"** | 55% is not the size of a quality difference |
+| **"do not multiply two quantities"** | a throughput-loss % and a share-of-latency % are different axes |
+| **"a cost, not a constraint"** | reducing usage (CPU-ms/req) of an unsaturated resource does not raise throughput. The heart of the S4 verdict |
+| **"your instrument may be measuring a different quantity"** | when the output differs from expectation, **suspect the instrument first.** Moving a threshold and fixing an instrument are different acts |
+| **"do not trust 'I stopped it' — verify at the shared resource"** | local process observation lies depending on the platform. Whether the cluster is free is a question **for the cluster** |
+| **"hand-maintained derived numbers diverge"** | run totals and percentages are counted by scripts, with the source recorded |
 
 ---
 
 <a id="infrastructure"></a>
 
-# NPUDure 인프라 현황
+# NPUDure infrastructure status
 
-- 문서명: `infrastructure.md`
-- 최종 갱신: 2026-08-20
-- 관련 문서: `board-worklog.md` (시간순 작업 이력), `environment-matrix.md` (버전 고정)
+*[한국어 원문](infrastructure.ko.md)*
 
-이 문서는 **현재 상태의 스냅샷**이다. 어떻게 그 상태에 도달했는지는 `board-worklog.md`를 본다.
+- Document: `infrastructure.md`
+- Last updated: 2026-08-20
+- Related: `board-worklog.md` (chronological work history),
+  `environment-matrix.md` (version pinning)
 
-> **2026-08-20 대개편.** 2.5G/10G 스위치·10G 서버 도입으로 M3 차단 요소가
-> 전부 해소되고 IP·역할이 크게 바뀌었다. 이전 판(dealer 노트북 + 1G 관리망)은
-> 폐기됐다. 경위는 `board-worklog.md` §2.23.
+This document is **a snapshot of the current state.** How that state was reached
+is in `board-worklog.md`.
+
+> **The 2026-08-20 rework.** Introducing the 2.5G/10G switch and the 10G server
+> cleared every blocker for M3, and the IPs and roles changed substantially. The
+> previous arrangement (the dealer laptop + a 1G management network) is retired.
+> The story is in `board-worklog.md` §2.23.
 
 ---
 
-# 1. 장비 구성
+# 1. Equipment
 
 ```text
-                    ┌──────────────────────────────────┐
-                    │ server   192.168.123.9           │
-                    │ Rocky Linux 9.4 / x86_64         │
-                    │ Core i7-4790 (4C/8T) / 16GB      │
-                    │                                  │
-                    │ · Scheduler (예정)               │
-                    │ · Benchmark Client (예정)        │
-                    └────────────────┬─────────────────┘
-                                     │ 10GbE (enp1s0)   ← aggregation
-                                     │
-                    ┌────────────────▼─────────────────┐
-                    │ NEXI NS-S25G10G-N                │
-                    │ 2.5G x4 + 10G x2 (전부 RJ45)     │
-                    └─┬────┬──────┬──────┬──────┬───────┘
-              10G ────┘    │2.5G  │2.5G  │2.5G  └──2.5G── 인터넷(ipTIME)
-          개발 PC(노트북)  │      │      │
-          (1G NIC, 미활용) │      │      │
-                    ┌──────▼┐ ┌───▼───┐ ┌▼──────┐
-                    │ king  │ │ queen │ │ jack  │
-                    │  .3   │ │  .5   │ │  .4   │
-                    │ 6 TOPS│ │6 TOPS │ │6 TOPS │
-                    └───────┘ └───────┘ └───────┘
+                    +----------------------------------+
+                    | server   192.168.123.9           |
+                    | Rocky Linux 9.4 / x86_64         |
+                    | Core i7-4790 (4C/8T) / 16GB      |
+                    |                                  |
+                    | . Scheduler (planned)            |
+                    | . Benchmark Client (planned)     |
+                    +----------------+-----------------+
+                                     | 10GbE (enp1s0)   <- aggregation
+                                     |
+                    +----------------v-----------------+
+                    | NEXI NS-S25G10G-N                |
+                    | 2.5G x4 + 10G x2 (all RJ45)      |
+                    +-+----+------+------+------+------+
+              10G ----+    |2.5G  |2.5G  |2.5G  +--2.5G-- internet (ipTIME)
+          dev PC (laptop)  |      |      |
+          (1G NIC, unused) |      |      |
+                    +------v+ +---v---+ +v------+
+                    | king  | | queen | | jack  |
+                    |  .3   | |  .5   | |  .4   |
+                    | 6 TOPS| |6 TOPS | |6 TOPS |
+                    +-------+ +-------+ +-------+
                        Ubuntu 24.04 / RK3576 / aarch64
-                       각 eth0 2.5G, static
+                       eth0 2.5G each, static
 ```
 
-| 호스트 | IP | 역할 | OS | 아키텍처 | 스위치 포트 |
+| Host | IP | Role | OS | Arch | Switch port |
 |---|---|---|---|---|---|
 | `server` | 192.168.123.9 | Scheduler / Bench | Rocky Linux 9.4 | x86_64 | **10G (6)** |
 | `king` | 192.168.123.3 | NPU Worker | Ubuntu 24.04 | aarch64 | 2.5G (2) |
 | `jack` | 192.168.123.4 | NPU Worker | Ubuntu 24.04 | aarch64 | 2.5G (4) |
 | `queen` | 192.168.123.5 | NPU Worker | Ubuntu 24.04 | aarch64 | 2.5G (3) |
-| 개발 PC | 192.168.123.26 | 코드 작성 / 원격 조작 | Windows | x86_64 | 10G (5) — **1G NIC** |
-| 인터넷 | — | ipTIME 상위 | — | — | 2.5G (1) |
+| dev PC | 192.168.123.26 | writing code / remote operation | Windows | x86_64 | 10G (5) — **1G NIC** |
+| internet | — | ipTIME upstream | — | — | 2.5G (1) |
 
-> **IP 고정 완료 (2026-08-20).** 개편 때 보드 IP 가 통째로 바뀌어
-> (`.12/.16/.33` → `.3/.4/.5`) SSH 별칭이 낡아 노드를 못 찾았다. 라우터
-> DHCP 예약 대신 **각 호스트에서 현재 IP 를 NetworkManager static 으로 고정**
-> 했다(측정 재현성상 호스트 설정이 낫다). **4대 전부 `ipv4.method=manual`**
+> **Static IPs completed (2026-08-20).** The rework changed the board IPs
+> wholesale (`.12/.16/.33` → `.3/.4/.5`), leaving stale SSH aliases unable to
+> find the nodes. Rather than router DHCP reservations, **the current IP is
+> pinned as NetworkManager static on each host** (host configuration is better
+> for measurement reproducibility). **All four are `ipv4.method=manual`**
 > (§2.3). `adrs/019-ssh-alias-not-ip.md`.
 
-**`dealer`(옛 스케줄러, 노트북 .14) 는 제거됐다.** 응답 없음. 역할(스케줄러·
-벤치)은 `server` 로 이관됐다. 모델 변환 Docker 도 dealer 에 있었으므로
-변환 환경은 재구축 대상이다 (§6). 다만 모델은 이미 변환 완료라 당장 필요치 않다.
+**`dealer` (the old scheduler, laptop .14) has been removed.** No response. Its
+roles (scheduler and bench) moved to `server`. The model conversion Docker also
+lived on dealer, so the conversion environment is due for rebuilding (§6).
+Though the model is already converted, so it is not needed immediately.
 
-개발 PC 는 스위치 10G 포트(5)에 물려 있으나 **NIC 이 1G(현재 100Mb/s 협상)라
-10G 를 못 낸다.** 벤치 클라이언트는 개발 PC 가 아니라 `server` 에서 돌린다.
+The dev PC is plugged into the switch's 10G port (5) but **its NIC is 1G
+(currently negotiating 100 Mb/s) and cannot do 10G.** The bench client runs on
+`server`, not on the dev PC.
 
 ---
 
-# 2. 접속
+# 2. Access
 
-## 2.1 SSH 별칭
+## 2.1 SSH aliases
 
-개발 PC의 `~/.ssh/config`에 등록되어 있다. **IP 는 여기 한 곳에만 둔다**
+Registered in the dev PC's `~/.ssh/config`. **The IP lives only here**
 (`adrs/019-ssh-alias-not-ip.md`).
 
 ```text
-npuforge-k        → pi@192.168.123.3     (king)
-npuforge-q        → pi@192.168.123.5     (queen)
-npuforge-j        → pi@192.168.123.4     (jack)
-npuforge-server   → root@192.168.123.9   (server)
+npuforge-k        -> pi@192.168.123.3     (king)
+npuforge-q        -> pi@192.168.123.5     (queen)
+npuforge-j        -> pi@192.168.123.4     (jack)
+npuforge-server   -> root@192.168.123.9   (server)
 ```
 
-모두 `~/.ssh/id_ed25519_npuforge` 키로 비밀번호 없이 접속된다.
+All connect without a password using the `~/.ssh/id_ed25519_npuforge` key.
 
-> 이 키는 자동화 전용이며 passphrase가 없다. 공개 저장소나 신뢰할 수 없는 네트워크에 노출하지 않는다.
+> This key is for automation only and has no passphrase. Do not expose it in a
+> public repository or on an untrusted network.
 
-## 2.2 권한 승격
+## 2.2 Privilege escalation
 
-| 호스트 | 계정 | sudo | 비고 |
+| Host | Account | sudo | Note |
 |---|---|---|---|
-| king / queen / jack | `pi` | `NPUFORGE_SUDO_PASS` 로 전달 | `printf '%s\n' "$NPUFORGE_SUDO_PASS" \| sudo -S -p "" <cmd>` |
-| server | `root` | 불필요 (root 직접) | 자동화 키가 root `authorized_keys` 에 등록됨 |
+| king / queen / jack | `pi` | passed via `NPUFORGE_SUDO_PASS` | `printf '%s\n' "$NPUFORGE_SUDO_PASS" \| sudo -S -p "" <cmd>` |
+| server | `root` | not needed (root directly) | the automation key is in root's `authorized_keys` |
 
-`sudo -S`는 stdin의 첫 줄을 비밀번호로 소비한다. 파일 내용을 파이프로 넘길 수
-없으므로 파일을 쓸 때는 임시 파일을 거친다.
+`sudo -S` consumes stdin's first line as the password. File contents cannot be
+piped in, so writing a file goes through a temporary file.
 
-### 2.2.1 보드 자격증명은 벤더 기본값 그대로다 — 의도된 선택
+### 2.2.1 Board credentials are the vendor defaults — a deliberate choice
 
-보드 계정과 sudo 비밀번호는 **OS 이미지의 벤더 기본값을 바꾸지 않았다.**
-숨기지 않고 적어 두는 편이 낫다고 판단했다.
+The board accounts and sudo password are **the OS image's vendor defaults,
+unchanged.** Writing that down openly was judged better than hiding it.
 
 | | |
 |---|---|
-| 전제 | 보드는 `192.168.123.0/24` 사설 대역, NAT 뒤. 인바운드 포워딩 없음 |
-| 기본값 유지 | 벤더 기본값은 **이미 공개된 정보**다. 적어도 새로 알려주는 것이 없다 |
-| 바꾸지 않는 이유 | 커스텀 값을 쓰면 **없던 비밀이 하나 생긴다.** 그 값이 문서·이력·사진 어디로든 새면 비밀번호 **패턴**이 노출되고, 그건 이 랩 밖으로 번지는 정보다 |
+| Premise | The boards are on the private `192.168.123.0/24` range, behind NAT. No inbound forwarding |
+| Keeping the defaults | Vendor defaults are **already public information.** At the very least this tells nobody anything new |
+| Why not change them | Using a custom value **creates a secret that did not exist.** If that value leaks anywhere — a document, a history, a photograph — it exposes a password **pattern**, and that is information that spreads beyond this lab |
 
-> **조건이 바뀌면 이 판단도 바뀐다.** 22번 포트를 외부로 포워딩하거나
-> 보드를 격리되지 않은 망에 두는 순간 기본값은 즉시 문제가 된다.
-> 배제와 마찬가지로 이 결정에도 **어떤 조건에서** 가 붙는다.
+> **This judgement changes when the conditions do.** The moment port 22 is
+> forwarded externally or the boards sit on a non-isolated network, the defaults
+> become a problem immediately. Like an exclusion, this decision carries **under
+> what conditions.**
 
 ```bash
 S() { printf '%s\n' "$NPUFORGE_SUDO_PASS" | sudo -S -p "" "$@"; }
 cat > /tmp/f.new <<'H'
 ...
 H
-S cp /tmp/f.new /etc/target       # printf "text" | S tee ... 는 동작하지 않음
+S cp /tmp/f.new /etc/target       # printf "text" | S tee ... does not work
 ```
 
-원격 실행 함정(백그라운드 기동·프로세스 카운트)은 `adrs/017-remote-exec-pitfalls-library.md`.
+Remote execution pitfalls (background startup, process counting) are in
+`adrs/017-remote-exec-pitfalls-library.md`.
 
-## 2.3 IP 고정 (호스트 static)
+## 2.3 Static IPs (host-side static)
 
-DHCP 재할당으로 IP 가 바뀌는 것을 막기 위해 **각 호스트에서 현재 IP 를
-NetworkManager static 으로 고정**한다. 라우터(ipTIME) DHCP 예약 대신
-호스트 설정을 쓰는 이유는 라우터가 바뀌어도 설정이 남아 측정 재현성이 낫기
-때문이다. **현재 IP 를 그대로 고정하므로 SSH 세션은 끊기지 않는다.**
+To stop DHCP reassignment changing the IPs, **the current IP is pinned as
+NetworkManager static on each host.** Host configuration is used rather than
+router (ipTIME) DHCP reservations because the settings survive a router change,
+which is better for measurement reproducibility. **Since the current IP is
+pinned as-is, SSH sessions are not dropped.**
 
-공통 파라미터: gateway `192.168.123.254`, DNS `210.94.0.73 210.220.163.82`,
-prefix `/24`. 전부 NetworkManager 관리(netplan/networkd 아님).
+Common parameters: gateway `192.168.123.254`, DNS `210.94.0.73 210.220.163.82`,
+prefix `/24`. All managed by NetworkManager (not netplan or networkd).
 
 ```bash
-# server (root, 연결명 enp1s0) — 완료
+# server (root, connection enp1s0) - done
 nmcli con mod enp1s0 ipv4.method manual \
   ipv4.addresses 192.168.123.9/24 ipv4.gateway 192.168.123.254 \
   ipv4.dns "210.94.0.73 210.220.163.82"
 nmcli con up enp1s0
 
-# 보드 (pi/sudo, 연결명 'Wired connection 1', eth0) — 완료 (2026-08-20)
-#   king .3 / queen .5 / jack .4. 같은 IP 라 SSH 유지, 외부 도달 확인
+# boards (pi/sudo, connection 'Wired connection 1', eth0) - done (2026-08-20)
+#   king .3 / queen .5 / jack .4. Same IPs, so SSH held; external reachability confirmed
 ```
 
-> ⚠️ **DHCP 풀 충돌 주의.** `.3/.4/.5/.9` 가 ipTIME DHCP 풀 안이면 라우터가
-> 그 주소를 다른 기기에 임대할 수 있다(호스트 static 은 라우터가 모른다).
-> 완전 회피는 ipTIME 에서 해당 주소를 풀 밖으로 빼는 것(라우터 UI 작업).
-> 소규모 홈랜에서 위험은 낮지만 남는 리스크다.
+> ⚠️ **Beware DHCP pool collisions.** If `.3/.4/.5/.9` fall inside the ipTIME
+> DHCP pool, the router can lease those addresses to another device (it does not
+> know about host-side statics). Full avoidance means excluding those addresses
+> from the pool in the ipTIME UI. The risk is low on a small home LAN but it is
+> residual.
 
-## 2.4 sudo 비번 파일
+## 2.4 The sudo password file
 
-보드 자동화용 sudo 비번은 개발 PC 로컬 `~/.npuforge/sudo-pass` (chmod 600)
-또는 환경변수 `NPUFORGE_SUDO_PASS` 로 전달한다. 저장소에 넣지 않는다.
-`preflight-check.sh` 와 배포 스크립트가 이 경로를 읽는다.
+The sudo password for board automation is passed via the dev PC's local
+`~/.npuforge/sudo-pass` (chmod 600) or the `NPUFORGE_SUDO_PASS` environment
+variable. It is not put in the repository. `preflight-check.sh` and the
+deployment scripts read that path.
 
 ---
 
-# 3. 소프트웨어 현황
+# 3. Software status
 
-## 3.1 노드 (king / queen / jack)
+## 3.1 Nodes (king / queen / jack)
 
-| 항목 | 값 | 3대 일치 |
+| Item | Value | Matching across 3 |
 |---|---|---|
 | SoC | Rockchip RK3576 | ✓ |
-| NPU | 2코어, 300~950MHz, IOMMU 활성 | ✓ |
-| RKNN Runtime | 2.3.0 (`librknnrt.so` SHA-256 동일) | ✓ |
+| NPU | 2 cores, 300–950 MHz, IOMMU enabled | ✓ |
+| RKNN Runtime | 2.3.0 (`librknnrt.so` SHA-256 identical) | ✓ |
 | RKNPU Driver | v0.9.8 | ✓ |
-| 커널 | 6.1.141 | ✓ |
+| Kernel | 6.1.141 | ✓ |
 | glibc | 2.39 | ✓ |
 | RAM / eMMC | 4GB / 64GB | ✓ |
-| Ubuntu 패치 레벨 | 24.04.4 | ✓ |
+| Ubuntu patch level | 24.04.4 | ✓ |
 | gcc | 13.3.0-6ubuntu2~24.04.1 | ✓ |
-| CPU Governor | **`performance`** | ✓ 재부팅 유지 |
-| eth0 링크 | **2.5G (2500Mb/s)** | ✓ 2026-08-20 실측 |
-| **SSH 호스트 키** | **queen·jack 동일** | ✗ **미해결** |
-| `.rknn` 모델 (FP16) | `459602ea…` 3대 배포 완료 | ✓ |
-| `.rknn` 모델 (INT8) | `dba155d2…` **`king` 에만** | ✗ 배포 필요 |
-| Rust 툴체인 | 1.97.1 | **`king` 에만.** 빌드 전용 |
-| 측정 C 도구 | `~/npuforge-rknn-test/` | ✓ 해시 동일 |
+| CPU Governor | **`performance`** | ✓ survives reboot |
+| eth0 link | **2.5G (2500 Mb/s)** | ✓ measured 2026-08-20 |
+| **SSH host key** | **identical on queen and jack** | ✗ **unresolved** |
+| `.rknn` model (FP16) | `459602ea…` deployed to all 3 | ✓ |
+| `.rknn` model (INT8) | `dba155d2…` **on `king` only** | ✗ needs deploying |
+| Rust toolchain | 1.97.1 | **on `king` only.** For builds |
+| C measurement tools | `~/npuforge-rknn-test/` | ✓ hashes identical |
 
-**SSH 호스트 키가 queen·jack 에서 같다.** 두 보드를 암호학적으로 구분할 수
-없어, IP 가 바뀌면 경고 없이 엉뚱한 보드에 붙는다. DHCP 라 IP 가 실제로
-바뀌므로(§1) 위험이 크다. 조치 명령은 `TODO.md` §1.2.
+**The SSH host keys are identical on queen and jack.** The two boards cannot be
+told apart cryptographically, so a changed IP attaches you to the wrong board
+without a warning. Since DHCP means the IPs do change (§1), the risk is
+significant. The remediation commands are in `TODO.md` §1.2.
 
-`preflight-check.sh` 가 매 측정 전에 위 항목의 일치를 확인한다.
+`preflight-check.sh` confirms the above items match before every measurement.
 
 ## 3.2 server (192.168.123.9)
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| OS | Rocky Linux 9.4 (Blue Onyx), 커널 5.14.0-427.13.1.el9_4 |
-| 메인보드 | ASUS H81M-K (H81 칩셋) |
-| CPU / RAM | **Core i7-4790 (4C/8T, 3.6~4.0GHz)** / **16GB DDR3-1600 non-ECC** |
-| 디스크 | ST2000VN004 2TB, root LVM 70GB (65GB 여유) |
-| NIC | `enp1s0` **Intel X550T 10GBASE-T, 10G full 실측** (2026-08-26), 드라이버 `ixgbe` |
-| NIC 슬롯 | `PCIEX16_1` (CPU 직결). **PCIe 2.0 x4 로 동작** |
-| 슬롯 상한 근거 | 루트 포트 `00:01.0` 의 `LnkCap: Speed 5GT/s, Width x16` — **메인보드 x16 슬롯 자체가 PCIe 2.0 상한**이다. 카드(`LnkCap 8GT/s x4`)가 아니라 슬롯이 정한다. 조치 불가 |
-| 병목 여부 | **아니다.** PCIe 2.0 x4 = 방향당 약 16Gbps. 실사용은 3노드 합쳐 방향당 ~4.6Gbps 로 3배 여유 |
-| 전체 인벤토리 | 신서버 [`hosts/server-i7-4790-20260826.md`](#hosts-server-i7-4790-20260826) · 구서버 [`hosts/server-xeon-e5-2630l-20260826.md`](#hosts-server-xeon-e5-2630l-20260826) |
-| 방화벽 | firewalld active, zone `public`. gRPC 포트 개방 필요(측정 전) |
-| 빌드 툴체인 | **rust/cargo 1.92, gcc 11.5, protoc 3.14, git** (2026-08-20 설치) |
-| Docker | 미설치 — 모델 변환 필요 시 구축 |
+| OS | Rocky Linux 9.4 (Blue Onyx), kernel 5.14.0-427.13.1.el9_4 |
+| Motherboard | ASUS H81M-K (H81 chipset) |
+| CPU / RAM | **Core i7-4790 (4C/8T, 3.6–4.0 GHz)** / **16GB DDR3-1600 non-ECC** |
+| Disk | ST2000VN004 2TB, root LVM 70GB (65GB free) |
+| NIC | `enp1s0` **Intel X550T 10GBASE-T, 10G full measured** (2026-08-26), driver `ixgbe` |
+| NIC slot | `PCIEX16_1` (direct to CPU). **Operating at PCIe 2.0 x4** |
+| Basis for the slot limit | root port `00:01.0`'s `LnkCap: Speed 5GT/s, Width x16` — **the motherboard's x16 slot is itself capped at PCIe 2.0.** The slot decides, not the card (`LnkCap 8GT/s x4`). Nothing to be done |
+| Is it a bottleneck | **No.** PCIe 2.0 x4 = about 16 Gbps per direction. Real use is ~4.6 Gbps per direction across three nodes — 3× headroom |
+| Full inventory | new server [`hosts/server-i7-4790-20260826.md`](#hosts-server-i7-4790-20260826) · old server [`hosts/server-xeon-e5-2630l-20260826.md`](#hosts-server-xeon-e5-2630l-20260826) |
+| Firewall | firewalld active, zone `public`. gRPC ports need opening (before measuring) |
+| Build toolchain | **rust/cargo 1.92, gcc 11.5, protoc 3.14, git** (installed 2026-08-20) |
+| Docker | not installed — to be set up if model conversion is needed |
 
-> protoc 는 Rocky 9 기본 리포에 없고 **CRB 리포**(`dnf config-manager
-> --set-enabled crb`)를 켜야 `protobuf-compiler` 가 잡힌다. tonic-build 0.12
-> 가 시스템 protoc 를 요구한다.
+> protoc is not in Rocky 9's default repositories; **the CRB repository**
+> (`dnf config-manager --set-enabled crb`) has to be enabled for
+> `protobuf-compiler` to appear. tonic-build 0.12 requires the system protoc.
 
-**dealer(노트북)의 두 제약이 이 서버로 해소됐다.**
+**Two of dealer's (the laptop's) constraints are resolved by this server.**
 
-1. **RAM 3GB → 16GB.** 스케줄러 RSS 우려(페이로드 중계)가 크게 완화됐다.
-   `environment-matrix.md` §10.1, `adrs/003-central-simple-scheduler.md`
-2. **1GbE → 10GbE.** aggregation 대역 확보. §4 에서 실측했다.
+1. **RAM 3GB → 16GB.** The concern about scheduler RSS (relaying payloads) is
+   greatly eased. `environment-matrix.md` §10.1,
+   `adrs/003-central-simple-scheduler.md`
+2. **1GbE → 10GbE.** Aggregation bandwidth secured. Measured in §4.
 
-**스케줄러(x86_64)는 server 에서 네이티브 빌드한다.** MSRV 1.85 < dnf rust
-1.92 라 stable 채널로 빌드된다. 소스는 `git archive` tarball 을 scp 로 넘긴다
-(server 는 foxden 직접 접근 불가, github 는 OK). 노드(aarch64)는 종전대로
-king 에서 빌드한다. Windows→Linux 크로스빌드는 링커 문제로 쓰지 않는다.
+**The scheduler (x86_64) is built natively on server.** With MSRV 1.85 < dnf
+rust 1.92, it builds on the stable channel. Sources are handed over as a
+`git archive` tarball via scp (server cannot reach foxden directly; github is
+fine). The node (aarch64) is still built on king. Windows→Linux cross-building
+is not used because of linker problems.
 
-## 3.2.1 서버 교체 (2026-08-26) — 기준선이 −7.5% 낮아졌다
+## 3.2.1 Server replacement (2026-08-26) — the baseline dropped 7.5%
 
-구서버(Xeon E5-2630L ×2, **24 스레드**)가 물리적으로 교체되어 여분의
-데스크톱(i7-4790, **8 스레드**)으로 옮겼다. **스케줄러 호스트가 바뀌었을 뿐
-노드 3대·스위치·모델·바이너리는 그대로다.**
+The old server (Xeon E5-2630L ×2, **24 threads**) was physically replaced and
+things moved to a spare desktop (i7-4790, **8 threads**). **Only the scheduler
+host changed; the three nodes, switch, model and binaries are unchanged.**
 
-| | 구서버 (~2026-08-24) | 신서버 (2026-08-26~) |
+| | Old server (to ~2026-08-24) | New server (2026-08-26–) |
 |---|---|---|
-| CPU | Xeon E5-2630L ×2 · 24T · **2.0~2.5GHz** | Core i7-4790 · 8T · 3.6~4.0GHz |
+| CPU | Xeon E5-2630L ×2 · 24T · **2.0–2.5 GHz** | Core i7-4790 · 8T · 3.6–4.0 GHz |
 | RAM | 16GB | 16GB DDR3-1600 |
-| NIC | **Intel X550T** `enp4s0` | **같은 카드** `enp1s0` (PCIe 2.0 x4) |
-| **기준선 처리량** | **~391 inf/s** | **~360 inf/s** (3 run: 360.5 / 362.5 / 357.2) |
-| 왕복 p50 | ~86 ms | ~93 ms |
-| 노드 편차 | ~1.02× | ~1.07× |
-| 오류율 | 0 | 0 |
+| NIC | **Intel X550T** `enp4s0` | **the same card** `enp1s0` (PCIe 2.0 x4) |
+| **Baseline throughput** | **~391 inf/s** | **~360 inf/s** (3 runs: 360.5 / 362.5 / 357.2) |
+| Round-trip p50 | ~86 ms | ~93 ms |
+| Node spread | ~1.02× | ~1.07× |
+| Error rate | 0 | 0 |
 
-> **10G NIC 은 같은 물리 카드다.** Intel X550T 가 한 장뿐이라 구서버에
-> 꽂아 쓰다가 빼서 신서버에 옮겨 꽂았다. 그래서 **10G 경로의 하드웨어는
-> 두 측정에서 동일하다** — NIC 은 통제된 변수이고, 바뀐 것은 호스트
-> (CPU · 메인보드 · PCIe 슬롯)뿐이다. 아래 판정이 그만큼 좁혀진다.
+> **The 10G NIC is the same physical card.** There is only one Intel X550T; it
+> was pulled from the old server and plugged into the new one. So **the
+> hardware of the 10G path is identical across both measurements** — the NIC is
+> a controlled variable and what changed is only the host (CPU, motherboard,
+> PCIe slot). That narrows the verdict below accordingly.
 >
-> **그 카드가 두 호스트에서 어떤 링크로 물렸는지는 2026-08-26 에 구서버를
-> 다시 켜서 확인했다** — 카드가 빠진 뒤에도 슬롯 능력은 남는다.
+> **Which link that card negotiated on each host was confirmed on 2026-08-26 by
+> powering the old server back up** — the slot's capability remains after the
+> card is removed.
 >
-> | | 구서버 (R620) | 신서버 (H81M-K) |
+> | | Old server (R620) | New server (H81M-K) |
 > |---|---|---|
-> | 슬롯 세대 | **PCIe 3.0** (`LnkCap 8GT/s`) | PCIe 2.0 (`LnkCap 5GT/s`) |
-> | X550T 링크 | 8GT/s × x4 | 5GT/s × x4 |
-> | 방향당 대역 | **약 32 Gbps** | 약 16 Gbps |
+> | Slot generation | **PCIe 3.0** (`LnkCap 8GT/s`) | PCIe 2.0 (`LnkCap 5GT/s`) |
+> | X550T link | 8GT/s × x4 | 5GT/s × x4 |
+> | Bandwidth per direction | **about 32 Gbps** | about 16 Gbps |
 >
-> **링크 대역이 절반으로 줄었다. 그래도 병목은 아니다** — 3노드 실사용이
-> 방향당 ~4.6Gbps 라 16Gbps 도 3.5배 여유다. 이제 추정이 아니라 측정값이다.
+> **The link bandwidth halved. It is still not a bottleneck** — real three-node
+> use is ~4.6 Gbps per direction, so even 16 Gbps is 3.5× headroom. This is now
+> a measurement rather than an estimate.
 > → [`hosts/server-xeon-e5-2630l-20260826.md`](#hosts-server-xeon-e5-2630l-20260826)
 
-### 원인 — 스케줄러 호스트가 CPU 로 좁혀졌다
+### Cause — the scheduler host narrowed to CPU
 
-측정 중 서버 CPU 사용률이 **82.2%** (8 스레드 합)다.
+Server CPU utilisation during measurement is **82.2%** (across 8 threads).
 
 ```text
-스케줄러        45.3%  ≈ 3.6 코어
-기타(벤치+커널)  36.9%  ≈ 2.9 코어
+scheduler          45.3%  ~ 3.6 cores
+other (bench+kernel) 36.9%  ~ 2.9 cores
 ────────────────────────────────
-합계            82.2%
+total              82.2%
 ```
 
-**벤치 클라이언트가 스케줄러와 같은 호스트에서 돈다.** 구서버에서는 같은
-일이 24 스레드의 ~27% 였고, 신서버에서는 8 스레드의 82% 다.
+**The bench client runs on the same host as the scheduler.** On the old server
+the same work was ~27% of 24 threads; on the new server it is 82% of 8.
 
-손실 위치가 이를 뒷받침한다. 노드 쪽은 변화가 없고(NPU 추론 p50 28.35ms,
-분배 33.3% 균등, 온도 53~57°C), `scheduler_queue` 0.00ms ·
-`scheduler_route` 0.01ms 로 스케줄러 내부 큐도 비어 있다. 늘어난 시간은
-전부 전송 구간(`network_to_node` / `network_to_client` 각 p50 24.2ms)에
-있다 — 애플리케이션 큐가 아니라 **호스트의 CPU 경합**이다.
+Where the loss sits supports this. The node side is unchanged (NPU inference p50
+28.35 ms, distribution an even 33.3%, temperature 53–57 °C), and the scheduler's
+internal queue is empty too, with `scheduler_queue` 0.00 ms and
+`scheduler_route` 0.01 ms. All the added time is in the transport sections
+(`network_to_node` / `network_to_client`, p50 24.2 ms each) — not an application
+queue but **CPU contention on the host.**
 
-> **PCIe 강등은 원인이 아니다.** `LnkSta 5GT/s x4` 는 방향당 16Gbps 로,
-> 실사용(~4.6Gbps)의 3배 여유가 있다. H81M-K 의 x16 슬롯이 PCIe 2.0 이라
-> 생기는 하드웨어 한계이며 조치할 수 없고, 조치할 필요도 없다.
+> **The PCIe downgrade is not the cause.** `LnkSta 5GT/s x4` is 16 Gbps per
+> direction, 3× the headroom over real use (~4.6 Gbps). It is a hardware limit
+> arising from H81M-K's x16 slot being PCIe 2.0, it cannot be remedied, and it
+> does not need to be.
 
-> **원본 데이터.** 위 3 run 의 bench JSON 은
-> [`../results/baseline-20260826-althost/`](../results/baseline-20260826-althost)
-> 에 있다. `-althost` 접미사 때문에 `count-runs.sh` 가 421 에 합산하지 않고
-> 따로 센다.
+> **Raw data.** The bench JSON for those 3 runs is in
+> [`../results/baseline-20260826-althost/`](../results/baseline-20260826-althost).
+> The `-althost` suffix keeps `count-runs.sh` from adding them to the 421 and
+> counts them separately.
 
-### 기존 측정 결과에 미치는 영향 — 없다
+### Effect on existing measurements — none
 
-**측정 421건은 전부 구서버에서 얻은 것이고, 그 값은 그대로 유효하다.**
-숫자를 소급해 고치지 않는다. 신서버 값은 "다른 스케줄러 호스트에서의
-재현치" 로 여기 따로 적는다.
+**All 421 measurements were taken on the old server and those values stand as
+recorded.** The numbers are not retroactively edited. The new server's values
+are written here separately as "reproduction figures on a different scheduler
+host".
 
-다만 S3.9a 가 내린 판정 — **스케줄러는 자원 병목이 아니다** — 은
-**조건부였음이 드러났다.** 그 판정은 24 스레드 호스트에서 성립했다.
-8 스레드에서는 성립하지 않는다.
+That said, S3.9a's verdict — **the scheduler is not a resource bottleneck** —
+**has turned out to have been conditional.** That verdict held on a 24-thread
+host. It does not hold at 8.
 
-> 실험 대장 §4 의 원칙 그대로다. **배제는 조건부다.** 한 번 배제한 후보도
-> 조건이 바뀌면 다시 열린다. 판정에는 "어떤 조건에서" 가 붙어야 한다.
+> Exactly the principle in the experiment ledger §4. **Exclusions are
+> conditional.** A candidate once excluded reopens when conditions change. A
+> verdict has to carry "under what conditions".
 
-이후 측정을 신서버에서 이어간다면 **구서버 값과 직접 비교하지 않는다.**
-비교가 필요하면 신서버에서 기준선을 다시 깔고 그 위에서 상대 비교한다.
+If measurement continues on the new server, **its values are not compared
+directly with the old server's.** Where a comparison is needed, a baseline is
+re-laid on the new server and relative comparison is done on top of that.
 
-## 3.3 배포판 차이
+## 3.3 Distribution differences
 
 ```text
 server  Rocky Linux 9.4   glibc 2.34   dnf   x86_64
 nodes   Ubuntu 24.04      glibc 2.39   apt   aarch64
 ```
 
-노드 바이너리는 aarch64 라 `king` 에서 네이티브 빌드해 세 노드에 배포한다
-(세 보드 glibc 2.39 동일). 스케줄러는 x86_64 라 별개 빌드다.
+The node binary is aarch64, so it is built natively on `king` and deployed to
+all three nodes (all three boards are on glibc 2.39). The scheduler is x86_64
+and therefore a separate build.
 
 ---
 
-# 4. 네트워크
+# 4. Network
 
-## 4.1 현재 (2026-08-20 개편 완료)
+## 4.1 Current (rework completed 2026-08-20)
 
 ```text
-                server (10G) ─┐
-                              ├── NS-S25G10G-N ──┬── king  (2.5G)
-        개발PC (10G포트/1G NIC)┘                  ├── queen (2.5G)
-                                                 ├── jack  (2.5G)
-                                                 └── 인터넷 (2.5G, ipTIME)
+                server (10G) -+
+                              +-- NS-S25G10G-N --+-- king  (2.5G)
+       dev PC (10G port/1G NIC)                  +-- queen (2.5G)
+                                                 +-- jack  (2.5G)
+                                                 \-- internet (2.5G, ipTIME)
 ```
 
-- **worker 링크 2.5G, aggregation(server) 10G.** ADR-014 설계대로다.
-- 아직 **관리망과 추론망이 분리되지 않았다.** 전부 `192.168.123.0/24` 단일
-  대역이고, 보드 eth1 은 비어 있다. 측정 오염 방지를 위한 VLAN/서브넷 분리는
-  M3 본측정 전에 결정한다.
+- **Worker links 2.5G, aggregation (server) 10G.** As ADR-014 designed.
+- **The management and inference networks are still not separated.** Everything
+  is on the single `192.168.123.0/24` range and the boards' eth1 is unused.
+  VLAN/subnet separation to prevent measurement contamination is to be decided
+  before M3's main measurements.
 
-## 4.2 대역폭 실측 (2026-08-20)
+## 4.2 Bandwidth measurements (2026-08-20)
 
-| 측정 | 값 | 도구 | 뜻 |
+| Measurement | Value | Tool | Meaning |
 |---|---:|---|---|
-| server enp1s0 협상 | 10000 Mb/s full | ethtool | 10G 링크 확정 |
-| 단일 king→server | **2.34 Gbps** | iperf3 | 2.5G 실효 상한 |
-| **3노드 동시 →server** | **각 1.70, 합 5.11 Gbps** | nc | **aggregation 병목 아님** |
+| server enp1s0 negotiation | 10000 Mb/s full | ethtool | 10G link confirmed |
+| Single king→server | **2.34 Gbps** | iperf3 | the effective 2.5G ceiling |
+| **3 nodes concurrently →server** | **1.70 each, 5.11 Gbps total** | nc | **aggregation is not a bottleneck** |
 
-3노드 동시 전송에서 세 스트림이 **균등하게(각 213 MB/s) 유지**됐다. 서버가
-병목이면 합이 어딘가에서 깎였을 텐데 그러지 않았다. INT8 3노드 목표 RX
-**4.60 Gbps** 를 여유 있게 수용한다(`RESULTS.md` §8.1).
+Under concurrent three-node transmission the three streams **stayed even (213
+MB/s each)**. Had the server been the bottleneck the total would have been cut
+somewhere, and it was not. It comfortably accommodates the INT8 three-node RX
+target of **4.60 Gbps** (`RESULTS.md` §8.1).
 
-> 개별 1.70 Gbps 가 링크 상한(2.34)보다 낮은 것은 nc/보드 CPU 단일코어
-> 처리 한계지 스위치·서버 한계가 아니다. 실제 M3 는 gRPC 추론 트래픽이므로
-> 이 값은 "인프라가 4.6 Gbps aggregate 를 받아내는가"의 검증으로만 쓴다 — 답은 예.
+> The individual 1.70 Gbps being below the link ceiling (2.34) is an nc /
+> single-core board CPU limit, not a switch or server limit. Actual M3 traffic
+> is gRPC inference traffic, so this figure is used only to verify "does the
+> infrastructure absorb 4.6 Gbps aggregate" — and the answer is yes.
 
-## 4.3 링크 속도 확인은 매번 한다
+## 4.3 Link speed gets checked every time
 
-케이블 불량으로 협상이 낮아지는 사고가 반복됐다(옛 dealer 100Mb/s, 현
-개발 PC 100Mb/s). 10GBASE-T 는 Cat6/6a 를 요구하고, Cat5e 면 조용히
-2.5G/5G 로 떨어진다. 방치하면 NPU 가 아니라 케이블을 측정한다.
+Faulty cables lowering the negotiated speed has happened repeatedly (the old
+dealer at 100 Mb/s, the current dev PC at 100 Mb/s). 10GBASE-T requires Cat6/6a,
+and Cat5e silently falls back to 2.5G/5G. Left unchecked you measure the cable
+rather than the NPU.
 
 ```bash
 ssh npuforge-server 'ethtool enp1s0 | grep Speed'
@@ -6223,58 +6256,60 @@ done
 
 ---
 
-# 5. 구매 필요 목록
+# 5. Purchases needed
 
-M3 를 막던 장비는 **전부 확보됐다.**
+The equipment that was blocking M3 has **all been obtained.**
 
-| 항목 | 상태 |
+| Item | Status |
 |---|---|
-| ~~2.5G/10G 스위치~~ | ✅ NEXI NS-S25G10G-N (2.5G×4 + 10G×2) |
-| ~~PCIe 슬롯 서버~~ | ✅ i7-4790 / 16GB / Rocky 9.4 (2026-08-26 교체) |
+| ~~2.5G/10G switch~~ | ✅ NEXI NS-S25G10G-N (2.5G×4 + 10G×2) |
+| ~~server with a PCIe slot~~ | ✅ i7-4790 / 16GB / Rocky 9.4 (replaced 2026-08-26) |
 | ~~10G NIC~~ | ✅ Intel X550T `enp1s0` 10GBASE-T |
-| ~~10G 케이블~~ | ✅ 10G full 협상 확인 (DAC 아닌 RJ45) |
+| ~~10G cable~~ | ✅ 10G full negotiation confirmed (RJ45, not DAC) |
 
-남은 구매는 측정 품질용이며 M3 착수를 막지 않는다.
+The remaining purchases are for measurement quality and do not block starting M3.
 
-| 항목 | 수량 | 우선순위 | 근거 |
+| Item | Qty | Priority | Basis |
 |---|---|---|---|
-| 동일 모델 팬 | 3 | 중간 | S0-B 냉각 조건 비교용 |
-| USB 전력 측정기 | 3 | 낮음 | FPS/Watt 산출 시 |
-| Cat6/6a 케이블 (여유분) | 2~3 | 낮음 | 10G 링크 예비. 현 링크는 정상 |
+| Identical-model fans | 3 | medium | for the S0-B cooling comparison |
+| USB power meters | 3 | low | for computing FPS/Watt |
+| Cat6/6a cables (spares) | 2–3 | low | spares for the 10G link. The current link is fine |
 
-냉각 장비(상시)는 목록에 없다. 팬리스를 유지하고 thermal throttling 을 측정
-대상으로 삼는다(`adrs/013-fanless-thermal-as-measurement.md`).
+Permanent cooling equipment is not on the list. Fanless is kept and thermal
+throttling is treated as something to measure
+(`adrs/013-fanless-thermal-as-measurement.md`).
 
 ---
 
-# 6. 미해결 항목
+# 6. Open items
 
-| # | 항목 | 상태 | 차단 요소 |
+| # | Item | Status | Blocker |
 |---|---|---|---|
-| 1 | ~~IP static 고정~~ | ✅ 4대 전부 manual (2026-08-20) | — |
-| 2 | **SSH 호스트 키 중복 (queen·jack)** | 미조치 | 없음. 명령은 `TODO.md` §1.2 |
-| 3 | **INT8 모델을 queen·jack 에 배포** | 미조치 | 없음 |
-| 4 | **스케줄러 빌드·배포 경로 확정** | 미정 | server 에 Rust 없음 (§3.2) |
-| 5 | **server gRPC 포트 방화벽 개방** | 미조치 | 측정 전. firewalld public zone |
-| 6 | 모델 변환 환경 재구축 | 보류 | dealer 소멸. 모델 이미 변환 완료라 급하지 않음 |
-| 7 | 관리망/추론망 분리 | 미결정 | M3 본측정 전 |
-| 8 | 실측 TX/RX 기록 (추론 트래픽) | 미측정 | 노드 소프트웨어 기동 후 |
-| 9 | S0 열 특성 (30분 × 2조건) | 미실시 | 팬 3개 (S0-B 용) |
+| 1 | ~~Static IP pinning~~ | ✅ all four manual (2026-08-20) | — |
+| 2 | **Duplicate SSH host keys (queen, jack)** | not done | none. Commands in `TODO.md` §1.2 |
+| 3 | **Deploy the INT8 model to queen and jack** | not done | none |
+| 4 | **Settle the scheduler build/deploy path** | undecided | no Rust on server (§3.2) |
+| 5 | **Open the gRPC port in server's firewall** | not done | before measuring. firewalld public zone |
+| 6 | Rebuild the model conversion environment | on hold | dealer is gone. Not urgent since the model is already converted |
+| 7 | Separate management and inference networks | undecided | before M3's main measurements |
+| 8 | Record measured TX/RX (inference traffic) | not measured | after the node software is up |
+| 9 | S0 thermal characterisation (30 min × 2 conditions) | not run | needs 3 fans (for S0-B) |
 
-**호스트별 MAC / 고정 IP** (§1 에서 확인한 실제 MAC). 라우터 예약을 병행하면
-이 표를 쓴다:
+**Per-host MAC / static IP** (the actual MACs confirmed in §1). Use this table if
+router reservations are done alongside:
 
 ```text
-king    22-94-FF-34-46-B1  →  192.168.123.3
-jack    62-CE-3B-B6-E4-41  →  192.168.123.4
-queen   7E-D8-D7-40-45-82  →  192.168.123.5
-server  6C-B3-11-13-2F-38  →  192.168.123.9
+king    22-94-FF-34-46-B1  ->  192.168.123.3
+jack    62-CE-3B-B6-E4-41  ->  192.168.123.4
+queen   7E-D8-D7-40-45-82  ->  192.168.123.5
+server  6C-B3-11-13-2F-38  ->  192.168.123.9
 ```
 
-해소된 항목(2026-08-20): 2.5G/10G 스위치, 10G 스케줄러 서버, 10G NIC·케이블,
-aggregation 대역 실측, dealer RAM 3GB 제약. 이전 해소분: RKNN thread-safety
-(컨텍스트 공유 금지), 모델 변환(FP16·INT8), Calibration(COCO 200장),
-CPU governor(`performance`), 보드 배치 편차, OS 패치 레벨.
+Resolved on 2026-08-20: the 2.5G/10G switch, the 10G scheduler server, the 10G
+NIC and cable, measured aggregation bandwidth, and dealer's 3GB RAM constraint.
+Previously resolved: RKNN thread-safety (context sharing forbidden), model
+conversion (FP16 and INT8), calibration (200 COCO images), CPU governor
+(`performance`), board placement variance, and OS patch level.
 
 ---
 
@@ -11444,489 +11479,527 @@ of non-inference latency).
 
 <a id="results"></a>
 
-# NPUDure 측정 결과 — 1차 정리
+# NPUDure measurement results — first pass
 
-- 정리 시점: **2026-08-14** (단일 노드 계보)
-- 대상 기간: 2026-08-07 ~ 2026-08-12
-- 원본 데이터: `results/`, `benchmarks/`
-- 논의 과정: `discuss.md` (시각순), 작업 이력: `board-worklog.md`
+*[한국어 원문](RESULTS.ko.md)*
 
-> ## ⚠️ 이 문서는 **단일 노드 계보의 1차 정리**다 (2026-08-21 갱신)
->
-> 2026-08-20~21 에 **클러스터 측정 계보가 통째로 진행돼 종료됐다**
-> (S2 · S3 · S3.5~3.9b · S0-A~D, 421건, 오류율 0). 그 결과는 이 문서가
-> 아니라 **[`experiments/README.md`](#experiments-readme)** 에 있다.
-> 다중 노드 수치를 찾는다면 거기서 시작한다.
->
-> 아래 §2.5 는 그 계보 **이전의 예비 측정**이며 **후속 측정으로 대체됐다.**
-> §1~§4 의 단일 노드 결과와 §5~§6 의 실패 목록은 여전히 유효하다.
+- Compiled: **2026-08-14** (the single-node lineage)
+- Period covered: 2026-08-07 to 2026-08-12
+- Raw data: `results/`, `benchmarks/`
+- The discussion: `discuss.md` (chronological); work history:
+  `board-worklog.md`
 
-> 이 문서는 **결과만** 모은다. 왜 그렇게 결론냈는지는 `discuss.md`,
-> 무슨 일이 있었는지는 `board-worklog.md` 를 본다.
+> ## ⚠️ This document is **the first pass over the single-node lineage** (updated 2026-08-21)
 >
-> **모든 수치에 측정 조건을 함께 적었다.** 조건 없는 숫자는 3개월 뒤에
-> 쓸모가 없다는 것을 이번에 배웠다.
+> On 2026-08-20 and 21 **the cluster measurement lineage ran through to
+> completion** (S2 · S3 · S3.5–3.9b · S0-A–D, 421 runs, error rate 0). Those
+> results are not here but in
+> **[`experiments/README.md`](#experiments-readme)**. Start there for
+> multi-node figures.
+>
+> §2.5 below is **a pilot measurement from before that lineage** and has been
+> **superseded by later measurements.** The single-node results in §1–§4 and the
+> failure list in §5–§6 remain valid.
+
+> This document collects **results only**. Why those conclusions were reached is
+> in `discuss.md`; what happened is in `board-worklog.md`.
+>
+> **Every number carries its measurement conditions.** We learned this time that
+> a number without conditions is useless three months later.
 
 ---
 
-# 1. 한 장 요약
+# 1. One page
 
-3대의 RK3576 보드(6 TOPS NPU)로 분산 추론 클러스터를 만들었다.
-이 문서는 **단일 노드 특성과 소프트웨어**를 정리한다. 다중 노드 계보는
-2026-08-20~21 에 별도로 진행돼 종료됐다 — **3노드 387.2 inf/s
-(운영점, 2.86× / 95.3%)**, [`experiments/README.md`](#experiments-readme).
+A distributed inference cluster was built from three RK3576 boards (6 TOPS NPU).
+This document covers **single-node characteristics and the software.** The
+multi-node lineage ran separately on 2026-08-20 and 21 and is complete —
+**three nodes at 387.2 inf/s (operating point, 2.86× / 95.3%)**,
+[`experiments/README.md`](#experiments-readme).
 
-지금까지 나온 가장 중요한 수치 셋.
+The three most important numbers so far.
 
-| 항목 | 값 | 뜻 |
+| Item | Value | Meaning |
 |---|---|---|
-| 노드당 처리량 (120초) | **84.3 inf/s** (FP16) / **157.2 inf/s** (INT8) | `want_float=0` 기준 |
-| 노드당 **정상 상태** (300초) | **59.7 inf/s** (FP16) | 시작 대비 **-27%**. CPU throttling |
-| 애플리케이션 최적화 2종 | **+0.1%, -1.8%** (`core_mask`, zero-copy) | 노드 내부에서 짜낼 것이 거의 없다 |
-| INT8 양자화 | **1.86배** | 가장 크게 먹힌 수단 |
-| `want_float=0` | **+17.3%** (INT8) / **+15.7%** (FP16) | 출력도 4분의 1. 네트워크와 처리량이 같은 방향 |
+| Per-node throughput (120 s) | **84.3 inf/s** (FP16) / **157.2 inf/s** (INT8) | on `want_float=0` |
+| Per-node **steady state** (300 s) | **59.7 inf/s** (FP16) | **−27%** against the start. CPU throttling |
+| Two application optimizations | **+0.1%, −1.8%** (`core_mask`, zero-copy) | there is almost nothing left to squeeze inside the node |
+| INT8 quantization | **1.86×** | the measure that landed hardest |
+| `want_float=0` | **+17.3%** (INT8) / **+15.7%** (FP16) | output a quarter too. Network and throughput move together |
 
-그리고 가장 중요한 **비수치** 결과.
+And the most important **non-numeric** result.
 
-> **네 번의 측정이 틀렸고, 네 번 다 "성공처럼 보였다."**
-> 이 프로젝트의 산출물 절반은 그 실패의 목록이다. §6 참조.
+> **Four measurements were wrong, and all four "looked like success."**
+> Half this project's output is that list of failures. See §6.
 
 ---
 
-# 2. 확정 수치
+# 2. Settled figures
 
-## 2.1 하드웨어
+## 2.1 Hardware
 
-| 항목 | 값 | 출처 |
+| Item | Value | Source |
 |---|---|---|
-| SoC | Rockchip RK3576 | 실측 |
-| CPU | 4× Cortex-A72 @2208MHz + 4× A53 @2016MHz | `cpufreq` |
-| NPU | 2코어, 950MHz, 6 TOPS(공칭) | `/sys/kernel/debug/rknpu` |
-| RAM | 4GB LPDDR4X | 실측 |
-| 전원 | 5V DC. **4A 어댑터 필요** | §6.2 |
-| 네트워크 | 2.5GbE × 2 (r8125) | 실측 |
+| SoC | Rockchip RK3576 | measured |
+| CPU | 4× Cortex-A72 @2208 MHz + 4× A53 @2016 MHz | `cpufreq` |
+| NPU | 2 cores, 950 MHz, 6 TOPS (nominal) | `/sys/kernel/debug/rknpu` |
+| RAM | 4GB LPDDR4X | measured |
+| Power | 5V DC. **A 4A adapter is required** | §6.2 |
+| Network | 2.5GbE × 2 (r8125) | measured |
 | RKNN Runtime | 2.3.0 (`c949ad889d@2024-11-07`) | `strings librknnrt.so` |
-| RKNPU 드라이버 | v0.9.8 | `/sys/kernel/debug/rknpu/version` |
+| RKNPU driver | v0.9.8 | `/sys/kernel/debug/rknpu/version` |
 
-세 노드의 커널(6.1.141), `librknnrt.so` 해시, 드라이버 버전, 모델 해시가
-모두 일치한다. `preflight-check.sh` 가 매 측정 전에 확인한다.
+The three nodes' kernel (6.1.141), `librknnrt.so` hash, driver version and model
+hash all match. `preflight-check.sh` confirms this before every measurement.
 
-## 2.2 추론 성능
+## 2.2 Inference performance
 
-**측정 조건: `king`, 8스레드, 120초 지속, CPU governor `performance`,
-팬리스, 스레드별 전용 RKNN 컨텍스트.**
+**Conditions: `king`, 8 threads, 120 s sustained, CPU governor `performance`,
+fanless, a dedicated RKNN context per thread.**
 
-| 모델 | 처리량 | 평균 지연 | 모델 크기 |
+| Model | Throughput | Mean latency | Model size |
 |---|---:|---:|---:|
 | YOLOv8n FP16 | **84.3 inf/s** | 94.5 ms | 9.65 MB |
 | YOLOv8n INT8 | **157.2 inf/s** | 50.8 ms | 6.46 MB |
-| 배율 | **1.86×** | -46% | -33% |
+| Ratio | **1.86×** | −46% | −33% |
 
-관련 수치.
+Related figures.
 
-| 항목 | 값 | 조건 |
+| Item | Value | Conditions |
 |---|---|---|
-| 최적 `worker_count` | **8** | 4 대비 +27%. 8에서 아직 안 꺾임 |
-| NPU 2번째 코어 기여 | **1.51배** (2배 아님) | 단일코어 48.2 → 두코어 73.0 inf/s |
-| 추론당 커널 ioctl | **76회** | FP16·INT8 동일 |
-| CPU governor 영향 | +7% | `ondemand` → `performance`. **120초 측정.** 지속 부하에서는 미검증 |
-| `want_float=0` 효과 | **INT8 +17.3% / FP16 +15.7%** | 출력도 4분의 1이 된다 |
+| Optimal `worker_count` | **8** | +27% over 4. Has not bent yet at 8 |
+| Contribution of the NPU's second core | **1.51×** (not 2×) | single core 48.2 → two cores 73.0 inf/s |
+| Kernel ioctls per inference | **76** | identical for FP16 and INT8 |
+| CPU governor effect | +7% | `ondemand` → `performance`. **A 120-second measurement.** Unverified under sustained load |
+| `want_float=0` effect | **INT8 +17.3% / FP16 +15.7%** | output becomes a quarter too |
 
-> ⚠️ **2026-08-11 이전 문서의 처리량 수치는 `ondemand` 기준이다**
-> (FP16 79.0 / INT8 146.2). 직접 비교하지 말 것.
+> ⚠️ **Throughput figures in documents from before 2026-08-11 are on
+> `ondemand`** (FP16 79.0 / INT8 146.2). Do not compare directly.
 
-## 2.3 열 특성 (예비, S0 아님)
+## 2.3 Thermal characteristics (pilot, not S0)
 
-**측정 조건: 3보드 동시, 8스레드, 900초, 팬리스, 선풍기 없음,
-governor `ondemand`.** 평탄역은 부하 후 300초~종료.
+**Conditions: 3 boards concurrently, 8 threads, 900 s, fanless, no desk fan,
+governor `ondemand`.** The plateau is from 300 s after load to the end.
 
-| 보드 | NPU 평균 | NPU 최고 | 처리량 |
+| Board | NPU mean | NPU peak | Throughput |
 |---|---:|---:|---:|
-| king | 73.0°C | 75.8°C | 80.5 inf/s |
-| queen | 67.5°C | 70.2°C | 77.7 inf/s |
-| jack | 72.6°C | 74.8°C | 77.8 inf/s |
+| king | 73.0 °C | 75.8 °C | 80.5 inf/s |
+| queen | 67.5 °C | 70.2 °C | 77.7 inf/s |
+| jack | 72.6 °C | 74.8 °C | 77.8 inf/s |
 
-- **노드 간 편차 5.6°C**
-- **NPU throttling 없음** — 928 샘플 전부 950MHz
-- ⚠️ **그러나 CPU 는 강등된다.** 이 판정은 NPU 클럭만 봤다.
-  같은 로그의 CPU 클럭을 보면 A72 2208 → 816 MHz, A53 2016 → 600 MHz 다.
+- **Node-to-node spread 5.6 °C**
+- **No NPU throttling** — all 928 samples at 950 MHz
+- ⚠️ **But the CPU is downgraded.** That verdict looked only at the NPU clock.
+  The CPU clocks in the same log show A72 2208 → 816 MHz and A53 2016 → 600 MHz.
   `discuss.md` §12
-- 90°C 초과 없음. 현재 임계치(`degraded 80` / `disable 90`)에 닿지 않음
-- 유휴 온도 35~40°C, 입력 전압 최저 5.046V
+- Never exceeded 90 °C. Did not reach the current thresholds
+  (`degraded 80` / `disable 90`)
+- Idle temperature 35–40 °C, minimum input voltage 5.046 V
 
-**팬리스로 8스레드 지속 부하가 가능하다.** 오류 없이 완주한다.
-다만 **처리량은 유지되지 않는다** — 300초 지속에서 81.6 → 59.7 inf/s
-(-27%). NPU 가 아니라 CPU 가 열로 강등되기 때문이다. `discuss.md` §12
+**Sustained 8-thread load is possible fanless.** It completes without errors.
+But **throughput is not sustained** — over 300 seconds it goes 81.6 → 59.7 inf/s
+(−27%). Because it is the CPU, not the NPU, being downgraded by heat.
+`discuss.md` §12
 
-정식 S0(30분 × 2조건)은 아직이다. 이것은 노드 간 편차 확인용 15분 측정이다.
+The formal S0 (30 min × 2 conditions) is still to come. This is a 15-minute
+measurement for checking node-to-node spread.
 
-## 2.4 정확도
+## 2.4 Accuracy
 
-**측정 조건: 실보드(`king`), COCO val2017 이미지 1장, 전처리를 한 곳에서
-수행해 양쪽이 같은 입력 바이트를 보게 함.**
+**Conditions: real board (`king`), one COCO val2017 image, preprocessing done in
+one place so both see the same input bytes.**
 
-| 비교 | box cosine | 검출 셀 | 클래스 일치 |
+| Comparison | box cosine | Detection cells | Class agreement |
 |---|---|---|---|
 | FP16 vs ONNX | 0.99999 | 10/10 | 100% |
 | INT8 vs FP16 | 0.997 | 10/10 | 100% |
 
-INT8 은 최고 검출의 셀이 한 칸 이동하고 점수가 -5.5%. **검출 집합과
-클래스는 동일하다.** 1.86배를 이 대가로 얻는다면 쓸 만하다.
+For INT8 the top detection's cell moves by one and its score is −5.5%. **The
+detection set and classes are identical.** Getting 1.86× for that price is worth
+it.
 
-RKNN 시뮬레이터는 빌드된 `.rknn` 을 추론하지 못한다(`load_rknn` 후
-`init_runtime` 이 거부). 배포되는 것과 같은 파일로 검증해야 하므로
-실보드에서 측정했다.
+The RKNN simulator cannot infer with a built `.rknn` (after `load_rknn`,
+`init_runtime` refuses). Verification has to use the same file that gets
+deployed, so it was measured on a real board.
 
-## 2.5 다중 노드 확장성 (2026-08-20, 예비) — **대체됨**
+## 2.5 Multi-node scalability (2026-08-20, pilot) — **superseded**
 
-> **이 절은 후속 측정으로 대체됐다.** 단일 run 예비 측정이며, 정식 결과는
-> 아래와 같다. 값을 인용할 때는 이 절이 아니라 각 실험 문서를 쓴다.
+> **This section has been superseded by later measurements.** It is a
+> single-run pilot; the formal results are below. When quoting values, use the
+> individual experiment documents rather than this section.
 >
-> | 이 절 (예비) | 정식 | 문서 |
+> | This section (pilot) | Formal | Document |
 > |---|---|---|
-> | 3노드 337.7 inf/s | **338.4** (30 run) / ceiling **341.8** | [S2](#experiments-s2-grpc-baseline) · [S3](#experiments-s3-saturation) |
-> | 확장 효율 ~98% | **98.9%** (baseline) / **95.3%** (운영점) | [S2](#experiments-s2-grpc-baseline) · [S3.8](#experiments-s3-8-optimized-scaleout) |
-> | 노드 상한 115 | 운영점 **135.5** (커넥션 2개/노드) | [S3.7](#experiments-s3-7-connection-tuning) |
-> | 로컬 157 대비 −27% | 로컬 direct **161.5** 대비 **−16.1%** | [S3.9b](#experiments-s3-9b-node-residual) |
+> | 3 nodes 337.7 inf/s | **338.4** (30 runs) / ceiling **341.8** | [S2](#experiments-s2-grpc-baseline) · [S3](#experiments-s3-saturation) |
+> | scaling efficiency ~98% | **98.9%** (baseline) / **95.3%** (operating point) | [S2](#experiments-s2-grpc-baseline) · [S3.8](#experiments-s3-8-optimized-scaleout) |
+> | node ceiling 115 | operating point **135.5** (2 connections/node) | [S3.7](#experiments-s3-7-connection-tuning) |
+> | −27% against local 157 | **−16.1%** against local direct **161.5** | [S3.9b](#experiments-s3-9b-node-residual) |
 >
-> 아래 ⚠️ 가 지적한 냉각 조건 불일치도 해소됐다 — S3.5 이후 로컬 direct
-> 기준값은 **능동 냉각 8워커 161.5** 로 통일했다.
+> The cooling-condition mismatch flagged by the ⚠️ below is also resolved —
+> since S3.5 the local direct reference has been unified as **161.5 with active
+> cooling and 8 workers.**
 
-**측정 조건: 스케줄러(server .9) 경유 gRPC, INT8, want_float=0,
-governor=performance, Active Cooling(노드마다 전용 팬), round-robin,
-30초(1노드 스윕 20초), 단일 run, preflight 통과.** 정식 S2 아님 —
-반복 run·팬리스 비교·`--with-inference` 미실시. 원본 `results/scaling-20260820/`.
+**Conditions: gRPC via the scheduler (server .9), INT8, want_float=0,
+governor=performance, active cooling (a dedicated fan per node), round-robin,
+30 s (20 s for the 1-node sweep), a single run, preflight passed.** Not the
+formal S2 — no repeated runs, no fanless comparison, no `--with-inference`. Raw
+data `results/scaling-20260820/`.
 
-노드당 동일 부하(concurrency = 8 × 노드수):
+Equal per-node load (concurrency = 8 × node count):
 
-| 구성 | 처리량 | 분배 | 오류율 |
+| Configuration | Throughput | Distribution | Error rate |
 |---|---:|---|---:|
-| 1노드 | 111.6 inf/s | king 100% | 0% |
-| 2노드 | 228.7 inf/s | 50 / 50 | 0% |
-| 3노드 | **337.7 inf/s** | 33 / 33 / 33 | 0% |
+| 1 node | 111.6 inf/s | king 100% | 0% |
+| 2 nodes | 228.7 inf/s | 50 / 50 | 0% |
+| 3 nodes | **337.7 inf/s** | 33 / 33 / 33 | 0% |
 
-1노드 concurrency 스윕(포화점): c8 111.6 → c16 114.0 → c32 **115.1 (포화)**.
+1-node concurrency sweep (the saturation point): c8 111.6 → c16 114.0 → c32
+**115.1 (saturated)**.
 
-**확장 효율 ~98% (거의 선형).** 1노드 포화 115 기준 3노드 337.7 = **2.93배**.
-데이터 병렬(`adrs/001`)이 성립하고 스케줄러가 3노드 동시에도 병목이 아니다.
+**Scaling efficiency ~98% (nearly linear).** Against the 1-node saturation of
+115, three nodes at 337.7 is **2.93×**. Data parallelism (`adrs/001`) holds and
+the scheduler is not a bottleneck even with three nodes.
 
-**단, 클러스터 노드 상한 115 < 로컬 sustained 157 (-27%).** 왕복 p50 69 ms
-인데 노드 보고 추론은 24~28 ms — 40 ms+ 가 스케줄러 gRPC 경유 오버헤드로
-보인다(직렬화 + 1.17 MiB 입력·출력 전송 + 큐·라우팅).
+**But the cluster node ceiling of 115 < the local sustained 157 (−27%).** The
+round-trip p50 is 69 ms while the node reports inference at 24–28 ms — 40 ms+
+appears to be overhead from going through the scheduler's gRPC (serialization +
+transferring 1.17 MiB in and out + queueing and routing).
 
-> ⚠️ **27% 는 순수 gRPC 오버헤드로 확정할 수 없다.** 기준 157 은 **팬리스**
-> (08-11/12) sustained 이고 클러스터 115 는 **Active Cooling**(오늘)이라
-> 냉각 조건이 다르다. 로컬 baseline 을 같은 팬 조건에서 재측정한 뒤 확정한다.
+> ⚠️ **The 27% cannot be attributed purely to gRPC overhead.** The reference of
+> 157 is **fanless** sustained (08-11/12) while the cluster's 115 is **active
+> cooling** (today), so the cooling conditions differ. It gets settled after
+> re-measuring the local baseline under the same fan conditions.
 
-> **핵심 질문 "6 TOPS 세 대는 18 TOPS 가 되는가" 의 첫 답: 클러스터 기준
-> 2.93배(98%).** 병목은 확장이 아니라 노드당 오버헤드다. 이 27% 의 출처는
-> `TimingBreakdown` 단계 분해로 다음에 쪼갠다. `board-worklog.md` §2.25.
+> **The first answer to the central question, "do three 6 TOPS units make
+> 18 TOPS": 2.93× (98%) on a cluster basis.** The bottleneck is not scaling but
+> per-node overhead. The source of that 27% gets broken down next with the
+> `TimingBreakdown` stages. `board-worklog.md` §2.25.
 
-원본 데이터·상세 리포트: `results/scaling-20260820/`.
+Raw data and detailed report: `results/scaling-20260820/`.
 
-> ✅ **30회 반복으로 재현됨 (2026-08-20).** 1/2/3노드 = 112.9±0.5 / 229.0±0.9
-> / **338.4±1.1 inf/s**, speedup 3.00×, error 0%, balance 0%p. SD 극소.
-> "한 번 나온 값"에서 "반복 확인된 결과"로 승격. 실험 보고서:
-> `docs/experiments/S2_GRPC_BASELINE.md`, 원본: `results/baseline-20260820/`.
+> ✅ **Reproduced across 30 runs (2026-08-20).** 1/2/3 nodes = 112.9±0.5 /
+> 229.0±0.9 / **338.4±1.1 inf/s**, speedup 3.00×, error 0%, balance 0 pp. Tiny
+> SD. Promoted from "a value that came out once" to "a repeatedly confirmed
+> result". Experiment report: `docs/experiments/S2_GRPC_BASELINE.md`, raw data:
+> `results/baseline-20260820/`.
 >
-> ✅ **S3 saturation (2026-08-20).** 각 구성 ceiling = **115 / 232 / 342 inf/s**
-> (1/2/3 node), 3N = 2.97× (99%). ceiling 기준으로도 near-linear.
-> `docs/experiments/S3_SATURATION.md`.
+> ✅ **S3 saturation (2026-08-20).** Each configuration's ceiling =
+> **115 / 232 / 342 inf/s** (1/2/3 node), 3N = 2.97× (99%). Near-linear by the
+> ceiling measure too. `docs/experiments/S3_SATURATION.md`.
 >
-> ✅ **S3.5 transport profiling (2026-08-20).** 위 −30% 손실의 정체를 확정.
-> **대역폭 아님**(방향당 링크 51% 사용), **보드 CPU 총량 아님**(63% idle),
-> **커널 softirq 편중 아님**(RPS A/B −0.2%), **서버·스케줄러 아님**(3노드
-> 3.00× 선형). 남은 것은 **스케줄러↔노드 HTTP/2 전송 경로** — bench 는
-> 워커당 1개씩 32 연결을 쓰는데 스케줄러는 노드당 1 연결로 모으고, h2
-> window 는 전부 기본값(64 KB)이다. 노드는 같은 보드 로컬 direct 161.5
-> inf/s 를 내면서 클러스터에서 116 에 그치고 `node_queue` ≈ 0 으로 여유가
-> 남는다. 경로 안에서 ①flow control ②커넥션/TCP ③protobuf·복사 중
-> 무엇인지는 **S3.6 A/B 가 가른다.** 그 결과가 S4 를 `gRPC optimized` 와
-> `io_uring` 중 하나로 확정한다.
+> ✅ **S3.5 transport profiling (2026-08-20).** Settled what the −30% loss above
+> actually is. **Not bandwidth** (51% of the link used per direction), **not
+> board CPU capacity** (63% idle), **not kernel softirq concentration** (RPS A/B
+> −0.2%), **not the server or scheduler** (three nodes scaling 3.00×). What
+> remains is the **scheduler↔node HTTP/2 transport path** — the bench uses 32
+> connections, one per worker, while the scheduler funnels to one connection per
+> node, and the h2 windows are all at the default (64 KB). The node yields
+> 161.5 inf/s local direct on the same board while managing only 116 in the
+> cluster, with `node_queue` ≈ 0 showing headroom. Which of ①flow control
+> ②connection/TCP ③protobuf and copies it is within that path **gets separated
+> by the S3.6 A/B.** That result fixes S4 as either `gRPC optimized` or
+> `io_uring`.
 > `docs/experiments/S3_5_TRANSPORT_PROFILE.md`.
 >
-> ✅ **S3.6 H2/channel A/B (2026-08-20, 20 run).** **노드당 단일 gRPC/HTTP2
-> 커넥션 구조가 처리량을 제한하는 주요 요인임을 확인**했다. 커넥션 1 → 4
-> 하나만 바꿔 **115.3 → 140.1 inf/s (+21.5%)**, 로컬 direct 까지의 gap 46.2 중
-> **54% 를 설정만으로 회수**(아키텍처 변경 없이 커넥션 풀만으로). 단 그 구조
-> 안에서 TCP per-flow / H2 multiplexing·락 / flow control 상호작용 중
-> 무엇인지는 **아직 미분리**.
-> 한편 **64 MB 급 large window 는 이 workload 에서 −36.3% 로 크게 해로웠다** —
-> 기본 64 KB 가 backpressure 로 기능하고 있었다는 뜻이다(기본값 유지).
-> 다만 64 KB→64 MB 는 1000배 차이의 극단 A/B 라 **"window 튜닝 무효" 로는
-> 결론짓지 않는다**(중간값 미측정).
-> 대가로 **p95 는 46% 악화**(393 → 573 ms) — 원인 후보가 5개 있고 전부 미검증.
-> 새 병목으로 CPU0 포화(busy 81%, soft 74%)가 드러났고, 흐름이 4개가 됐으므로
-> S3.5b 의 RPS null 을 다시 볼 여지가 생겼다.
-> **io_uring 은 순서상 뒤로 민다** — syscall/req 는 조건 간 80~94 로 거의
-> 불변인데 처리량은 73.5~140.1 로 두 배 차이가 났다. (syscall *횟수*가 같다는
-> 것과 syscall·복사 *CPU 시간*이 작다는 것은 다른 문제이므로 효과 없음을
-> 뜻하지는 않는다.)
-> **S2·S3 숫자는 아직 갱신하지 않는다** — 1노드 결과이고 3노드면 서버가
-> 12 커넥션을 든다. S3.7 에서 N 확정 후 1N/2N/3N 재측정.
+> ✅ **S3.6 H2/channel A/B (2026-08-20, 20 runs).** **Confirmed the single
+> gRPC/HTTP2 connection per node as the primary factor limiting throughput.**
+> Changing connections 1 → 4 alone gave **115.3 → 140.1 inf/s (+21.5%)**,
+> recovering **54% of the 46.2 gap to local direct through configuration alone**
+> (a connection pool, with no architectural change). But which of TCP per-flow /
+> H2 multiplexing and locking / flow control interaction it is within that
+> structure is **still unseparated**.
+> Meanwhile **a 64 MB-class large window was badly harmful on this workload at
+> −36.3%** — meaning the 64 KB default was functioning as backpressure (the
+> default is kept). But 64 KB→64 MB is a 1000× extreme A/B, so it is **not
+> concluded as "window tuning is ineffective"** (intermediate values unmeasured).
+> The cost is **p95 46% worse** (393 → 573 ms) — five candidate causes, all
+> unverified.
+> CPU0 saturation surfaced as a new bottleneck (busy 81%, soft 74%), and with
+> four flows there is now room to revisit S3.5b's RPS null.
+> **io_uring is pushed back in the ordering** — syscall/req is nearly invariant
+> at 80–94 across conditions while throughput differs twofold, 73.5–140.1. (The
+> syscall *count* being equal and the syscall/copy *CPU time* being small are
+> different questions, so this does not mean it has no effect.)
+> **The S2 and S3 numbers are not updated yet** — they are 1-node results, and
+> at three nodes the server would hold 12 connections. 1N/2N/3N get re-measured
+> after S3.7 fixes N.
 > `docs/experiments/S3_6_H2_CHANNEL_AB.md`.
 >
-> ✅ **S3.7 + S3.8 optimized gRPC (2026-08-20, 총 146 run).** 운영점을
-> **노드당 커넥션 2개 @ concurrency 12** 로 확정하고 scale-out 을 재검증했다.
-> 운영점 정의는 **peak 의 98% 이상을 내는 가장 낮은 concurrency**.
+> ✅ **S3.7 + S3.8 optimized gRPC (2026-08-20, 146 runs total).** The operating
+> point was settled at **2 connections per node @ concurrency 12** and scale-out
+> re-verified. The operating-point definition is **the lowest concurrency
+> delivering at least 98% of peak.**
 >
-> | | baseline (conn1) | optimized (conn2/node) | 개선 |
+> | | baseline (conn1) | optimized (conn2/node) | gain |
 > |---|---:|---:|---:|
 > | 1N | 115.2 | **135.5** | +17.6% |
 > | 2N | 232.0 | **263.3** | +13.5% |
 > | 3N | 341.8 | **387.2** | +13.3% |
 > | scaling | 2.97× (98.9%) | **2.86× (95.3%)** | |
 >
-> 오류 0, 분배 편차 0.0%p. 다만 **scaling efficiency 는 소폭 내려갔다** —
-> 노드당 이득이 +17.6%(1N) → +13.3%(3N) 으로 줄어 1노드 최적화가 다노드에서
-> 온전히 보존되지 않는다. 서버 10G 링크가 67% → **76%** 로 올라온 것이 유력한
-> 후보지만 미확인이다 → 다음은 **서버 쪽 프로파일**.
+> Zero errors, 0.0 pp distribution deviation. But **scaling efficiency slipped
+> slightly** — the per-node gain shrinks from +17.6% (1N) to +13.3% (3N), so the
+> single-node optimization is not fully preserved at multiple nodes. The server
+> 10G link rising from 67% to **76%** is the leading candidate but is
+> unconfirmed → next is a **server-side profile**.
 > `docs/experiments/S3_7_CONNECTION_TUNING.md`, `S3_8_OPTIMIZED_SCALEOUT.md`.
 
 ---
 
-# 3. 소프트웨어 현황
+# 3. Software status
 
-| 크레이트 | 상태 | 비고 |
+| Crate | Status | Note |
 |---|---|---|
-| `npuforge-common` | ✅ | 타입, 오류 코드(16종), 설정, 백엔드 인터페이스 |
-| `npuforge-proto` | ✅ | gRPC 정의. `SchedulerService` / `NodeService` |
-| `npuforge-mock-backend` | ✅ | 결정적 시드. 하드웨어 없이 개발 |
-| `npuforge-rknn` | ✅ | 컨텍스트 풀, 다중 출력, 실장비 검증 |
-| `npuforge-node` | ✅ | 워커 풀, gRPC 서버, 등록·하트비트 |
-| `npuforge-scheduler` | ✅ | 정책 3종, 레지스트리, 재시도 |
-| `npuforge-bench` | ✅ | 부하·집계·run 유효성 판정 |
+| `npuforge-common` | ✅ | types, error codes (16 kinds), configuration, backend interface |
+| `npuforge-proto` | ✅ | gRPC definitions. `SchedulerService` / `NodeService` |
+| `npuforge-mock-backend` | ✅ | deterministic seed. Development without hardware |
+| `npuforge-rknn` | ✅ | context pool, multiple outputs, real-hardware verification |
+| `npuforge-node` | ✅ | worker pool, gRPC server, registration and heartbeat |
+| `npuforge-scheduler` | ✅ | three policies, registry, retries |
+| `npuforge-bench` | ✅ | load, aggregation, run-validity judgement |
 
-**209 tests, clippy `-D warnings`, fmt clean.** (2026-08-14 기준)
+**209 tests, clippy `-D warnings`, fmt clean.** (as of 2026-08-14)
 
-## 3.1 검증한 동작
+## 3.1 Verified behaviour
 
-로컬 Mock 3노드 통합 테스트 (`crates/npuforge-scheduler/tests/mock_cluster.rs`).
-실제 gRPC 를 타므로 전송 경로는 실장비와 같다.
+The local Mock 3-node integration test
+(`crates/npuforge-scheduler/tests/mock_cluster.rs`). It runs over real gRPC, so
+the transport path is the same as on real hardware.
 
-| 항목 | 결과 |
+| Item | Result |
 |---|---|
-| 요청이 3노드에 분산 | ✅ round-robin |
-| 노드 1대 사망 시 우회 | ✅ 6/6 성공 |
-| 전 노드 사망 | ✅ `NPF-1302` + 시도 노드 목록 |
-| 타이밍 분해 | ✅ 노드·스케줄러 구간 모두 |
-| 느린 노드 회피 | ✅ least-queue |
+| Requests spread across 3 nodes | ✅ round-robin |
+| Bypass when 1 node dies | ✅ 6/6 succeeded |
+| All nodes dead | ✅ `NPF-1302` + the list of nodes attempted |
+| Timing breakdown | ✅ both node and scheduler sections |
+| Avoiding a slow node | ✅ least-queue |
 
-실제 프로세스 4개(스케줄러 + 노드 3)로도 확인했다. **스케줄러를 죽였다
-다시 띄우면 세 노드가 약 1.3초 안에 스스로 재등록**한다.
+Also confirmed with four real processes (scheduler + 3 nodes). **Killing the
+scheduler and bringing it back has all three nodes re-register by themselves
+within about 1.3 seconds.**
 
-실장비 RKNN 통합 테스트 6종 (`crates/npuforge-rknn/tests/real_device.rs`)
-도 통과한다 — 출력 9개 반환, 결정성, 4스레드 동시 추론 결과 무오염 등.
+The six real-hardware RKNN integration tests
+(`crates/npuforge-rknn/tests/real_device.rs`) pass too — returning 9 outputs,
+determinism, uncontaminated results under 4-thread concurrent inference, and so
+on.
 
-## 3.2 미구현
+## 3.2 Not implemented
 
-- Prometheus 메트릭
-- REST 관리 API, 대시보드
-- JPEG 디코딩 (현재 RGB8/BGR8 원본만)
-- 후처리(NMS). 노드는 원시 텐서를 그대로 반환한다
+- Prometheus metrics
+- The REST management API and dashboard
+- JPEG decoding (currently raw RGB8/BGR8 only)
+- Postprocessing (NMS). The node returns raw tensors as-is
 
 ---
 
-# 4. 뒤집힌 결론
+# 4. Inverted conclusions
 
-**측정을 다시 해서 결론이 바뀐 것들이다.** 처음 결론을 그대로 발표했다면
-틀린 내용을 말할 뻔했다.
+**Things whose conclusion changed on re-measurement.** Publishing the first
+conclusion would have meant saying something wrong.
 
-## 4.1 "king 이 19°C 더 뜨겁다" → 재현되지 않음
+## 4.1 "king runs 19 °C hotter" → did not reproduce
 
-08-10 지속 부하에서 `king` 만 NPU 91.3°C 로 다른 두 대(70.2/72.1)보다
-19°C 높았다. 물리적 배치 문제로 판단하고 최우선 과제로 올렸다.
+Under 08-10 sustained load, `king` alone hit NPU 91.3 °C, 19 °C above the other
+two (70.2/72.1). It was judged a physical placement problem and raised to top
+priority.
 
-08-11 통제 조건에서 재측정하니 **편차 5.6°C** 였다.
+Re-measured under controlled conditions on 08-11, the **spread was 5.6 °C.**
 
-원인은 배치가 아니라 **부하 프로파일 차이**였다.
+The cause was not placement but **a difference in load profile.**
 
 | | 08-10 | 08-11 |
 |---|---|---|
-| 도구 | `thread_safety_test` | `sustained_load_test` |
-| 부하 | 1→8 스레드 순차 스윕 | 8스레드 고정 |
-| 시작 | king 6분 선행 | 동시 |
+| Tool | `thread_safety_test` | `sustained_load_test` |
+| Load | sequential sweep 1→8 threads | fixed at 8 threads |
+| Start | king led by 6 minutes | simultaneous |
 
-`thread_safety_test` 는 목표 스레드 수 전에 단일/2스레드 기준선을 먼저
-돈다. `king` 은 다른 둘이 8스레드에 들어갈 무렵 이미 훨씬 오래 가열된
-상태였다.
+`thread_safety_test` runs single- and two-thread baselines before reaching the
+target thread count. `king` had been heating for far longer by the time the
+other two entered 8 threads.
 
-결정적 근거: **`queen` 의 최고 온도는 두 측정에서 70.2°C 로 동일**하다.
-움직인 것은 `king` 뿐이다.
+The decisive evidence: **`queen`'s peak temperature was an identical 70.2 °C in
+both measurements.** Only `king` moved.
 
-→ **부하 프로파일이 다르면 온도를 비교하지 않는다.**
+→ **Do not compare temperatures between different load profiles.**
 
-## 4.2 "78 inf/s 는 드라이버 특성" → 범위 축소
+## 4.2 "78 inf/s is a driver characteristic" → scope narrowed
 
-추론당 커널 ioctl 약 80회가 직렬화되는 것을 확인하고, 노드 상한
-78 inf/s 를 드라이버 특성으로 규정했다. 애플리케이션 최적화 3종이
-전부 무의미했던 것과도 맞았다.
+Having confirmed that roughly 80 kernel ioctls per inference get serialized, the
+node ceiling of 78 inf/s was defined as a driver characteristic. It also fit
+with all three application optimizations being meaningless.
 
-그런데 INT8 이 1.85배였다. ioctl 횟수를 확인했다.
-
-```
-strace -c -f -e trace=ioctl, 1스레드 20초
-  FP16  추론 315회  15.7 inf/s  ioctl 24,079  추론당 76.4
-  INT8  추론 718회  35.8 inf/s  ioctl 54,707  추론당 76.2
-```
-
-**횟수는 같은데 처리량이 2.28배다.** 상한을 정하는 것은 ioctl 횟수가
-아니라 **직렬화 구간에서 한 건이 붙잡고 있는 시간**이다.
-
-CPU governor 실험(+7%)이 이를 보강한다. 그 시간에는 NPU 실행뿐 아니라
-**CPU 전후처리도 포함**된다.
-
-→ "애플리케이션 최적화로 못 넘는다"는 유효하다. 다만 **양자화는
-  애플리케이션 최적화가 아니라 모델 변경**이다.
-
-## 4.3 "RKNN 은 thread-safe" → 맞지만 시퀀스는 원자적이지 않다
-
-`environment-matrix.md` §3.1 은 "RKNN Runtime 2.3.0 은 thread-safe"로
-결론나 있었다. 컨텍스트 하나를 공유하면 구현이 단순해진다.
-
-그런데 그 검증은 **API 반환 코드만 셌고 출력 내용을 대조하지 않았다.**
-
-추론 한 건은 세 번의 호출이다.
+Then INT8 came in at 1.85×. The ioctl counts were checked.
 
 ```
-rknn_inputs_set  →  rknn_run  →  rknn_outputs_get
+strace -c -f -e trace=ioctl, 1 thread, 20 s
+  FP16  315 inferences  15.7 inf/s  24,079 ioctls  76.4 per inference
+  INT8  718 inferences  35.8 inf/s  54,707 ioctls  76.2 per inference
 ```
 
-개별 호출이 thread-safe 여도 **시퀀스는 원자적이지 않다.**
+**The count is the same and throughput is 2.28×.** What sets the ceiling is not
+the ioctl count but **how long one inference holds the serialized section.**
 
-| 구성 | API 오류 | **결과 불일치** |
+The CPU governor experiment (+7%) reinforces this. That time includes not only
+NPU execution but **the CPU work either side of it.**
+
+→ "It cannot be exceeded by application optimization" holds. But **quantization
+  is a model change, not an application optimization.**
+
+## 4.3 "RKNN is thread-safe" → true, but the sequence is not atomic
+
+`environment-matrix.md` §3.1 had concluded that "RKNN Runtime 2.3.0 is
+thread-safe". Sharing one context would simplify the implementation.
+
+But that verification **counted only API return codes and never compared output
+contents.**
+
+One inference is three calls.
+
+```
+rknn_inputs_set  ->  rknn_run  ->  rknn_outputs_get
+```
+
+Even with each call thread-safe, **the sequence is not atomic.**
+
+| Configuration | API errors | **Result mismatches** |
 |---|---:|---:|
-| 컨텍스트 공유 | 0 | **200 / 200 (100%)** |
-| 스레드별 전용 컨텍스트 | 0 | 0 / 200 (0%) |
+| Shared context | 0 | **200 / 200 (100%)** |
+| Per-thread dedicated context | 0 | 0 / 200 (0%) |
 
-**공유 컨텍스트는 오류 없이 100% 틀린 답을 낸다.**
+**A shared context produces 100% wrong answers with no errors.**
 
-이 결함의 성질이 특히 나쁘다.
+The nature of this defect is especially bad.
 
-- 예외도 오류 코드도 없다
-- 단일 스레드에서는 절대 재현되지 않는다
-- **처리량 지표는 오히려 좋아 보인다** (§3.1 에서 공유 34.8 > 전용 33.2 —
-  틀린 답을 더 빨리 내고 있었다)
-- 검출 결과도 다른 프레임의 것이라 육안으로는 그럴듯하다
+- No exception and no error code
+- Never reproduces single-threaded
+- **The throughput metric actually looks better** (in §3.1, shared 34.8 >
+  dedicated 33.2 — it was producing wrong answers faster)
+- The detections come from another frame, so they look plausible to the eye
 
-그대로 갔다면 **처리량은 전부 유효하고 검출만 조용히 틀린 채로** 발표까지
-갔을 것이다.
+Left alone, it would have reached a public talk **with all throughput valid and
+only the detections quietly wrong.**
 
-→ `RknnContext::infer` 가 `&mut self` 를 받는다. **컴파일러가 동시 호출을
-  막는다.** 주석으로 규칙을 적는 것과 타입으로 막는 것은 다르다.
+→ `RknnContext::infer` takes `&mut self`. **The compiler blocks concurrent
+  calls.** Writing a rule in a comment and blocking it with a type are different
+  things.
 
 ---
 
-# 5. 검증했지만 효과 없던 것
+# 5. Verified but ineffective
 
-노드 내부에서 짜낼 것이 거의 없다는 근거다.
+The basis for there being almost nothing left to squeeze inside the node.
 
-| 시도 | 결과 | 판단 |
+| Attempt | Result | Verdict |
 |---|---:|---|
-| `core_mask` 수동 코어 배정 | **+0.1%** | 안 쓴다. `CORE_AUTO` 분배가 이미 균등 |
-| zero-copy 버퍼 재사용 | **-1.8%** | 안 쓴다. 가설 반증 |
+| Manual core assignment via `core_mask` | **+0.1%** | not used. `CORE_AUTO`'s distribution is already even |
+| Zero-copy buffer reuse | **−1.8%** | not used. Hypothesis refuted |
 
-`core_mask` 는 4스레드에서 +9% 였지만 **8스레드에서 +0.1% 로 소멸**한다.
-`CORE_0_1` 은 8스레드에서 -11.5% 로 오히려 손해다.
+`core_mask` was +9% at 4 threads but **vanishes to +0.1% at 8.** `CORE_0_1` is
+actually a loss at −11.5% at 8 threads.
 
-> **`want_float=0` 은 원래 이 표에 있었다.** 08-10 측정에서 FP16 +5.4% 로
-> "효과 없음"에 가깝게 분류했다. 그러나 그 측정은 1스레드 위주 조건이었고,
-> 08-12 에 8스레드 120초로 다시 재니 **INT8 +17.3% / FP16 +15.7%** 였다.
-> 출력 변환이 직렬화 구간을 붙잡는 시간은 동시 스레드가 늘수록 커진다.
-> → §2.2 로 옮겼다. **효과 없던 것이 아니라, 조건이 부족한 측정이었다.**
-> `discuss.md` §12
-
----
-
-# 6. 측정 실패 목록
-
-**이 프로젝트에서 가장 재사용 가치가 높은 결과다.** 전부 "성공처럼 보인"
-실패다.
-
-## 6.1 지표가 무엇을 세는지 확인하지 않음 (4회)
-
-| # | 무엇 | 실제 |
-|---|---|---|
-| 1 | `RKNN_QUERY_PERF_RUN.run_duration` 을 NPU 점유시간으로 읽음 | 큐 대기가 포함된 값 |
-| 2 | NPU load 를 `delayms=3000` 인 채로 0.2초 간격 샘플링 | 3초 평균을 읽고 있었음 |
-| 3 | thread-safety 를 API 반환 코드로만 판정 | 결과 내용을 대조하지 않음 |
-| 4 | throttling 을 **NPU 클럭만으로** 판정 | CPU 가 A72 2208→816MHz 로 꺾이고 있었다 |
-
-1번은 모순으로 자가 발견했다(2코어 NPU 에서 "5.03 코어 사용 중").
-2번은 ChatGPT 검토가 지적했다. 3번은 백엔드를 구현하며 의심해 찾았다.
-4번은 같은 로그에 CPU 클럭이 **이미 기록되어 있었는데** 판정에 쓰지
-않았다 — FP16 재측정값이 84.3 이 아니라 66.9 로 나와서야 찾았다 (§2.3).
-
-**공통점: 지표 이름을 보고 의미를 짐작했다.**
-
-## 6.2 전제가 바뀐 것을 모름
-
-| 무엇 | 결과 |
-|---|---|
-| 문서의 `king` IP 가 낡음 (`.22`, 실제 `.12`) | "노드가 죽었다"고 오판, 서브넷 전체 스캔 |
-| 부하 프로파일이 다른 두 측정을 비교 | 19°C 격차로 오해 (§4.1) |
-| 보드 리셋 원인 3회 오판 | 공용 PSU → 부트로더 → 12V 입력. 실제는 **어댑터 전류 부족** |
-
-`~/.ssh/config` 에는 처음부터 올바른 IP 가 있었다. **문서에 박은 IP 만
-낡았다.** → 보드 접속은 IP 가 아니라 별칭으로 한다.
-
-## 6.3 실패가 성공처럼 보이는 원격 실행
-
-`preflight-check.sh` 를 만들며 발견했다. 검사가 **조용히 작동하지 않았다.**
-
-**`pgrep -f` 는 자기 자신을 센다.** ssh 래퍼의 명령줄에 패턴 문자열이
-들어 있어 매칭된다. 대괄호 트릭(`[s]ustained`)도 같은 명령줄에 괄호 없는
-형태가 섞이면 무력하다.
-
-| 상황 | 실제 | pgrep 보고 |
-|---|---|---|
-| 부하 실행 중 | 1개 | **0 (놓침)** |
-| 부하 없음 | 0개 | **2 (자기 셸)** |
-
-**`cd DIR && setsid nohup ... &` 는 뜨지 않는다.** `&` 가 리스트 전체에
-걸리는데 ssh 가 즉시 끊기면 서브셸이 `setsid` 에 닿기 전에 죽는다.
-**종료 코드 0, stderr 비어 있음.** 확인하지 않으면 "부하 없는 상태의
-온도"를 15분간 측정한다.
-
-**ssh 안 heredoc + sudo 중첩은 파일을 만들지 않는다.** systemd 유닛
-배포에서 겪었다. 이것도 종료 코드 0 이었다.
-
-→ 전부 `scripts/lib/remote.sh` 의 함수로 굳혔다.
-
-## 6.4 "못 읽음"을 "일치"로 판정
-
-`/sys/kernel/debug/rknpu/version` 은 root 만 읽을 수 있다. 세 노드 모두
-빈 값을 냈는데 **값이 같다는 이유로 통과**시켰다. 6.1 의 변종이다.
-
-→ 빈 값·`unknown` 같은 자리표시자는 실패로 처리한다.
-
-## 6.5 도구화
-
-같은 실수를 반복하지 않도록 검사를 도구에 넣었다.
-
-| 도구 | 막는 것 |
-|---|---|
-| `preflight-check.sh` | 별칭↔hostname, 해시 일치, governor, 온도, 전압, 잔존 부하, **추론 정확도** |
-| `npuforge-bench` | 예열 제외, `boot_id` 로 재부팅 감지, 표본 부족 판정, 실패를 처리량에서 제외 |
-| `run-thermal-comparison.sh` | 동시 시작, 해시 검증, 부하 실제 기동 확인 |
-| `scripts/lib/remote.sh` | 원격 실행 함정 |
-
-**성능 측정 전에 정확도부터 확인한다** — `preflight --with-inference` 는
-세 보드가 같은 입력에 같은 답을 내는지 본다. 틀린 답을 빨리 내는 구성이
-벤치마크에서 이기면 안 된다.
+> **`want_float=0` was originally in this table.** The 08-10 measurement put it
+> at FP16 +5.4%, close to "no effect". But that measurement was mostly a
+> single-thread condition, and re-measuring on 08-12 at 8 threads for 120 s gave
+> **INT8 +17.3% / FP16 +15.7%.** The time output conversion holds the serialized
+> section grows with the number of concurrent threads.
+> → moved to §2.2. **It was not ineffective; the measurement's conditions were
+> inadequate.** `discuss.md` §12
 
 ---
 
-# 7. 재현 방법
+# 6. The list of measurement failures
 
-## 7.1 하드웨어 없이
+**The highest reuse-value result this project has.** All of them are failures
+that "looked like success".
+
+## 6.1 Not checking what a metric counts (4 times)
+
+| # | What | Actually |
+|---|---|---|
+| 1 | Reading `RKNN_QUERY_PERF_RUN.run_duration` as NPU occupancy time | a value that included queue wait |
+| 2 | Sampling NPU load at 0.2 s intervals with `delayms=3000` still set | it was reading a 3-second average |
+| 3 | Judging thread-safety by API return codes alone | output contents were never compared |
+| 4 | Judging throttling **by NPU clock alone** | the CPU was bending from A72 2208 to 816 MHz |
+
+Number 1 was self-discovered through a contradiction ("5.03 cores in use" on a
+2-core NPU). Number 2 was pointed out by a ChatGPT review. Number 3 was found by
+suspicion while implementing the backend. Number 4 had the CPU clocks **already
+recorded in the same log** and simply did not use them in the verdict — it was
+found only when the FP16 re-measurement came out at 66.9 rather than 84.3
+(§2.3).
+
+**What they share: reading a metric's name and assuming its meaning.**
+
+## 6.2 Not noticing a changed premise
+
+| What | Result |
+|---|---|
+| A stale `king` IP in the documents (`.22`, actually `.12`) | misdiagnosed as "the node is dead"; scanned the whole subnet |
+| Comparing two measurements with different load profiles | a 19 °C gap was misread (§4.1) |
+| Misdiagnosing the cause of board resets three times | shared PSU → bootloader → 12V input. Actually **insufficient adapter current** |
+
+`~/.ssh/config` had had the correct IP all along. **Only the IP pinned into the
+documents was stale.** → Boards are reached by alias, not by IP.
+
+## 6.3 Remote execution where failure looks like success
+
+Found while building `preflight-check.sh`. The check **was silently not
+working.**
+
+**`pgrep -f` counts itself.** The ssh wrapper's command line contains the
+pattern string, so it matches. The bracket trick (`[s]ustained`) is also
+neutralised once a form without brackets appears on the same command line.
+
+| Situation | Actual | pgrep reports |
+|---|---|---|
+| Load running | 1 | **0 (missed)** |
+| No load | 0 | **2 (its own shell)** |
+
+**`cd DIR && setsid nohup ... &` does not come up.** The `&` applies to the
+whole list, and if ssh disconnects immediately the subshell dies before reaching
+`setsid`. **Exit code 0, empty stderr.** Without checking, you measure "the
+temperature with no load" for fifteen minutes.
+
+**A heredoc inside ssh nested with sudo does not create the file.** Encountered
+while deploying a systemd unit. This too gave exit code 0.
+
+→ All of them hardened into functions in `scripts/lib/remote.sh`.
+
+## 6.4 Judging "could not read" as "identical"
+
+`/sys/kernel/debug/rknpu/version` is readable only by root. All three nodes
+returned an empty value and it **passed on the grounds that the values matched.**
+A variant of 6.1.
+
+→ Empty values and placeholders such as `unknown` are treated as failures.
+
+## 6.5 Tooling
+
+To stop the same mistakes recurring, the checks were put into tools.
+
+| Tool | What it blocks |
+|---|---|
+| `preflight-check.sh` | alias↔hostname, hash matching, governor, temperature, voltage, residual load, **inference accuracy** |
+| `npuforge-bench` | warmup exclusion, reboot detection via `boot_id`, insufficient-sample verdicts, excluding failures from throughput |
+| `run-thermal-comparison.sh` | simultaneous start, hash verification, confirming load actually started |
+| `scripts/lib/remote.sh` | the remote execution pitfalls |
+
+**Accuracy is checked before performance** — `preflight --with-inference` checks
+that the three boards give the same answer to the same input. A configuration
+that produces wrong answers fast must not win a benchmark.
+
+---
+
+# 7. Reproduction
+
+## 7.1 Without hardware
 
 ```bash
 cargo test --workspace          # 209 tests
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-Mock 3노드 클러스터도 하드웨어 없이 돈다.
+The Mock 3-node cluster also runs without hardware.
 
 ```bash
 cargo build --release -p npuforge-scheduler -p npuforge-node -p npuforge-bench
@@ -11936,16 +12009,17 @@ for i in 1 2 3; do ./target/release/npuforge-node --config configs/mock/node-0$i
   --model yolov8n --concurrency 6 --duration 15
 ```
 
-## 7.2 실장비
+## 7.2 On real hardware
 
-전제: `~/.ssh/config` 에 `npuforge-k/q/j` 별칭, `NPUFORGE_SUDO_PASS` 설정.
+Prerequisites: the `npuforge-k/q/j` aliases in `~/.ssh/config`, and
+`NPUFORGE_SUDO_PASS` set.
 
 ```bash
-bash scripts/preflight-check.sh --with-inference   # 통과 전에는 측정 금지
-bash scripts/run-thermal-comparison.sh 900 8       # 열 비교
+bash scripts/preflight-check.sh --with-inference   # no measuring until it passes
+bash scripts/run-thermal-comparison.sh 900 8       # thermal comparison
 ```
 
-## 7.3 모델 변환
+## 7.3 Model conversion
 
 ```bash
 python tools/model-converter/fetch_calibration.py --out datasets/coco-calib --count 200
@@ -11955,106 +12029,112 @@ docker run --rm -v "$PWD/models:/work/models" -v "$PWD/datasets:/work/datasets" 
   --dataset datasets/coco-calib --calib-limit 200
 ```
 
-> **모델은 한 번만 변환해 같은 파일을 세 노드에 배포한다.**
-> INT8 변환은 바이트 재현성이 없다 — 같은 입력으로 3회 변환하니 해시가
-> 매번 달랐다(1.8% 바이트 상이). 다만 **추론 결과는 완전히 동일**하다
-> (9개 텐서 전부 cosine 1.000000). 차이는 직렬화에 있고 계산에는 없다.
+> **The model is converted once and the same file deployed to all three nodes.**
+> INT8 conversion is not byte-reproducible — converting three times from the
+> same input gave a different hash each time (1.8% of bytes differing). But
+> **the inference results are completely identical** (all 9 tensors at cosine
+> 1.000000). The difference is in serialization, not in computation.
 >
-> `model.toml` 의 `sha256` 은 **배포 무결성**을 보장하지 변환 레시피의
-> 동일성을 보장하지 않는다.
+> `model.toml`'s `sha256` guarantees **deployment integrity**, not identity of
+> the conversion recipe.
 
 ---
 
-# 8. 다음에 할 것
+# 8. What comes next
 
-## 8.1 차단된 것 — 10G aggregation 필요
+## 8.1 Blocked — 10G aggregation is needed
 
-raw RGB 입력 한 장은 `640 × 640 × 3 = 1,228,800 byte` 다.
-
-```text
-INT8  1,228,800 × 157.2 × 8 = 1.545 Gbps / node   →  3노드 4.636 Gbps
-FP16  1,228,800 ×  84.3 × 8 = 0.829 Gbps / node   →  3노드 2.486 Gbps
-```
-
-> **2026-08-12 정정.** 이전 문서에 1.43 / 4.3 Gbps 로 적혀 있었다.
-> MiB/s 를 Gbps 로 옮기며 2진 접두(÷1024)를 썼기 때문이다.
-> **네트워크 속도는 10진이다.** 올바른 값은 위와 같다.
-
-### 출력이 더 크다
-
-위는 **입력(TX)만** 이다. 노드는 후처리를 하지 않고 원시 텐서 9개를
-반환하는데, `want_float=1` 이면 출력이 **입력의 3.96배**가 된다.
+One raw RGB input is `640 × 640 × 3 = 1,228,800 byte`.
 
 ```text
-입력                      1,228,800 byte
-출력 (want_float=1, f32)  4,872,000 byte
-출력 (want_float=0, int8) 1,218,000 byte
+INT8  1,228,800 x 157.2 x 8 = 1.545 Gbps / node   ->  3 nodes 4.636 Gbps
+FP16  1,228,800 x  84.3 x 8 = 0.829 Gbps / node   ->  3 nodes 2.486 Gbps
 ```
 
-3노드 포화 시 스케줄러 링크 부하다.
+> **Corrected 2026-08-12.** Earlier documents had 1.43 / 4.3 Gbps, because
+> converting MiB/s to Gbps used the binary prefix (÷1024). **Network speeds are
+> decimal.** The correct values are above.
 
-| 구성 | 모델 | 3노드 TX | 3노드 RX | 10G 로 되나 |
+### The output is larger
+
+The above is **input (TX) only.** The node does not postprocess and returns nine
+raw tensors, and with `want_float=1` the output is **3.96× the input.**
+
+```text
+input                       1,228,800 byte
+output (want_float=1, f32)  4,872,000 byte
+output (want_float=0, int8) 1,218,000 byte
+```
+
+The scheduler-side link load at three-node saturation:
+
+| Configuration | Model | 3-node TX | 3-node RX | Fits in 10G? |
 |---|---|---:|---:|---|
-| `want_float=1` (구 기본값) | INT8 | 4.64 Gbps | **18.38 Gbps** | **불가** |
-| `want_float=1` (구 기본값) | FP16 | 2.49 Gbps | **9.86 Gbps** | 겨우 |
-| **`want_float=0` (현재 기본값)** | INT8 | 4.64 Gbps | 4.60 Gbps | 가능 |
-| **`want_float=0` (현재 기본값)** | FP16 | 2.49 Gbps | 2.46 Gbps | 가능 |
+| `want_float=1` (old default) | INT8 | 4.64 Gbps | **18.38 Gbps** | **no** |
+| `want_float=1` (old default) | FP16 | 2.49 Gbps | **9.86 Gbps** | barely |
+| **`want_float=0` (current default)** | INT8 | 4.64 Gbps | 4.60 Gbps | yes |
+| **`want_float=0` (current default)** | FP16 | 2.49 Gbps | 2.46 Gbps | yes |
 
-**`want_float=1` 이었다면 10G 로도 INT8 3노드를 감당하지 못했다.**
+**Had `want_float=1` remained, even 10G could not have carried three INT8
+nodes.**
 
-→ M3 전에 둘 중 하나가 필요했다.
-  **(A)** `want_float=0` 전환 — 출력이 4분의 1이 된다
-  **(B)** 노드에서 후처리(NMS) 수행 — 응답이 수 KB 로 줄지만 미구현
+→ One of two things was needed before M3.
+  **(A)** switch to `want_float=0` — the output becomes a quarter
+  **(B)** postprocess (NMS) on the node — the response shrinks to a few KB, but
+  it is unimplemented
 
-  §5 에서 "선택적 최적화, 보류"로 분류했던 `want_float=0` 이
-  **M3 의 전제 조건으로 승격**했다. **승격 근거는 처리량이 아니라 RX
-  대역폭이었다.**
+  `want_float=0`, filed in §5 as "an optional optimization, deferred", was
+  **promoted to a precondition for M3.** **The grounds for the promotion were
+  not throughput but RX bandwidth.**
 
-> ✅ **2026-08-12 (A) 완료.** 노드 설정 `[worker] want_float` 기본값을
-> `false` 로 바꾸고, blob 을 **v2** 로 올려 텐서마다 `qnt_type`·`scale`·
-> `zero_point` 를 함께 보낸다. 이것 없이 int8 을 보내면 받는 쪽이 해석할
-> 수 없다. 실보드에서 역양자화 결과가 float32 와 일치함을 확인했다
-> (텐서 9개, **최대 오차 9.5e-7** — float32 정밀도 한계).
-> 처리량도 함께 올랐다 — **INT8 +17.3% / FP16 +15.7%** (§2.2, `discuss.md` §12).
+> ✅ **(A) completed 2026-08-12.** The node configuration `[worker] want_float`
+> default changed to `false`, and the blob was bumped to **v2** to carry
+> `qnt_type`, `scale` and `zero_point` per tensor. Without those, sending int8
+> leaves the receiver unable to interpret it. Dequantization was confirmed on a
+> real board to match float32 (9 tensors, **maximum error 9.5e-7** — the limit
+> of float32 precision).
+> Throughput rose alongside — **INT8 +17.3% / FP16 +15.7%** (§2.2,
+> `discuss.md` §12).
 >
-> 덧붙여, `sustained_load_test` 는 처음부터 `want_float=0` 을 하드코딩하고
-> 있었다. 즉 §2.2 의 157.2 / 84.3 은 **이미 `want_float=0` 기준**이었고,
-> 이번 전환은 **Rust 백엔드를 측정 조건에 맞춘 것**이다.
+> Additionally, `sustained_load_test` had hardcoded `want_float=0` from the
+> beginning. So §2.2's 157.2 / 84.3 were **already on `want_float=0`**, and this
+> change **brought the Rust backend in line with the measurement conditions.**
 
-### 정리
+### Summary
 
-- worker 링크(2.5G)가 아니라 **aggregation 링크가 먼저 막힌다**
-- 스케줄러 쪽에 **10G** 가 필요하다
-- 그 위에 **출력 크기를 줄이는 조치**가 반드시 따라와야 한다
+- It is the **aggregation link, not the worker links (2.5G), that fills up
+  first**
+- **10G** is needed on the scheduler side
+- **A measure to reduce output size** has to accompany it
 
-**입력만 계산하고 출력을 보지 않은 것이 이 절의 원래 오류였다.**
-§6 의 실패 목록에 같은 유형이 이미 세 건 있다.
+**Calculating the input and not looking at the output was this section's
+original error.** The failure list in §6 already has three of the same type.
 
-## 8.2 스위치 없이 가능한 것
+## 8.2 Possible without the switch
 
-- Prometheus 메트릭
-- `dealer` NTP 서버 구성
-- 정식 S0 열 특성 (30분 × 팬리스/냉각 2조건)
-- `ondemand` vs `performance` 300초 비교 — §2.2 의 +7% 는 120초 값이다
-- INT8 의 열 거동 (연산량이 줄면 발열도 주는지)
+- Prometheus metrics
+- Configuring an NTP server on `dealer`
+- The formal S0 thermal characterisation (30 min × fanless/cooled, 2 conditions)
+- `ondemand` vs `performance` over 300 s — §2.2's +7% is a 120-second value
+- INT8's thermal behaviour (does less computation mean less heat)
 
 ---
 
-# 9. 문서 안내
+# 9. Document guide
 
-| 문서 | 내용 |
+| Document | Content |
 |---|---|
-| `../adrs/` | **왜 그렇게 정했는지.** 결정 28건, 주제순 |
-| `TODO.md` | **지금 뭘 해야 하는지.** 재개 절차가 최상단에 |
-| `RESULTS.md` | 이 문서. 결과 모음 |
-| `discuss.md` | 논의와 판단 근거. 시각순 11개 절 |
-| `board-worklog.md` | 작업 이력. 실패한 가설도 보존 |
-| `environment-matrix.md` | 확정된 환경 값 |
-| `infrastructure.md` | 현재 구성 스냅샷 |
-| `00-PRD.md` ~ `03-*.md` | 요구사항·설계 명세 |
+| `../adrs/` | **Why it was decided that way.** 28 decisions, by topic |
+| `TODO.md` | **What to do now.** The resumption procedure is at the top |
+| `RESULTS.md` | This document. A collection of results |
+| `discuss.md` | The discussion and reasoning. 11 chronological sections |
+| `board-worklog.md` | Work history. Failed hypotheses are preserved |
+| `environment-matrix.md` | Settled environment values |
+| `infrastructure.md` | A snapshot of the current setup |
+| `00-PRD.md` – `03-*.md` | Requirements and design specifications |
 
-수치가 문서 간에 다르면 **`environment-matrix.md` 가 기준**이다
-(`00-PRD.md` §0 의 문서 권위 순서).
+When numbers disagree between documents, **`environment-matrix.md` is the
+authority** (the document authority order in `00-PRD.md` §0).
 
 ---
 
