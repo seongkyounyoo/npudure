@@ -2,7 +2,11 @@
 
 *[한국어 README](README.ko.md)*
 
-> **This project started out as NPUForge.** Only the name changed — same
+> **The name.** *Dure* (두레) was a Korean village labour cooperative — farming
+> households pooling their hands so that work none of them could finish alone
+> got finished together. Cheap NPUs are pooled here for the same reason.
+>
+> **The project started out as NPUForge.** Only the name changed — same
 > project, same code, same measurements. The crate names, source identifiers
 > and recorded results still read `npuforge`, and are left that way on
 > purpose: the 421 measurements were taken under that name, and the record
