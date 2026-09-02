@@ -9033,11 +9033,13 @@ capacity 는 이미 동일하지 않다.
 
 # S2 — gRPC Multi-node Scaling Baseline
 
-- 실험 ID: **S2**
-- 측정일: 2026-08-20
-- 동결 commit: `254d560` (측정 중 코드·설정 무변경)
-- 상태: **완료 · 재현 확인 (30 runs)**
-- 원본 데이터: [`../../results/baseline-20260820/raw/`](../results/baseline-20260820/raw) · 그래프: [`figures/`](../results/baseline-20260820/figures) · 대시보드: [`dashboard.html`](../results/baseline-20260820/dashboard.html)
+*[한국어 원문](experiments/S2_GRPC_BASELINE.ko.md)*
+
+- Experiment ID: **S2**
+- Measured: 2026-08-20
+- Frozen commit: `254d560` (no code or configuration changes during measurement)
+- Status: **complete · reproduction confirmed (30 runs)**
+- Raw data: [`../../results/baseline-20260820/raw/`](../results/baseline-20260820/raw) · figures: [`figures/`](../results/baseline-20260820/figures) · dashboard: [`dashboard.html`](../results/baseline-20260820/dashboard.html)
 
 ---
 
@@ -9046,87 +9048,93 @@ capacity 는 이미 동일하지 않다.
 > **Does aggregate inference throughput increase approximately linearly as
 > identical low-cost NPU nodes are added to an Ethernet-connected edge cluster?**
 
-저비용 엣지 NPU(RK3576, 6 TOPS)를 이더넷으로 묶었을 때, **노드를 늘리면 전체
-추론 처리량이 선형에 가깝게 증가하는가.** 명목 TOPS 합산이 아니라 실측
-확장 효율을 묻는다.
+With low-cost edge NPUs (RK3576, 6 TOPS) tied together over Ethernet, **does
+total inference throughput grow close to linearly as nodes are added?** The
+question is measured scaling efficiency, not the sum of nominal TOPS.
 
 ## 2. Hypothesis
 
-데이터 병렬 구조([`adrs/001`](../adrs/001-data-parallel-only.md))에서 노드는
-서로 독립적으로 서로 다른 요청을 처리한다. 노드 간 통신이 추론 경로에 없으므로,
-**단일 중앙 스케줄러가 병목이 되지 않는 한 처리량은 노드 수에 선형**일 것으로
-예측한다. 동시에, 클러스터 경유(gRPC + 네트워크)는 로컬 직접 추론보다 노드당
-처리량을 **일정 비율 낮출** 것으로 본다(오버헤드).
+Under the data-parallel design ([`adrs/001`](../adrs/001-data-parallel-only.md)),
+nodes handle different requests independently of one another. Since no
+node-to-node communication sits in the inference path, **throughput should be
+linear in node count as long as the single central scheduler does not become a
+bottleneck.** At the same time, going through the cluster (gRPC + network)
+should reduce per-node throughput **by some fixed proportion** against local
+direct inference — the overhead.
 
 ## 3. System Under Test
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
 | Board | NanoPi R76S ×3 (king / queen / jack) |
 | SoC / NPU | Rockchip RK3576 / 2-core 6 TOPS |
 | Model | YOLOv8n **INT8** (sha256 `dba155d2…`), `want_float=0` |
 | Input | raw RGB 640×640×3 = 1,228,800 byte/request |
-| Scheduler host | server (.9): Xeon E5-2630L ×2 (24T) / 16GB / Rocky 9.4 |
+| Scheduler host | server (.9): Xeon E5-2630L ×2 (24T) / 16 GB / Rocky 9.4 |
 | Network | worker 2.5GbE / aggregation 10GbE (NEXI NS-S25G10G-N) |
 | Transport | **gRPC** (tonic + protobuf) |
-| Topology | client → scheduler(.9) → node, 3-hop 전부 gRPC |
+| Topology | client → scheduler(.9) → node, all 3 hops gRPC |
 
-토폴로지·근거: [`adrs/014`](../adrs/014-10g-aggregation-separate-scheduler.md),
+Topology and rationale: [`adrs/014`](../adrs/014-10g-aggregation-separate-scheduler.md),
 [`docs/infrastructure.md`](#infrastructure).
 
 ## 4. Experimental Controls
 
-모든 run 에서 고정한 조건.
+Held fixed across every run.
 
 ```text
-Cooling      : Active cooling — 120mm 5V USB fan per node (측정 시작부터)
+Cooling      : Active cooling - 120mm 5V USB fan per node (from the start)
 CPU governor : performance
 Policy       : round-robin
-Worker count : 8 / node  (스레드마다 전용 RKNN 컨텍스트, adrs/007)
+Worker count : 8 / node  (a dedicated RKNN context per thread, adrs/007)
 Transport    : gRPC
 Model        : YOLOv8n INT8, want_float=0
-Warmup       : 제외
+Warmup       : excluded
 ```
 
-- **냉각은 Active Cooling(팬 ON).** 팬리스가 아니다 —
-  [`docs/board-worklog.md`](#board-worklog) §2.24·§2.27 참조.
-- 측정 전 `preflight-check.sh` 통과(별칭↔hostname, 해시, governor, 온도, 전압, NTP).
+- **Cooling is active (fan ON).** Not fanless — see
+  [`docs/board-worklog.md`](#board-worklog) §2.24 and §2.27.
+- `preflight-check.sh` passed before measuring (alias↔hostname, hashes,
+  governor, temperature, voltage, NTP).
 
 ## 5. Measurement Method
 
-- 부하 도구: `npuforge-bench` (**closed-loop**), server(.9)에서 실행.
-- 노드당 동일 부하: **concurrency = 8 × 노드수** (1N c8 / 2N c16 / 3N c24).
-- 각 조건 **10 runs, 60초**. 총 30 runs.
-- **조건 순서를 rotate** 해 시간·온도 변동을 한 조건에 몰지 않는다:
+- Load tool: `npuforge-bench` (**closed-loop**), run on server (.9).
+- Equal load per node: **concurrency = 8 × node count** (1N c8 / 2N c16 / 3N c24).
+- **10 runs of 60 s** per condition. 30 runs total.
+- **Condition order rotates** so that drift in time or temperature does not
+  land on one condition:
   ```text
-  Round 1: 1N → 2N → 3N
-  Round 2: 2N → 3N → 1N
-  Round 3: 3N → 1N → 2N   (반복)
+  Round 1: 1N -> 2N -> 3N
+  Round 2: 2N -> 3N -> 1N
+  Round 3: 3N -> 1N -> 2N   (repeating)
   ```
-- 노드 축소는 프로세스 중지, run 사이 cooldown.
-- 스크립트: [`scripts/run-grpc-baseline30.sh`](../scripts/run-grpc-baseline30.sh).
-  측정 30회 동안 코드·설정 동결.
+- Reducing node count means stopping the process; cooldown between runs.
+- Script: [`scripts/run-grpc-baseline30.sh`](../scripts/run-grpc-baseline30.sh).
+  Code and configuration frozen for all 30 runs.
 
-> closed-loop 특성상 절대 지연은 SLA 로 인용하지 않고 **구성 간 비교**에만
-> 쓴다([`adrs/028`](../adrs/028-bench-run-validity.md)).
+> Because the bench is closed-loop, absolute latency is never quoted as an SLA
+> — it is used only **for comparison between configurations**
+> ([`adrs/028`](../adrs/028-bench-run-validity.md)).
 
 ## 6. Validation / Integrity Checks
 
-30 runs 전수 검사. **측정 신뢰성의 근거다.**
+All 30 runs checked. **This is the basis for trusting the measurement.**
 
-| 검사 | 결과 |
+| Check | Result |
 |---|---|
-| run 수 | 30 / 30 |
-| active node 판정 | **30/30 정확** (n1=1, n2=2, n3=3) |
-| invalid run (verdict) | 0 |
-| 오류율 (inference) | **0.00%** (전 run) |
-| 재시도 | 0 건 |
-| load-balance 편차 | **0.00 %p** |
+| Run count | 30 / 30 |
+| Active-node determination | **30/30 correct** (n1=1, n2=2, n3=3) |
+| Invalid runs (verdict) | 0 |
+| Error rate (inference) | **0.00%** (every run) |
+| Retries | 0 |
+| Load-balance deviation | **0.00 pp** |
 
-- active node 는 등록 노드가 아니라 **실제 요청을 처리한 노드**(`per_node`)로
-  판정한다. 노드를 중지해도 스케줄러 등록이 남는 문제를 bench 수정으로 해결했다
-  (board-worklog §2.28).
-- 재시도 카운트는 응답 프로토콜의 `attempts` 필드에서 온다(스케줄러 실제 시도).
+- Active node is determined from **the nodes that actually served requests**
+  (`per_node`), not from registered nodes. A bench fix resolved the problem of
+  registrations persisting after a node was stopped (board-worklog §2.28).
+- The retry count comes from the `attempts` field in the response protocol —
+  the scheduler's actual attempts.
 
 ## 7. Results
 
@@ -9138,24 +9146,26 @@ Warmup       : 제외
 | 2 | **229.0 ± 0.9** inf/s |
 | 3 | **338.4 ± 1.1** inf/s |
 
-SD 가 0.5~1.1 로 극히 작다 — 30회에 걸쳐 처리량이 사실상 흔들리지 않았다.
-첫 측정값 337.7 이 338.4 ± 1.1 로 재현됐다. → [fig1](../results/baseline-20260820/figures/fig1_throughput_vs_node.png)
+SD of 0.5–1.1 is extremely small — throughput barely moved across 30 runs. The
+first measurement of 337.7 reproduced as 338.4 ± 1.1.
+→ [fig1](../results/baseline-20260820/figures/fig1_throughput_vs_node.png)
 
 ### 7.2 Speedup
 
-| 기준 | 2N | 3N |
+| Reference | 2N | 3N |
 |---|---:|---:|
 | 1-node c8 (112.9) | 2.03× | **3.00×** |
 | single-node saturation (~115) | 1.99× | 2.94× |
 
 ### 7.3 Scaling Efficiency
 
-1-node c8 기준 **100% / 101% / 100%**, saturation 기준 3N ≈ **98%**.
+Against the 1-node c8 reference: **100% / 101% / 100%**; against saturation,
+3N ≈ **98%**.
 → [fig2](../results/baseline-20260820/figures/fig2_scaling_efficiency.png)
 
 ### 7.4 Latency (round-trip, closed-loop)
 
-**run-level percentile 의 30회 평균**(§7.4.1 주의 참조):
+**The 30-run average of run-level percentiles** (see the caveat in §7.4.1):
 
 | Nodes | p50 | p95 | p99 |
 |---:|---:|---:|---:|
@@ -9163,37 +9173,40 @@ SD 가 0.5~1.1 로 극히 작다 — 30회에 걸쳐 처리량이 사실상 흔�
 | 2 | 67.0 | 100.1 | 118.6 ms |
 | 3 | 67.6 | 102.7 | 123.9 ms |
 
-노드 수가 늘어도 지연 분포가 거의 평탄하다 — 확장이 지연을 악화시키지 않는다.
+The latency distribution stays nearly flat as nodes are added — scaling does not
+degrade latency.
 
-#### 7.4.1 주의 — 이 값은 pooled percentile 이 아니다
+#### 7.4.1 Caveat — these are not pooled percentiles
 
-각 run 안에서 그 run 의 요청 전체로 percentile 을 계산하고(nearest-rank,
-`stats.rs`), **그 run-level 값들을 다시 평균**한 것이다. 30회 요청을 전부
-합쳐 다시 정렬해 구한 값(pooled percentile)과는 다르다.
+Percentiles are computed within each run over that run's requests
+(nearest-rank, `stats.rs`), and **those run-level values are then averaged**.
+This differs from pooling all 30 runs' requests and re-sorting.
 
 ```text
-쓴 것    mean( p99(run1), p99(run2), ..., p99(run30) )
-아닌 것  p99( run1 ∪ run2 ∪ ... ∪ run30 )
+what was used   mean( p99(run1), p99(run2), ..., p99(run30) )
+what it is not  p99( run1 u run2 u ... u run30 )
 ```
 
-일반적으로 **run-level 평균은 pooled 보다 tail 을 낮게 보이게 한다** — 각
-run 의 최악 구간이 평균에 희석되기 때문이다. 구성 간 *비교* 에는 문제가
-없지만(모든 조건이 같은 방식) **절대값을 "이 시스템의 p99" 로 인용하면 안 된다.**
+In general, **run-level averaging makes the tail read lower than pooled** —
+each run's worst window is diluted by the average. This is fine for *comparing*
+configurations (every condition is treated the same way), but **the absolute
+values must not be quoted as "this system's p99".**
 
-pooled 를 내려면 per-request 지연 원본이 필요한데 bench 는 요약 percentile 만
-JSON 에 남긴다. 원본 덤프 옵션 추가는 `TODO.md` §1.2 에 올려 두었다.
+Producing pooled percentiles requires the per-request latency source, and the
+bench only writes summary percentiles to JSON. Adding a raw dump option is
+filed in `TODO.md` §1.2.
 → [fig4](../results/baseline-20260820/figures/fig4_latency_percentiles.png)
 
 ### 7.5 Load Distribution
 
-round-robin 이 3노드를 **정확히 33.3%씩** 나눴다(편차 0.00 %p).
+Round-robin split the three nodes at **exactly 33.3% each** (deviation 0.00 pp).
 → [fig5](../results/baseline-20260820/figures/fig5_per_node_distribution.png)
 
 ## 8. Timing Breakdown
 
-응답 `Timing`(proto) 11단계, 30회 p50 평균 (ms):
+The 11 stages of the response `Timing` (proto), 30-run average of p50 (ms):
 
-| 단계 | 1N | 3N |
+| Stage | 1N | 3N |
 |---|---:|---:|
 | scheduler_queue | 0.00 | 0.00 |
 | scheduler_route | 0.00 | 0.00 |
@@ -9208,10 +9221,12 @@ non-inference overhead = end_to_end - inference = 58.83 - 22.49 = 36.34 ms
 payload transfer       = network_to_node + network_to_client = 34.21 ms
 ```
 
-- scheduler_queue/route 는 노드 수와 무관하게 **~0** — 단일 스케줄러가 3노드
-  동시에도 병목이 아니다([`adrs/003`](../adrs/003-central-simple-scheduler.md) 실측 확인).
-- 1N·3N 의 `network_to_node`(17.72 vs 17.11)가 거의 같다 — 단일 요청 전송
-  시간은 노드 수와 무관.
+- `scheduler_queue` and `scheduler_route` are **~0** regardless of node count —
+  a single scheduler is not a bottleneck even with three nodes
+  ([`adrs/003`](../adrs/003-central-simple-scheduler.md) confirmed by
+  measurement).
+- `network_to_node` for 1N and 3N is nearly identical (17.72 vs 17.11) — the
+  transfer time of a single request is independent of node count.
 - → [fig7](../results/baseline-20260820/figures/fig7_timing_breakdown.png)
 
 ## 9. Local vs Cluster Overhead
@@ -9222,15 +9237,17 @@ payload transfer       = network_to_node + network_to_client = 34.21 ms
 | Cluster gRPC (single node) | Active Cooling | 8 | 112.9 inf/s |
 
 **Throughput loss = (161.5 − 112.9) / 161.5 = 30.1%.**
-로컬 baseline 은 냉각·worker 를 클러스터와 맞춰 재측정했다(board-worklog §2.27).
+The local baseline was re-measured with cooling and worker count matched to the
+cluster (board-worklog §2.27).
 → [fig8](../results/baseline-20260820/figures/fig8_local_vs_cluster.png)
 
-> ⛔ **두 측정량을 곱하지 않는다.** throughput loss(30.1%, 처리량)와 latency
-> breakdown(94%, 지연 구성비)은 서로 다른 축이다. §10 의 문장을 쓴다.
+> ⛔ **Do not multiply the two quantities.** Throughput loss (30.1%, a
+> throughput figure) and the latency breakdown (94%, a share of latency) are
+> different axes. Use the wording in §10.
 
 ## 10. Interpretation
 
-**Finding 1 — near-linear scaling (재현됨).**
+**Finding 1 — near-linear scaling (reproduced).**
 
 > Three-node throughput reached **3.00×** the one-node c8 baseline and **~98%**
 > of the single-node saturation-derived ideal. All 30 runs completed without
@@ -9244,55 +9261,61 @@ payload transfer       = network_to_node + network_to_client = 34.21 ms
 > was observed in the payload-transfer path** — not in serialization, scheduler
 > queueing, or node queueing (all ~0).
 
-이 둘은 서로를 강화한다. 확장은 스케줄러·네트워크가 노드 수에 병목이 아니라서
-선형이고(Finding 1), 노드당 절대 상한은 페이로드를 2.5G 로 나르는 시간에
-깎인다(Finding 2). 최적화가 겨냥할 지점은 compute 가 아니라 **transport** 다.
+The two reinforce each other. Scaling is linear because neither the scheduler
+nor the network bottlenecks on node count (Finding 1), while the absolute
+per-node ceiling is cut by the time it takes to carry the payload over 2.5G
+(Finding 2). What optimization should aim at is not compute but **transport**.
 
 ## 11. Limitations
 
-- **측정 시간이 짧다(60/30초).** CPU throttling 은 300초에 -27% 로 나타나므로
-  (board-worklog §2.24), 이 결과는 **throttling 전 구간**이다. 지속 부하
-  처리량은 별도 실험(S0)에서 확정한다.
-- **냉각 축.** 오늘은 Active Cooling 만. 팬리스(조건 A) 클러스터 측정은 없다.
-- **saturation 미확정.** 1N 은 c8/c16/c32 로 ~115 근처를 봤으나 c48 미측정,
-  2N·3N 의 ceiling 은 sweep 하지 않았다 → **S3**.
-- **직렬화 단독 미측정.** proto `Timing` 에 gRPC 직렬화 단독 필드가 없다.
-  현재 non-inference 잔차(~2ms)에 포함. 계측점 추가가 필요.
-- **closed-loop.** 절대 지연 아님, 구성 간 비교 전용.
-- **단일 2노드 조합(king+queen).** king+jack 등 다른 조합은 미측정.
+- **The measurement window is short (60 s / 30 runs).** CPU throttling shows up
+  at −27% over 300 s (board-worklog §2.24), so this result sits **before the
+  throttling region**. Sustained-load throughput is settled in a separate
+  experiment (S0).
+- **Cooling axis.** Active cooling only. There is no fanless (condition A)
+  cluster measurement here.
+- **Saturation not established.** 1N was seen near ~115 at c8/c16/c32 but c48
+  was not measured, and the 2N/3N ceilings were not swept → **S3**.
+- **Serialization not measured in isolation.** The proto `Timing` has no field
+  for gRPC serialization alone; it currently sits inside the ~2 ms non-inference
+  residual. An additional instrumentation point is needed.
+- **Closed-loop.** Not absolute latency; for comparison between configurations
+  only.
+- **A single 2-node combination (king+queen).** Other combinations such as
+  king+jack were not measured.
 
 ## 12. Reproduction
 
 ```bash
-# 3노드 클러스터 기동 후 (스케줄러 + king/queen/jack)
-bash scripts/run-grpc-baseline30.sh        # 30 run → server:/tmp/baseline30
-# 로컬 팬 baseline (Finding 2):
+# after bringing up the 3-node cluster (scheduler + king/queen/jack)
+bash scripts/run-grpc-baseline30.sh        # 30 runs -> server:/tmp/baseline30
+# local fan baseline (Finding 2):
 ssh npuforge-k 'pkill -9 npuforge-node; sleep 3; cd ~/npuforge-rknn-test; \
   ./sustained_load_test yolov8n-int8.rknn 60 8'
-# 그래프 재생성:
+# regenerate figures:
 python scripts/make-figures.py
 ```
 
-동결 commit: `254d560`. 조건 고정표는 §4.
+Frozen commit: `254d560`. The fixed-condition table is §4.
 
 ## 13. Raw Data
 
-- bench JSON 30건: [`../../results/baseline-20260820/raw/`](../results/baseline-20260820/raw)
-  (`n{노드}_r{라운드}.json`, 각 파일에 throughput·latency·node_inference·
-  TimingBreakdown·per_node·nodes_before/after(temp·voltage)·verdict·run_id)
-- 집계 리포트: [`../../results/baseline-20260820/README.md`](../results/baseline-20260820/README.md)
-- 그래프·대시보드: [`figures/`](../results/baseline-20260820/figures), [`dashboard.html`](../results/baseline-20260820/dashboard.html)
+- 30 bench JSON files: [`../../results/baseline-20260820/raw/`](../results/baseline-20260820/raw)
+  (`n{nodes}_r{round}.json`; each carries throughput, latency, node_inference,
+  TimingBreakdown, per_node, nodes_before/after (temp, voltage), verdict, run_id)
+- Aggregate report: [`../../results/baseline-20260820/README.md`](../results/baseline-20260820/README.md)
+- Figures and dashboard: [`figures/`](../results/baseline-20260820/figures), [`dashboard.html`](../results/baseline-20260820/dashboard.html)
 
 ## 14. Conclusion
 
-RK3576 3-node NPU cluster 는 30회 반복 실험에서 **near-linear scaling
-(338.4 ± 1.1 inf/s, 3.00×, error 0%)** 을 보였다. 노드당 오버헤드는 compute
-나 scheduler 가 아니라 **payload-transfer path**(non-inference latency 의 94%)
-에 있음을 TimingBreakdown 으로 확인했다.
+Across 30 repeated runs the RK3576 3-node NPU cluster showed **near-linear
+scaling (338.4 ± 1.1 inf/s, 3.00×, error 0%)**. The TimingBreakdown confirmed
+that per-node overhead lies not in compute or the scheduler but in the
+**payload-transfer path** (94% of non-inference latency).
 
-→ gRPC baseline 을 **동결**한다. 다음: **S3**(saturation / scaling limit) →
-**S4**(io_uring). S4 는 이 baseline 과 **동일 조건**에서 transport 비용을
-비교한다.
+→ The gRPC baseline is **frozen**. Next: **S3** (saturation / scaling limit) →
+**S4** (io_uring). S4 compares transport cost against this baseline under
+**identical conditions**.
 
 ---
 
@@ -10430,60 +10453,71 @@ io_uring 으로 간다. TECHSPEC §15.1 의 순서이자 S3.5 이후 지켜 온 
 
 # S3.8 — Optimized gRPC Scale-out
 
-- 실험 ID: **S3.8**
-- 측정일: 2026-08-20
-- 코드: `0af696d` + `[transport] node_connections = 2`
-- 상태: **완료 (36 run, 9/9 구성 노드 수 검증 통과)**
-- 원본: [`../../results/scaleout-optimized-20260820/`](../results/scaleout-optimized-20260820)
-- 선행: [`S3_7_CONNECTION_TUNING.md`](#experiments-s3-7-connection-tuning)
+*[한국어 원문](experiments/S3_8_OPTIMIZED_SCALEOUT.ko.md)*
+
+- Experiment ID: **S3.8**
+- Measured: 2026-08-20
+- Code: `0af696d` + `[transport] node_connections = 2`
+- Status: **complete (36 runs, node-count verification passed on 9/9 configurations)**
+- Raw data: [`../../results/scaleout-optimized-20260820/`](../results/scaleout-optimized-20260820)
+- Predecessor: [`S3_7_CONNECTION_TUNING.md`](#experiments-s3-7-connection-tuning)
 
 ---
 
 ## 1. Research Question
 
-> **S3.7 이 찾은 노드당 운영점(커넥션 2개 @ c12)이 scale-out 을 해치지 않는가?**
+> **Does the per-node operating point S3.7 found (2 connections @ c12) hurt
+> scale-out?**
 
-S3.7 은 **1노드** 결과다. 3노드가 되면 스케줄러가 커넥션을 2×3 = 6개 들고
-전송량도 3배가 된다. 서버 쪽에 새 병목이 생길 수 있다.
+S3.7 is a **single-node** result. At three nodes the scheduler holds 2 × 3 = 6
+connections and carries three times the traffic. A new bottleneck may appear on
+the server side.
 
 ## 2. Method
 
-- **노드 수마다 concurrency 를 다시 훑어 각자의 운영점을 찾는다.**
-  고정 concurrency 로 비교하면 configuration effect 가 아니라 overload
-  behavior 를 보게 된다(S3.7 §4.3 에서 실제로 겪었다).
-- 커넥션은 **노드당 2개** — 1N→2, 2N→4, 3N→6 total.
-- 1N: c8/12/16/20 · 2N: c16/24/32/40 · 3N: c24/36/48/60, 각 **3 run**, 60초.
-- rep 마다 노드 수 순서와 concurrency 순서를 모두 회전.
-- 운영점 정의는 S3.7 과 동일 — **peak 의 98% 이상을 내는 가장 낮은 concurrency**.
+- **Sweep concurrency again at each node count and find each one's own
+  operating point.** Comparing at a fixed concurrency shows overload behaviour
+  rather than a configuration effect — which is exactly what happened in S3.7
+  §4.3.
+- Connections are **2 per node** — 1N→2, 2N→4, 3N→6 total.
+- 1N: c8/12/16/20 · 2N: c16/24/32/40 · 3N: c24/36/48/60, **3 runs** each, 60 s.
+- Both the node-count order and the concurrency order rotate per repetition.
+- The operating-point definition matches S3.7 — **the lowest concurrency
+  delivering at least 98% of peak**.
 
-### 2.1 측정 전 노드 수 검증 — 실제로 걸렸다
+### 2.1 Node-count verification before measuring — it actually fired
 
-각 구성마다 짧은 probe bench 를 던져 **응답한 노드 ID 분포**를 세고
-`expected ≠ observed` 면 그 구성을 건너뛴다.
+For each configuration a short probe bench counts **the distribution of
+responding node IDs**, and the configuration is skipped when
+`expected ≠ observed`.
 
-**1차 실행에서 2N·3N 6개 구성이 전부 걸렸다.**
+**On the first attempt all six 2N and 3N configurations were caught.**
 
 ```text
-!! 노드 수 불일치 — expected=2 observed=1 (king). 이 구성 건너뜀
-!! 노드 수 불일치 — expected=3 observed=1 (king). 이 구성 건너뜀
+!! node count mismatch - expected=2 observed=1 (king). skipping this configuration
+!! node count mismatch - expected=3 observed=1 (king). skipping this configuration
 ```
 
-원인은 `[transport]` 설정을 쓰는 `npuforge-node.s36` 빌드가 **king 에만**
-배포돼 있었던 것이다(S3.6 이후 모든 실험이 1노드라 드러나지 않았다).
-기동 로직이 `pgrep || 실행` 이라 파일이 없으면 조용히 실패한다.
+The cause was that the `npuforge-node.s36` build — the one that reads the
+`[transport]` settings — had only been deployed **to king** (every experiment
+after S3.6 was single-node, so it never surfaced). The startup logic is
+`pgrep || run`, so a missing file fails silently.
 
-> **이 검증이 없었다면 1N 을 세 번 재고 "2N·3N" 으로 기록했을 것이다.**
-> 그 결과는 2N 136, 3N 136 — "scale-out 이 완전히 무너졌다" 는 정반대
-> 결론이 나왔을 것이다. **프로세스가 떠 있다 ≠ 트래픽을 받는다.**
+> **Without this check we would have measured 1N three times and recorded it as
+> "2N and 3N".** The result would have been 2N 136, 3N 136 — the exact opposite
+> conclusion, "scale-out has completely collapsed". **A process being up ≠ it
+> receiving traffic.**
 
-세 보드에 배포 후(해시 `73227f64…` 동일) 재실행 — **9/9 구성 검증 통과**.
+After deploying to all three boards (hash `73227f64…` identical) and re-running
+— **9/9 configurations passed verification**.
 
 ## 3. Results
 
-오류율 전 구간 **0**, 노드 간 분배 편차 전 구간 **0.0%p**.
-지연은 run-level percentile 의 run 간 평균(pooled 아님, S2 §7.4.1).
+Error rate **0** throughout; inter-node distribution deviation **0.0 pp**
+throughout. Latency is the run-to-run average of run-level percentiles (not
+pooled, S2 §7.4.1).
 
-### 3.1 노드 수별 곡선
+### 3.1 Curves by node count
 
 | conc | 1N tp | 1N p95 | | conc | 2N tp | 2N p95 | | conc | 3N tp | 3N p95 |
 |---:|---:|---:|---|---:|---:|---:|---|---:|---:|---:|
@@ -10492,10 +10526,11 @@ S3.7 은 **1노드** 결과다. 3노드가 되면 스케줄러가 커넥션을 2
 | 16 | 137.4 | 175.8 | | 32 | 262.5 | 237.0 | | 48 | 385.0 | 288.7 |
 | 20 | 134.9 | 245.0 | | 40 | 260.6 | 349.7 | | 60 | 385.8 | 407.3 |
 
-세 구성 모두 **범위 안에서 포화가 확인됐다**(peak 양쪽이 더 낮다).
-노드당 concurrency 는 셋 다 12 로 같다 — S3.7b 의 knee 가 다노드에서도 유지된다.
+All three configurations **show saturation within the swept range** (both sides
+of the peak are lower). Per-node concurrency is 12 in all three — S3.7b's knee
+holds at multiple nodes as well.
 
-### 3.2 운영점 비교
+### 3.2 Operating points compared
 
 | Nodes | Tot.conn | Op.conc | Throughput | p95 | p99 | Scaling | Efficiency |
 |---:|---:|---:|---:|---:|---:|---:|---:|
@@ -10503,9 +10538,9 @@ S3.7 은 **1노드** 결과다. 3노드가 되면 스케줄러가 커넥션을 2
 | **2** | 4 | 24 | **263.3** | 140.7 | 172.7 | **1.94×** | **97.1%** |
 | **3** | 6 | 36 | **387.2** | 151.1 | 201.6 | **2.86×** | **95.3%** |
 
-### 3.3 baseline 대비
+### 3.3 Against the baseline
 
-| | baseline (S3 ceiling, conn1) | optimized (S3.8, conn2/node) | 개선 | per-node |
+| | baseline (S3 ceiling, conn1) | optimized (S3.8, conn2/node) | gain | per-node |
 |---|---:|---:|---:|---:|
 | 1N | 115.2 | **135.5** | **+17.6%** | 135.5 |
 | 2N | 232.0 | **263.3** | **+13.5%** | 131.7 |
@@ -10514,100 +10549,109 @@ S3.7 은 **1노드** 결과다. 3노드가 되면 스케줄러가 커넥션을 2
 
 ## 4. Interpretation
 
-### 4.1 절대 처리량은 올랐다 — 3노드 +13.3%
+### 4.1 Absolute throughput went up — 3 nodes +13.3%
 
-**387.2 inf/s.** 커넥션 설정 한 줄로 얻었고, 오류 0·분배 편차 0.0%p 로
-scale-out 자체는 건강하다.
+**387.2 inf/s.** Obtained from a single line of connection configuration, with
+0 errors and 0.0 pp distribution deviation — scale-out itself is healthy.
 
-### 4.2 그러나 scaling efficiency 는 조금 내려갔다 (98.9% → 95.3%)
+### 4.2 But scaling efficiency slipped (98.9% → 95.3%)
 
-**이 점을 좋게 포장하지 않는다.** 노드당 이득이 노드 수에 따라 줄어든다.
+**We are not dressing this up.** The per-node gain shrinks as nodes are added.
 
 ```text
-1N  +17.6%   (115.2 → 135.5)
-2N  +13.5%   (232.0 → 263.3)
-3N  +13.3%   (341.8 → 387.2)
+1N  +17.6%   (115.2 -> 135.5)
+2N  +13.5%   (232.0 -> 263.3)
+3N  +13.3%   (341.8 -> 387.2)
 ```
 
-노드당 처리량으로 보면 **135.5 → 131.7 → 129.1** 로 단조 감소한다.
-1노드 최적화의 효과가 다노드에서 **온전히 보존되지 않는다.**
+Per-node throughput falls monotonically: **135.5 → 131.7 → 129.1**. The
+single-node optimization is **not fully preserved** at multiple nodes.
 
-이상적 3N(135.5×3 = 406.5) 대비 실제 387.2 — **19.3 inf/s 부족**하다.
+Against an ideal 3N (135.5 × 3 = 406.5), the measured 387.2 is **19.3 inf/s
+short**.
 
-### 4.3 유력한 후보: 서버 쪽
+### 4.3 Leading candidate: the server side
 
-> ⚠️ **[2026-08-21 철회 — S3.9a]** 아래 "10G 76%" 는 **계산 오류**다.
-> **10GbE 는 full-duplex** 라 요청(TX)과 응답(RX)이 각자의 10 Gbps 를 쓰는데,
-> 둘을 한 링크 예산에 합산했다. 실측은 **방향당 40.5%** 다(S3.9a §3).
+> ⚠️ **[Withdrawn 2026-08-21 — S3.9a]** The "10G 76%" below is an **arithmetic
+> error**. **10GbE is full-duplex**, so requests (TX) and responses (RX) each
+> get their own 10 Gbps, and the two were summed into one link budget. The
+> measured figure is **40.5% per direction** (S3.9a §3).
 >
-> S3.9a 가 서버 자원을 모두 배제했다 — CPU 42%, 링크 방향당 40%, drop 0,
-> 스레드 직렬화 없음. **손실은 전적으로 tail 증가**이며 p50 은 평평하다.
+> S3.9a excluded every server resource — CPU 42%, 40% per link direction, 0
+> drops, no thread serialization. **The loss is entirely a rise in the tail**,
+> with p50 flat.
 > → [S3.9a](#experiments-s3-9a-scaleout-profile)
 
-~~추론당 스케줄러↔노드 전송량은 2,446,800 byte 다. 3N 운영점에서~~
+~~Scheduler↔node traffic per inference is 2,446,800 bytes. At the 3N operating point~~
 
 | | baseline 3N | optimized 3N |
 |---|---:|---:|
-| 처리량 | 341.8 | **387.2** |
-| ~~서버 NIC 부하~~ | ~~6.69 Gbps~~ | ~~7.58 Gbps~~ |
-| ~~10G 링크 대비~~ | ~~67%~~ | ~~76%~~ |
+| Throughput | 341.8 | **387.2** |
+| ~~Server NIC load~~ | ~~6.69 Gbps~~ | ~~7.58 Gbps~~ |
+| ~~Against the 10G link~~ | ~~67%~~ | ~~76%~~ |
 
-**위 두 줄은 철회한다.** 양방향 합산은 full-duplex 링크에 적용할 수 없다.
+**Those two rows are withdrawn.** Summing both directions cannot be applied to
+a full-duplex link.
 
-### 4.4 지연은 노드 수에 따라 늘어난다
+### 4.4 Latency rises with node count
 
-노드당 부하가 셋 다 12 로 같은데도 운영점 p95 가
-**120.7 → 140.7 → 151.1 ms** 로 늘어난다. 노드당 조건이 동일하므로
-이 증가분은 **스케줄러 팬아웃 경로**에서 온다고 볼 수 있다. 다만 어느
-단계인지는 분해하지 않았다.
+Even though per-node load is 12 in all three cases, p95 at the operating point
+rises **120.7 → 140.7 → 151.1 ms**. Since the per-node conditions are identical,
+that increase can be attributed to the **scheduler fan-out path** — though which
+stage it comes from was not decomposed.
 
 ## 5. Limitations
 
-- **efficiency 하락의 원인은 미확인**(§4.3). 서버 NIC·CPU·스케줄러 팬아웃 중
-  무엇인지 분리하지 않았다. S3.5 와 같은 방식의 **서버 쪽 프로파일**이 필요하다.
-- 60초 측정이다. **throttling 발현 전 구간**이므로 지속 부하(S0)에서는
-  다를 수 있다.
-- concurrency 격자가 성기다(1N 4단위, 3N 12단위). 운영점의 절대값보다
-  구성 간 비교에 쓴다.
-- percentile 은 run-level 평균(S2 §7.4.1).
-- 2노드 조합은 king+queen 하나만 봤다.
+- **The cause of the efficiency drop is unidentified** (§4.3). Whether it is the
+  server NIC, CPU or scheduler fan-out was not separated. A **server-side
+  profile** in the manner of S3.5 is needed.
+- These are 60-second measurements, sitting **before throttling appears**, so
+  sustained load (S0) may differ.
+- The concurrency grid is coarse (steps of 4 at 1N, 12 at 3N). Use it for
+  comparison between configurations rather than for the absolute operating-point
+  value.
+- Percentiles are run-level averages (S2 §7.4.1).
+- Only one 2-node combination was examined: king+queen.
 
 ## 6. Reproduction
 
 ```bash
-bash scripts/run-scaleout-optimized.sh 3     # 36 run, 약 50분
+bash scripts/run-scaleout-optimized.sh 3     # 36 runs, about 50 minutes
 PYTHONIOENCODING=utf-8 python scripts/analyze-scaleout.py \
     results/scaleout-optimized-20260820/raw/results.csv
 ```
 
-> 세 보드에 `npuforge-node.s36`(= `[transport]` 지원 빌드)이 배포돼 있어야
-> 한다. 없으면 노드 수 검증이 그 구성을 건너뛴다 — 조용히 틀린 결과를 내는
-> 대신 큰 소리로 멈춘다.
+> `npuforge-node.s36` (the build with `[transport]` support) must be deployed on
+> all three boards. Without it the node-count check skips that configuration —
+> stopping loudly instead of silently producing a wrong result.
 
 ## 7. Conclusion
 
-**노드당 운영점(커넥션 2개 @ c12)은 3노드까지 유지되며, 절대 처리량을
-341.8 → 387.2 inf/s (+13.3%) 로 끌어올린다.** 오류 0, 분배 균등.
+**The per-node operating point (2 connections @ c12) holds up to three nodes and
+lifts absolute throughput from 341.8 to 387.2 inf/s (+13.3%).** Zero errors,
+even distribution.
 
-다만 **scaling efficiency 는 98.9% → 95.3% 로 소폭 내려갔고**, 노드당
-이득이 +17.6%(1N) → +13.3%(3N) 으로 줄어든다. 1노드 최적화가 다노드에서
-온전히 보존되지 않는다는 뜻이다. ~~서버 10G 링크가 76% 까지~~ — **S3.9a 에서 철회**(full-duplex 계산 오류,
-실제 방향당 40%). S3.9a 는 서버 자원을 모두 배제하고 손실이 **tail 증가**임을
-확인했다.
+That said, **scaling efficiency slipped from 98.9% to 95.3%**, and the per-node
+gain shrinks from +17.6% (1N) to +13.3% (3N) — meaning the single-node
+optimization is not fully preserved at multiple nodes. ~~The server 10G link at
+76%~~ — **withdrawn in S3.9a** (full-duplex arithmetic error; the real figure is
+40% per direction). S3.9a excluded every server resource and confirmed the loss
+is **a rise in the tail**.
 
-→ 다음은 **서버 쪽 프로파일**이다. 노드 쪽은 S3.5 에서 했고, 이번엔 서버가
-후보로 올라왔다. 그 결과가 나오기 전에는 남은 gap 을 노드 쪽 비용
-(protobuf·복사·syscall)으로만 돌리면 안 된다.
+→ Next is a **server-side profile**. The node side was done in S3.5; this time
+the server has become a candidate. Until that result is in, the remaining gap
+must not be attributed solely to node-side costs (protobuf, copies, syscalls).
 
 ---
 
 ## Figure
 
-![절대값은 모든 규모에서 오르고 efficiency 는 98.9% → 95.3%](../results/scaleout-optimized-20260820/figures/fig_scaleout_optimized.png)
+![Absolute values rise at every scale while efficiency goes 98.9% -> 95.3%](../results/scaleout-optimized-20260820/figures/fig_scaleout_optimized.png)
 
-**`fig_scaleout_optimized.png`** — 절대값은 모든 규모에서 오르고 efficiency 는 98.9% → 95.3%
+**`fig_scaleout_optimized.png`** — absolute values rise at every scale while
+efficiency goes 98.9% → 95.3%
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`
 
 ---
 
@@ -10615,220 +10659,239 @@ PYTHONIOENCODING=utf-8 python scripts/analyze-scaleout.py \
 
 # S3.9a — Scale-out Efficiency Loss Profiling
 
-- 실험 ID: **S3.9a**
-- 측정일: 2026-08-21
-- 코드: `e1ad9ed` + `[transport] node_connections = 2`
-- 상태: **완료 (9 run, 3구성 × 3회, 9/9 노드 수 검증 통과)**
-- 원본: [`../../results/scaleout-profile-20260821/`](../results/scaleout-profile-20260821)
-- 선행: [`S3_8_OPTIMIZED_SCALEOUT.md`](#experiments-s3-8-optimized-scaleout)
+*[한국어 원문](experiments/S3_9A_SCALEOUT_PROFILE.ko.md)*
+
+- Experiment ID: **S3.9a**
+- Measured: 2026-08-21
+- Code: `e1ad9ed` + `[transport] node_connections = 2`
+- Status: **complete (9 runs, 3 configurations × 3, node-count verification passed 9/9)**
+- Raw data: [`../../results/scaleout-profile-20260821/`](../results/scaleout-profile-20260821)
+- Predecessor: [`S3_8_OPTIMIZED_SCALEOUT.md`](#experiments-s3-8-optimized-scaleout)
 
 ---
 
 ## 1. Research Question
 
-> **optimized 3N 에서 사라진 약 4.5% efficiency 가 shared path 의 어디서 생기는가?**
+> **Where in the shared path does the ~4.5% efficiency that optimized 3N loses
+> actually go?**
 
-범위를 넓히지 않는다. **새 sweep 을 섞지 않고** S3.8 이 찾아 둔 각자의
-운영점을 그대로 쓴다 — 1N@c12 / 2N@c24 / 3N@c36. 셋 다 노드당 커넥션 2개,
-노드당 c12 다. **달라지는 것은 노드 수뿐이다.**
+The scope does not widen. **No new sweep is mixed in** — the operating points
+S3.8 already established are used as they are: 1N@c12 / 2N@c24 / 3N@c36. All
+three run 2 connections per node and c12 per node. **The only thing that
+changes is node count.**
 
 ## 2. Method
 
-- 서버와 king 을 **동시에** 프로파일한다. "서버가 늘었나 노드가 줄었나" 는
-  나란히 봐야 구분된다.
-- 서버에 sysstat 이 없다(mpstat/pidstat/sar/perf 전부). **설치하지 않고**
-  `/proc/stat` 24코어 델타로 직접 계산했다 — 측정 캠페인 중 환경을 바꾸지
-  않기 위해서다.
-- 수집: 코어별 busy·softirq, NIC RX/TX·drop, IRQ/softirq 분포,
-  **스케줄러 스레드별 CPU**, `ss -tin`(rtt·cwnd·retrans), 노드별 분배.
-- 스크립트: [`run-scaleout-profile.sh`](../scripts/run-scaleout-profile.sh),
+- Profile the server and king **simultaneously**. "Did the server grow or did
+  the node shrink" can only be told apart side by side.
+- The server has no sysstat (no mpstat, pidstat, sar or perf). It was **not
+  installed**; the figures were computed directly from 24-core `/proc/stat`
+  deltas, to avoid changing the environment mid-campaign.
+- Collected: per-core busy and softirq, NIC RX/TX and drops, IRQ/softirq
+  distribution, **per-thread scheduler CPU**, `ss -tin` (rtt, cwnd, retrans),
+  per-node distribution.
+- Scripts: [`run-scaleout-profile.sh`](../scripts/run-scaleout-profile.sh),
   [`server-profile-collect.sh`](../scripts/server-profile-collect.sh),
   [`analyze-scaleout-profile.py`](../scripts/analyze-scaleout-profile.py).
 
-## 3. ⚠️ 먼저, S3.8 의 유력 후보를 철회한다
+## 3. ⚠️ First, S3.8's leading candidate is withdrawn
 
-S3.8 은 **"서버 10G 링크가 76% 까지 올라왔다"** 를 efficiency 하락의 유력
-후보로 지목했다. **그 계산이 틀렸다.**
+S3.8 named **"the server 10G link has climbed to 76%"** as the leading candidate
+for the efficiency drop. **That calculation was wrong.**
 
 ```text
-내가 쓴 것   387.2 inf/s × 2,446,800 byte × 8 = 7.58 Gbps → "10G 의 76%"
+what was written   387.2 inf/s x 2,446,800 byte x 8 = 7.58 Gbps -> "76% of 10G"
 ```
 
-**10GbE 는 full-duplex 다.** 요청(TX)과 응답(RX)은 각자의 10 Gbps 를 쓴다.
-둘을 한 링크 예산에 합산하면 안 된다.
+**10GbE is full-duplex.** Requests (TX) and responses (RX) each use their own
+10 Gbps. The two must not be summed into one link budget.
 
-| | TX (요청) | RX (응답) | 방향당 10G 대비 |
+| | TX (request) | RX (response) | vs 10G per direction |
 |---|---:|---:|---:|
 | 1N | 1.34 Gbps | 1.33 Gbps | 13.4% |
 | 2N | 2.61 | 2.59 | 26.1% |
 | **3N** | **3.84** | **3.80** | **38.4%** |
 
-실측(`/proc/net/dev`)도 3N 에서 RX 3.997 / TX 4.048 Gbps, **방향당 40.5%** 다.
-76% 가 아니라 **40%**. **서버 10G 링크는 병목이 아니다.**
+The measurement (`/proc/net/dev`) agrees: at 3N, RX 3.997 / TX 4.048 Gbps —
+**40.5% per direction**. Not 76% but **40%**. **The server 10G link is not the
+bottleneck.**
 
-> 세션 초반에 보드의 2.5GbE 에 대해서는 full-duplex 를 정확히 따졌는데
-> ([S3.5 §4.1](#experiments-s3-5-transport-profile)), 서버에서 같은 실수를 했다.
-> 같은 함정은 축이 바뀌면 다시 밟힌다.
+> Earlier in the session full-duplex was reasoned about correctly for the
+> boards' 2.5GbE ([S3.5 §4.1](#experiments-s3-5-transport-profile)), and then the same
+> mistake was made on the server. The same trap gets stepped in again when the
+> axis changes.
 
 ## 4. Results
 
-오류율 0, 분배 편차 0.0%p, 9/9 노드 수 검증 통과.
+Error rate 0, distribution deviation 0.0 pp, node-count verification passed 9/9.
 
-### 4.1 efficiency 손실 = 평균 지연 증가, 정확히 일치한다
+### 4.1 The efficiency loss equals the rise in mean latency, exactly
 
-| N | conc | throughput | **mean** | p50 | p95 | p99 | Efficiency | mean 증가 |
+| N | conc | throughput | **mean** | p50 | p95 | p99 | Efficiency | mean increase |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | 12 | 136.2 | 87.63 | **85.9** | 119.7 | 137.9 | **100.0%** | +0.0% |
 | 2 | 24 | 265.6 | 89.79 | **86.0** | 136.6 | 169.0 | **97.5%** | **+2.5%** |
 | 3 | 36 | 390.3 | 91.55 | **85.9** | 147.4 | 187.6 | **95.5%** | **+4.5%** |
 
-closed-loop 에서 처리량 = concurrency / mean latency 이므로 이 일치는
-항등식이다. 중요한 것은 **그 평균이 어디서 늘었는가** 다.
+In a closed loop, throughput = concurrency / mean latency, so this agreement is
+an identity. What matters is **where that mean grew**.
 
-> **p50 은 완전히 평평하다 — 85.9 / 86.0 / 85.9 ms.**
-> 요청 하나를 처리하는 데 드는 일 자체는 노드 수와 무관하다.
+> **p50 is completely flat — 85.9 / 86.0 / 85.9 ms.**
+> The work of handling one request is independent of node count.
 >
-> **평균을 끌어올린 것은 전적으로 tail 이다.**
+> **What pulled the mean up is entirely the tail.**
 > p95 +23% (119.7 → 147.4), p99 **+36%** (137.9 → 187.6).
 
-단계 분해도 같은 말을 한다(p50, ms):
+The stage breakdown says the same (p50, ms):
 
-| | e2e | inference | →node | →client | payload 합 | non-inference |
+| | e2e | inference | →node | →client | payload sum | non-inference |
 |---|---:|---:|---:|---:|---:|---:|
 | 1N | 79.07 | 32.77 | 22.46 | 22.46 | 44.91 | 46.30 |
 | 2N | 77.92 | 30.32 | 22.91 | 22.91 | 45.82 | 47.60 |
 | 3N | 76.16 | 29.33 | 22.33 | 22.33 | 44.66 | 46.84 |
 
-**어느 단계도 노드 수에 따라 늘지 않는다.** 스케줄러 큐·라우팅은 ~0
-(0.000~0.004 ms), 노드 큐도 0.022 ms 로 고정이다.
+**No stage grows with node count.** Scheduler queue and routing are ~0
+(0.000–0.004 ms), and node queue is fixed at 0.022 ms.
 
-### 4.2 서버 자원은 어디도 포화하지 않았다
+### 4.2 No server resource is anywhere near saturation
 
-| N | busy 코어 | 최번 코어 | softirq 코어 | RX Gbps | TX Gbps | 방향당 10G | drop | schedCPU | sysc/req |
+| N | busy cores | busiest core | softirq cores | RX Gbps | TX Gbps | 10G per dir | drop | schedCPU | sysc/req |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | 2.81 | 18.4% | 0.51 | 1.390 | 1.408 | 14.1% | **0** | 1.57 | 164.7 |
 | 2 | 6.03 | 29.6% | 1.04 | 2.712 | 2.749 | 27.5% | **0** | 3.32 | 164.5 |
 | 3 | **10.12** / 24 | **47.6%** | 1.67 | 3.997 | 4.048 | **40.5%** | **0** | 5.62 | 164.2 |
 
-- **CPU**: 24코어 중 10.12 사용(42%). 가장 바쁜 코어도 47.6%.
-- **링크**: 방향당 40.5%. **drop 0.**
-- **스레드 직렬화 없음**: 3N 상위 5 스레드가 37/35/34/31/30% 로 고르다.
-  단일 스레드가 튀는 직렬화 지점이 **없다**.
-- **syscalls/req 불변**: 164.7 / 164.5 / 164.2.
+- **CPU**: 10.12 of 24 cores in use (42%). Even the busiest core is at 47.6%.
+- **Link**: 40.5% per direction. **0 drops.**
+- **No thread serialization**: the top 5 threads at 3N sit at 37/35/34/31/30% —
+  evenly spread. There is **no** serialization point where one thread spikes.
+- **syscalls/req unchanged**: 164.7 / 164.5 / 164.2.
 
-> 예상대로 서버는 RX 큐가 24개(보드는 1개)라 RSS 로 분산된다. 보드에서
-> 걸렸던 "단일 큐 + CPU0 편중" 문제는 서버에 없다.
+> As expected the server has 24 RX queues (the boards have one), so RSS spreads
+> the load. The "single queue + CPU0 concentration" problem that bit on the
+> boards does not exist on the server.
 
-### 4.3 그러나 두 가지가 노드 수와 함께 자란다
+### 4.3 But two things grow with node count
 
-**(a) 서버 CPU per request 가 +26%**
+**(a) Server CPU per request is +26%**
 
 ```text
-1N  2.81 코어 / 136.2 inf/s = 20.6 ms·core/req
-2N  6.03 / 265.5            = 22.7
-3N 10.12 / 390.3            = 25.9      (+26%)
+1N  2.81 cores / 136.2 inf/s = 20.6 ms.core/req
+2N  6.03 / 265.5             = 22.7
+3N 10.12 / 390.3             = 25.9      (+26%)
 ```
 
-포화는 아니지만(42%) **초선형**이다 — 노드 3배에 CPU 3.60배.
+Not saturation (42%), but **superlinear** — 3× the nodes for 3.60× the CPU.
 
-**(b) TCP 재전송률이 커넥션당 3.5배**
+**(b) TCP retransmit rate is 3.5× per connection**
 
-`ss -tin` 원본에서 커넥션당 재전송 바이트 비율:
+Retransmitted-byte ratio per connection, from the raw `ss -tin`:
 
-| | bytes_sent | bytes_retrans | 재전송률 | cwnd | ssthresh |
+| | bytes_sent | bytes_retrans | retransmit rate | cwnd | ssthresh |
 |---|---:|---:|---:|---:|---:|
 | 1N | 3.05 GB | 1.67 MB | **0.055%** | **176** | 138 |
 | 3N | 2.95 GB | 5.57 MB | **0.189%** | 118 | 103 |
 | 3N | 2.94 GB | 5.93 MB | 0.201% | 119 | 66 |
 | 3N | 2.95 GB | 5.33 MB | 0.181% | 106 | 59 |
 
-**커넥션당 전송량은 비슷한데(≈3 GB) 재전송률만 3.5배**다. 그리고 혼잡
-윈도가 눌려 있다 — cwnd 176 → 106~119, ssthresh 138 → 59~103.
+**Bytes sent per connection are comparable (≈3 GB) while only the retransmit
+rate is 3.5×.** And the congestion window is suppressed — cwnd 176 → 106–119,
+ssthresh 138 → 59–103.
 
 ## 5. Interpretation
 
-정리하면 이렇다.
+Summarised:
 
 ```text
-efficiency 손실  =  평균 지연 증가  =  전적으로 tail 증가
-                    (p50 은 완전히 평평)
+efficiency loss  =  rise in mean latency  =  entirely a rise in the tail
+                    (p50 completely flat)
 
-서버 자원         포화 없음 (CPU 42%, 링크 40%/방향, drop 0, 스레드 고름)
-서버 per-req 비용  +26% (초선형이지만 포화는 아님)
-TCP 재전송률       커넥션당 3.5배, cwnd 눌림
+server resources    no saturation (CPU 42%, link 40%/direction, 0 drops, threads even)
+server per-req cost +26% (superlinear but not saturated)
+TCP retransmit rate 3.5x per connection, cwnd suppressed
 ```
 
-**유력 가설(미검증): 공유 경로의 혼잡.** 서버는 10G 한 포트에서 나가고
-보드는 2.5G 세 포트로 받는다. 총량은 링크 상한에 한참 못 미치지만,
-**10G → 2.5G 속도 불일치**는 스위치 egress 에서 버퍼링을 만든다. 노드 수가
-늘수록 스위치 fabric 을 지나는 총 트래픽이 늘고, TCP 는 재전송·cwnd 축소로
-반응한다. 재전송은 중앙값을 거의 안 건드리고 **tail 만 밀어 올린다** —
-관측된 신호(p50 평평, p95/p99 증가)와 정확히 맞는 모양이다.
+**Leading hypothesis (unverified): congestion on the shared path.** The server
+sends out of one 10G port and the boards receive on three 2.5G ports. The
+totals are far below the link ceiling, but the **10G → 2.5G speed mismatch**
+creates buffering at the switch egress. As nodes are added, the total traffic
+crossing the switch fabric rises and TCP responds with retransmits and a reduced
+cwnd. Retransmits barely touch the median and **push only the tail up** — which
+is exactly the shape of the observed signal (p50 flat, p95/p99 rising).
 
-**그러나 이것은 정합성이지 증명이 아니다.** 스위치 쪽 카운터를 보지 않았고,
-재전송이 원인인지 같은 원인의 다른 증상인지 가르지 않았다.
+**But this is consistency, not proof.** The switch-side counters were not read,
+and whether retransmits are the cause or another symptom of the same cause was
+not separated.
 
-## 6. 후보 현황 갱신
+## 6. Candidate status, updated
 
-| 후보 | S3.8 시점 | **S3.9a 이후** |
+| Candidate | As of S3.8 | **After S3.9a** |
 |---|---|---|
-| 서버 10G 링크 | 유력 후보 (76%) | **철회** — 계산 오류. 방향당 40% |
-| 서버 CPU 포화 | 후보 | **배제** — 42%, 최번 코어 47.6% (**24스레드 호스트에서**. §7 참조) |
-| 스케줄러 직렬화 | 후보 | **배제** — 스레드 CPU 고름 |
-| 서버 NIC drop | 후보 | **배제** — drop 0 |
-| **공유 경로 혼잡 (10G→2.5G)** | — | **신규 유력** — 재전송 3.5배, cwnd 눌림 |
-| 서버 per-req CPU 초선형 | — | **열림** — +26%, 포화는 아님 |
+| Server 10G link | leading candidate (76%) | **withdrawn** — arithmetic error. 40% per direction |
+| Server CPU saturation | candidate | **excluded** — 42%, busiest core 47.6% (**on the 24-thread host**; see §7) |
+| Scheduler serialization | candidate | **excluded** — thread CPU is even |
+| Server NIC drops | candidate | **excluded** — 0 drops |
+| **Shared-path congestion (10G→2.5G)** | — | **new, leading** — retransmits 3.5×, cwnd suppressed |
+| Superlinear server per-req CPU | — | **open** — +26%, but not saturated |
 
 ## 7. Limitations
 
-- **혼잡 가설 미검증.** 스위치 카운터(포트별 drop·pause·buffer)를 보지 않았다.
-- `ss` 의 재전송·cwnd 는 **커넥션 수립 이후 누적값**이다. 통제된 창의 값이
-  아니므로 절대 비교보다 **비율 비교**로만 썼다.
-- 노드 쪽 프로파일(king)도 함께 수집했으나 이 문서는 서버 축만 다룬다.
-- **"서버 CPU 배제" 는 그 호스트에서의 판정이다 (2026-08-26 추가).**
-  스케줄러 호스트를 24스레드에서 8스레드로 교체하자 같은 부하에서 서버 CPU 가
-  **42% → 82.2%** 가 되고 기준선이 **391 → 360 inf/s** 로 내려갔다.
-  이 문서의 측정과 결론은 24스레드 호스트에서 유효하며 **그대로 둔다.**
-  다른 호스트에서 재현할 때는 서버 CPU 사용률을 함께 본다.
+- **The congestion hypothesis is unverified.** Switch counters (per-port drops,
+  pause frames, buffers) were not read.
+- `ss` retransmit and cwnd figures are **cumulative since the connection was
+  established**, not values over a controlled window, so they were used only for
+  **ratio comparison** rather than absolute comparison.
+- A node-side profile (king) was collected as well, but this document covers
+  only the server axis.
+- **"Server CPU excluded" is a verdict about that host (added 2026-08-26).**
+  Swapping the scheduler host from 24 threads to 8 took server CPU from
+  **42% to 82.2%** under the same load and dropped the baseline from
+  **391 to 360 inf/s**. The measurements and conclusions in this document hold
+  for the 24-thread host and **stand as recorded.** When reproducing on another
+  host, watch server CPU utilisation alongside.
   → `../infrastructure.md` §3.2.1
-- 60초 측정 — throttling 전 구간.
-- percentile 은 run-level 평균(S2 §7.4.1).
+- 60-second measurements — before the throttling region.
+- Percentiles are run-level averages (S2 §7.4.1).
 
 ## 8. Reproduction
 
 ```bash
-bash scripts/run-scaleout-profile.sh 3     # 9 run, 약 15분
+bash scripts/run-scaleout-profile.sh 3     # 9 runs, about 15 minutes
 PYTHONIOENCODING=utf-8 python scripts/analyze-scaleout-profile.py \
     results/scaleout-profile-20260821
 ```
 
 ## 9. Conclusion
 
-**3N 의 4.5% efficiency 손실은 서버 자원 포화 때문이 아니다.** CPU 42%,
-링크 방향당 40%, drop 0, 스레드 직렬화 없음, syscalls/req 불변이다.
-S3.8 이 지목했던 "10G 76%" 는 **full-duplex 를 무시한 계산 오류**로 철회한다.
+**3N's 4.5% efficiency loss is not caused by server resource saturation.** CPU
+42%, link 40% per direction, 0 drops, no thread serialization, syscalls/req
+unchanged. The "10G at 76%" S3.8 pointed at is withdrawn as **an arithmetic
+error that ignored full-duplex**.
 
-손실의 정체는 **전적으로 tail 증가**다. p50 은 85.9 ms 로 완전히 평평한데
-p95 가 +23%, p99 가 +36% 늘고, 그만큼 평균이 올라 closed-loop 처리량이
-깎인다. 단계 분해 어디에도 증가가 없다.
+The loss is **entirely a rise in the tail**. p50 is completely flat at 85.9 ms
+while p95 rises +23% and p99 +36%; the mean rises with them and closed-loop
+throughput is cut accordingly. No stage in the breakdown grows.
 
-동반 신호는 **커넥션당 TCP 재전송률 3.5배와 cwnd 축소**다. 서버는 10G 한
-포트, 보드는 2.5G 세 포트라 **속도 불일치로 인한 공유 경로 혼잡**이 유력한
-가설이지만 **검증되지 않았다.**
+The accompanying signal is a **3.5× per-connection TCP retransmit rate and a
+reduced cwnd**. With the server on one 10G port and the boards on three 2.5G
+ports, **shared-path congestion from the speed mismatch** is the leading
+hypothesis — but it is **unverified**.
 
-→ 다음은 **S0(지속 부하)** 다. 혼잡 가설 검증은 스위치 카운터 접근이 필요해
-별도 준비가 든다. 그보다 **현재 운영점이 30분에서도 유효한지**가 먼저다 —
-지금 결과는 전부 60초 구간이다.
+→ Next is **S0 (sustained load)**. Verifying the congestion hypothesis needs
+switch counter access and separate preparation. Before that, the question is
+**whether the current operating point still holds over 30 minutes** — every
+result so far covers a 60-second window.
 
 ---
 
 ## Figure
 
-![p50 평평(+0%), p95 +23%, p99 +36% — 손실은 전적으로 tail](../results/scaleout-profile-20260821/figures/fig_efficiency_loss_is_tail.png)
+![p50 flat (+0%), p95 +23%, p99 +36% - the loss is entirely in the tail](../results/scaleout-profile-20260821/figures/fig_efficiency_loss_is_tail.png)
 
-**`fig_efficiency_loss_is_tail.png`** — p50 평평(+0%), p95 +23%, p99 +36% — 손실은 전적으로 tail
+**`fig_efficiency_loss_is_tail.png`** — p50 flat (+0%), p95 +23%, p99 +36%; the
+loss is entirely in the tail
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`
 
 ---
 
@@ -10836,217 +10899,233 @@ p95 가 +23%, p99 가 +36% 늘고, 그만큼 평균이 올라 closed-loop 처리
 
 # S3.9b — Node-side Residual Cost Profiling
 
-- 실험 ID: **S3.9b**
-- 측정일: 2026-08-21
-- 코드: `62855bd`
-- 상태: **완료** (4 조건 × 45초 수집, 오류 0)
-- 원본: [`../../results/node-residual-20260821/`](../results/node-residual-20260821)
-- 선행: [`S3_5_TRANSPORT_PROFILE.md`](#experiments-s3-5-transport-profile) ·
+*[한국어 원문](experiments/S3_9B_NODE_RESIDUAL.ko.md)*
+
+- Experiment ID: **S3.9b**
+- Measured: 2026-08-21
+- Code: `62855bd`
+- Status: **complete** (4 conditions × 45 s of collection, 0 errors)
+- Raw data: [`../../results/node-residual-20260821/`](../results/node-residual-20260821)
+- Predecessors: [`S3_5_TRANSPORT_PROFILE.md`](#experiments-s3-5-transport-profile) ·
   [`S3_9A_SCALEOUT_PROFILE.md`](#experiments-s3-9a-scaleout-profile)
 
 ---
 
-## 1. Research Question (좁게)
+## 1. Research Question (narrow)
 
-> **161.5 → 135.5 사이의 residual gap 에서 node-side serialization /
-> copy / syscall 비용이 유의미한 비중을 차지하는가?**
+> **In the residual gap between 161.5 and 135.5, do node-side serialization,
+> copy and syscall costs account for a meaningful share?**
 
-**gap 전체를 설명하는 것이 목적이 아니다.** S3.9a 에서 scale-out
-tail/TCP 쪽 비용이 별도로 드러났으므로 node-side 프로파일이 26.0 inf/s
-전부를 설명해야 할 이유가 없다. 설명 못 한 잔여는 잔여로 남긴다.
+**Explaining the whole gap is not the objective.** S3.9a separately surfaced the
+scale-out tail/TCP cost, so there is no reason a node-side profile should have
+to account for all 26.0 inf/s. Whatever is not explained stays unexplained.
 
-판정 규칙은 **측정 전에** 정했다.
+The decision rule was fixed **before measuring**.
 
-| 결과 | 결정 |
+| Result | Decision |
 |---|---|
-| syscall·copy 가 **충분히 큼** | S4 io_uring 진입 |
-| **작음** | **S4 취소/보류** |
-| **다른 항이 큼** | 그 항만 기록. 핵심 범위 밖이면 더 안 판다 |
+| syscall and copy are **large enough** | proceed to S4 io_uring |
+| **small** | **cancel/shelve S4** |
+| **some other term is large** | record that term only. If it is outside the core scope, dig no further |
 
 ## 2. Method
 
-S3.5 와의 결정적 차이는 **운영점에서 잰다**는 것이다.
+The decisive difference from S3.5 is that **this measures at the operating
+point**.
 
 ```text
-S3.5    c32 · conn1   116.6 inf/s   과부하 · baseline
-S3.9b   c12 · conn2   136.6 inf/s   운영점 · optimized
+S3.5    c32 . conn1   116.6 inf/s   overload . baseline
+S3.9b   c12 . conn2   136.6 inf/s   operating point . optimized
 ```
 
-과부하 구간 값을 운영 판단에 쓰지 않는다(README §4.1). 이 저장소는 같은
-함정에 이미 한 번 걸렸다 — 13.2% 오인용 사건.
+Overload-region values are not used for operating decisions (README §4.1). This
+repository has already fallen into that trap once — the 13.2% misquotation
+incident.
 
-- 1노드(king only). queen·jack 을 내려 RR 이 나눠 가지 못하게 하고,
-  probe 로 **응답한 노드 ID 가 king 하나**임을 물증으로 남긴다.
-- 부하 80초 중 **t+20 부터 45초**만 수집. 램프와 warmup 을 뺀다.
-- 조건 4개: `idle`(계측기 바닥값) / `op`(운영점) / `strace` / `local`(direct 8스레드).
+- One node (king only). queen and jack are brought down so round-robin cannot
+  split the load, and a probe leaves evidence that **the only responding node ID
+  is king**.
+- Of the 80 s of load, only **45 s starting at t+20** is collected, excluding
+  the ramp and warmup.
+- Four conditions: `idle` (instrument floor) / `op` (operating point) /
+  `strace` / `local` (direct, 8 threads).
 
-### 2.1 계기 선택 — perf 가 없다
+### 2.1 Choice of instrument — there is no perf
 
-보드에 `perf` · `bpftrace` · `gdb` 가 없다(커널 6.1.141, 벤더 트리).
-심볼 단위 프로파일은 불가능하다. 대신 **`/proc/PID/stat` 의 utime/stime
-분리**를 쓴다.
+The boards have no `perf`, `bpftrace` or `gdb` (kernel 6.1.141, vendor tree).
+Symbol-level profiling is impossible. Instead, the **utime/stime split from
+`/proc/PID/stat`** is used.
 
 ```text
-utime  유저 시간 — protobuf 직렬화, 유저공간 copy, HTTP/2 프레이밍
-stime  커널 시간 — syscall 진입, TCP 스택, copy_to_user, skb, 드라이버
+utime  user time   - protobuf serialization, user-space copies, HTTP/2 framing
+stime  kernel time - syscall entry, TCP stack, copy_to_user, skb, driver
 ```
 
-**io_uring 이 줄이는 것은 stime 의 일부다.** 따라서 stime 전체가
-io_uring 의 절대 상한이고, 실제 회수 가능분은 그보다 작다.
+**What io_uring reduces is a portion of stime.** So the whole of stime is
+io_uring's absolute upper bound, and what is actually recoverable is smaller
+than that.
 
-보조로 `strace -c` 를 10초. ptrace 가 syscall 마다 정지시켜 체류시간이
-**부풀려져** 나오므로 **상한으로만** 쓴다 — 부풀린 값이 작으면 실제는
-확정적으로 더 작다. 한쪽 방향으로만 유효한 검정이다.
+As a secondary instrument, `strace -c` for 10 s. Because ptrace stops the
+process at every syscall, the reported residency is **inflated**, so it is used
+**only as an upper bound** — if the inflated figure is small, the real one is
+conclusively smaller. It is a test that is valid in one direction only.
 
 ## 3. Results
 
-### 3.1 요청당 노드 CPU
+### 3.1 Node CPU per request
 
-| 조건 | throughput | utime/req | stime/req | **CPU-ms/req** | user% | kernel% |
+| Condition | throughput | utime/req | stime/req | **CPU-ms/req** | user% | kernel% |
 |---|---:|---:|---:|---:|---:|---:|
-| op (운영점) | 136.6 | 14.50 | 11.09 | **25.59** | 56.7 | 43.3 |
+| op (operating point) | 136.6 | 14.50 | 11.09 | **25.59** | 56.7 | 43.3 |
 | local direct | 157.9 | 5.14 | 4.10 | **9.23** | 55.6 | 44.4 |
-| **transport 비용** | | **9.37** | **6.99** | **16.35** | **57.3** | **42.7** |
+| **transport cost** | | **9.37** | **6.99** | **16.35** | **57.3** | **42.7** |
 
-운영점 136.6 은 S3.8 의 135.5±0.4, S3.7b 의 136.4±0.3 과 일치한다 —
-조건이 제대로 잡혔다는 확인이다.
+The operating point of 136.6 agrees with S3.8's 135.5 ± 0.4 and S3.7b's
+136.4 ± 0.3 — confirmation that the condition was set up correctly.
 
-> ⚠️ local 의 157.9 는 80초 **전체 평균**이라 램프를 포함한다. 수집 창
-> (t+20~65)의 정상 구간 속도는 162.6 이었다. 이 차이는 local 의
-> 요청당 CPU 를 약 3% 과대평가하는 방향이며, **transport 비용을 과소가
-> 아니라 과대 추정**하므로 아래 결론(비용이 작다)을 약화시키지 않는다.
+> ⚠️ The local figure of 157.9 is the average over the **full 80 s** and so
+> includes the ramp. The steady-state rate within the collection window
+> (t+20–65) was 162.6. That difference overestimates local's per-request CPU by
+> about 3%, which **overestimates rather than underestimates the transport
+> cost** — so it does not weaken the conclusion below (that the cost is small).
 
-### 3.2 어느 코어도 포화가 아니다
+### 3.2 No core is saturated
 
 ```text
-op    cpu0  soft=68.3  idle=21.2   ← 유일한 뜨거운 코어 (78.8% busy)
-      cpu1~3            idle 61~64
-      cpu4~7            idle 42~47
-      전체              idle 48.9
-local 전체              idle 82.5   softirq 0
+op    cpu0  soft=68.3  idle=21.2   <- the only hot core (78.8% busy)
+      cpu1-3            idle 61-64
+      cpu4-7            idle 42-47
+      overall           idle 48.9
+local overall           idle 82.5   softirq 0
 ```
 
-가장 뜨거운 cpu0 도 21% 남는다. cpu0 의 부하는 대부분 **softirq**
-(NIC 단일 수신 큐)인데, **S3.5 §4.3 이 이미 RPS 로 분산시켜 보고
-−0.2% null 을 얻었다.** cpu0 softirq 도 제약이 아니다.
+Even the hottest core, cpu0, has 21% left. cpu0's load is mostly **softirq**
+(the NIC's single receive queue) — and **S3.5 §4.3 already spread that with RPS
+and got a −0.2% null.** cpu0 softirq is not a constraint either.
 
-### 3.3 syscall — 횟수는 많고 비용은 작다
+### 3.3 Syscalls — many calls, small cost
 
-`strace -c` 10초 (요청 약 1,284건):
+`strace -c` over 10 s (about 1,284 requests):
 
-| syscall | 체류시간 | 호출 수 | calls/req | |
+| syscall | residency | calls | calls/req | |
 |---|---:|---:|---:|---|
-| futex | 30.07s | 48,565 | 37.8 | 스레드 동기화 **대기** |
-| ioctl | 24.72s | 68,924 | 53.7 | RKNN 드라이버 (NPU 제출) |
-| epoll_pwait | 9.78s | 37,157 | 28.9 | 이벤트 **대기** |
-| **recvfrom** | 9.50s | 136,602 | **106.4** | 요청 수신 ← io_uring 대상 |
-| **writev** | 5.91s | 69,245 | **53.9** | 응답 송신 ← io_uring 대상 |
-| **write** | 0.35s | 5,524 | **4.3** | 응답 송신 ← io_uring 대상 |
+| futex | 30.07s | 48,565 | 37.8 | thread synchronization **wait** |
+| ioctl | 24.72s | 68,924 | 53.7 | RKNN driver (NPU submission) |
+| epoll_pwait | 9.78s | 37,157 | 28.9 | event **wait** |
+| **recvfrom** | 9.50s | 136,602 | **106.4** | request receive ← io_uring target |
+| **writev** | 5.91s | 69,245 | **53.9** | response send ← io_uring target |
+| **write** | 0.35s | 5,524 | **4.3** | response send ← io_uring target |
 
-**네트워크 syscall 체류시간은 15.77s / 80.36s = 19.6%** 다. 나머지
-80.4% 는 futex(동기화 대기) · ioctl(NPU 드라이버) · epoll(이벤트 대기)로,
-**io_uring 이 손대는 영역이 아니다.**
+**Network syscall residency is 15.77 s / 80.36 s = 19.6%.** The other 80.4% is
+futex (synchronization wait), ioctl (NPU driver) and epoll (event wait) — **none
+of which io_uring touches.**
 
-## 4. 판정 — **S4 io_uring 취소/보류**
+## 4. Verdict — **S4 io_uring cancelled/shelved**
 
-요청당 네트워크 syscall 은 약 **165회**(recvfrom 106 + writev 54 + write 4).
-aarch64 syscall 진입 비용을 **넉넉히 1 µs** 로 잡아도
-
-```text
-165 회 × 1 µs = 0.165 ms/req
-0.165 / 16.35 = 요청당 transport CPU 의 1.0%
-```
-
-등록 버퍼로 1.2 MB copy 를 양방향 모두 없앤다고 **가정해도**(RK3576
-메모리 대역폭 기준 약 0.6~1.2 ms) 합계는 **1.4 ms/req ≈ transport
-비용의 8%** 다.
-
-그리고 그 8% 를 다 회수해도 **처리량은 오르지 않는다.** 보드 CPU 가
-48.9% idle 이고 어느 코어도 포화가 아니며, 가장 뜨거운 cpu0 의 softirq
-는 RPS 로 분산해도 −0.2% null 이었기 때문이다.
-
-> **CPU-ms/req 는 비용이지 제약이 아니다.** 포화되지 않은 자원의
-> 사용량을 줄이는 것은 처리량을 올리지 않는다.
+Network syscalls per request come to about **165** (recvfrom 106 + writev 54 +
+write 4). Even taking aarch64 syscall entry cost **generously at 1 µs**:
 
 ```text
-질문   io_uring 이 남은 16.1% 를 회수하는가?
-답     아니다. 회수 대상(syscall 진입)이 transport 비용의 1%,
-       가장 관대한 가정으로도 8%. 게다가 CPU 는 제약이 아니다.
+165 calls x 1 us = 0.165 ms/req
+0.165 / 16.35    = 1.0% of per-request transport CPU
 ```
 
-**S4 는 취소/보류한다.** TECHSPEC §15 의 io_uring 항목은 "필요성 미증명"
-이 아니라 **"측정으로 반박됨"** 으로 상태가 바뀐다.
+Even **assuming** registered buffers eliminate the 1.2 MB copy in both
+directions (roughly 0.6–1.2 ms at RK3576 memory bandwidth), the total is
+**1.4 ms/req ≈ 8% of transport cost**.
 
-## 5. 판정 규칙 3번째 가지 — 큰 항은 따로 기록한다
+And recovering all of that 8% **would not raise throughput.** The board CPU is
+48.9% idle, no core is saturated, and spreading the hottest core's (cpu0)
+softirq with RPS produced a −0.2% null.
 
-질문은 "serialization / copy / syscall" 셋을 묶어 물었는데, 답이 갈렸다.
+> **CPU-ms/req is a cost, not a constraint.** Reducing consumption of an
+> unsaturated resource does not raise throughput.
 
-| 항 | 크기 | 판정 |
+```text
+Question   Does io_uring recover the remaining 16.1%?
+Answer     No. What it targets (syscall entry) is 1% of transport cost, and 8%
+           under the most generous assumptions. And CPU is not the constraint.
+```
+
+**S4 is cancelled/shelved.** The io_uring item in TECHSPEC §15 changes status
+from "necessity unproven" to **"refuted by measurement"**.
+
+## 5. The third branch of the decision rule — record the large term separately
+
+The question bundled three things — serialization / copy / syscall — and the
+answer split them.
+
+| Term | Size | Verdict |
 |---|---|---|
-| **syscall** | transport 비용의 ~1% | **작다** |
-| **serialization / 유저공간 copy** | **9.37 ms/req = 57%** | **크다** |
+| **syscall** | ~1% of transport cost | **small** |
+| **serialization / user-space copy** | **9.37 ms/req = 57%** | **large** |
 
-**유저 시간이 커널 시간보다 크다**(9.37 vs 6.99). transport 비용의
-과반이 protobuf 직렬화·유저공간 copy·HTTP/2 프레이밍이다. io_uring 은
-이쪽을 건드리지 않는다.
+**User time exceeds kernel time** (9.37 vs 6.99). The majority of transport cost
+is protobuf serialization, user-space copies and HTTP/2 framing. io_uring does
+not touch that side.
 
-다만 **여기서 멈춘다.** 사전 판정 규칙의 3번째 가지대로다 — 큰 항을
-기록하되, CPU 가 제약이 아닌 이상 이것을 줄이는 것도 처리량을 올린다는
-보장이 없다. 파고들 근거가 아직 없다.
+But **we stop here**, per the third branch of the pre-registered rule: record
+the large term, but as long as CPU is not the constraint there is no guarantee
+that reducing this raises throughput either. There is not yet grounds to dig in.
 
-## 6. 그러면 gap 26.0 inf/s 는 무엇인가 — 범위 밖, 관측만 남긴다
+## 6. So what is the 26.0 inf/s gap — out of scope, observation only
 
-이 실험의 임무가 아니지만 방향은 관측된다. 고정 동시성에서
-처리량 = 동시성 / 지연이다.
+Not this experiment's job, but the direction is observable. At fixed
+concurrency, throughput = concurrency / latency.
 
 ```text
-op     c12,  136.6 inf/s  ->  평균 지연 87.8 ms
-local  8스레드, 157.9      ->  평균 지연 50.5 ms   (래퍼 실측 50,531 µs)
-                              차이 +37.3 ms
+op     c12,  136.6 inf/s  ->  mean latency 87.8 ms
+local  8 threads, 157.9   ->  mean latency 50.5 ms   (wrapper measured 50,531 us)
+                              difference +37.3 ms
 ```
 
-그중 노드 CPU 작업은 16.35 ms 뿐이고 나머지는 **대기**다. 페이로드가
-요청 1.2 MB · 응답 1.2 MB 이므로 실측 링크(2.34 Gbps ≈ 292 MB/s)에서
-**순수 전송 시간만 방향당 약 4.1 ms, 왕복 8.2 ms** 다. 여기에 스케줄러
-홉과 큐잉이 더해진다.
+Of that, node CPU work is only 16.35 ms; the rest is **waiting**. With a 1.2 MB
+request and a 1.2 MB response, on the measured link (2.34 Gbps ≈ 292 MB/s)
+**pure transfer time alone is about 4.1 ms per direction, 8.2 ms round trip.**
+The scheduler hop and queueing add to that.
 
-> gap 은 CPU 비용이 아니라 **경로 지연**의 문제로 보인다. 이것을 줄이는
-> 지렛대는 io_uring 이 아니라 **페이로드 크기**다(ADR-008 의 640×640×3
-> raw 전송). 다만 이는 S3.9b 의 범위 밖이므로 **관측으로만 남긴다.**
+> The gap looks like a **path-latency** problem rather than a CPU-cost one. The
+> lever for reducing it is not io_uring but **payload size** (ADR-008's raw
+> 640×640×3 transfer). That is outside S3.9b's scope, so it is **left as an
+> observation only.**
 
 ## 7. Limitations
 
-- 조건당 1 run(45초 수집)이다. utime/stime 델타는 45초 누적이라 안정적
-  이지만 run 간 SD 는 없다.
-- `strace -c` 의 seconds 는 **블로킹 포함 체류시간**이지 CPU 시간이
-  아니다. futex·epoll 이 상위인 것은 그 때문이며, 네트워크 syscall
-  비중 19.6% 도 같은 척도 안에서만 유효하다. 판정의 주 근거는
-  utime/stime 분리이고 strace 는 보조다.
-- syscall 진입 비용 1 µs 는 실측이 아니라 aarch64 통상값을 **넉넉히**
-  잡은 것이다. 실측하려면 마이크로벤치가 필요하나, 1 µs 가정에서 이미
-  1% 이므로 결론이 뒤집히지 않는다.
-- local direct 는 `sustained_load_test`(별도 바이너리)라 노드와 코드
-  경로가 완전히 같지 않다. 비교의 기준선으로서 S3.5 이래 일관되게 쓴 값이다.
+- One run per condition (45 s of collection). The utime/stime deltas are stable
+  because they accumulate over 45 s, but there is no run-to-run SD.
+- The seconds reported by `strace -c` are **residency including blocking**, not
+  CPU time. That is why futex and epoll top the list, and the 19.6% network
+  syscall share is only valid within that same scale. The primary basis for the
+  verdict is the utime/stime split; strace is secondary.
+- The 1 µs syscall entry cost is not measured but a **generous** take on the
+  usual aarch64 figure. Measuring it would need a microbenchmark, but since the
+  1 µs assumption already yields 1%, the conclusion does not flip.
+- local direct uses `sustained_load_test` (a separate binary), so its code path
+  is not identical to the node's. It is the reference baseline used consistently
+  since S3.5.
 
-## 8. 이 실험에서 잡은 계기 오류
+## 8. The instrument error caught in this experiment
 
-`strace -c` 요약을 파싱하는 정규식이 **`usecs/call` 과 `calls` 컬럼을
-뒤바꿔** 읽었다. 호출 수가 100배 작게 나와 "strace 가 한 스레드에만
-붙었다 → 상한 검정 무효" 로 판단할 뻔했다. 기대치(요청당 write 83.4회,
-`/proc/PID/io`)와 대조해 잡았다.
+The regular expression parsing the `strace -c` summary read the **`usecs/call`
+and `calls` columns swapped**. The call count came out 100× too small, and we
+nearly concluded "strace attached to only one thread → the upper-bound test is
+invalid". It was caught by comparing against the expected value (83.4 writes per
+request, from `/proc/PID/io`).
 
-> 계측기의 출력이 예상과 다르면 **계측기부터 의심한다**(README §4.10).
-> 이번엔 측정이 아니라 파서가 틀렸다.
+> When an instrument's output differs from expectation, **suspect the instrument
+> first** (README §4.10). This time it was not the measurement but the parser
+> that was wrong.
 
 ---
 
 ## Figure
 
-![transport 비용의 유저/커널 분해와 io_uring 이 닿는 몫(≈8%)](../results/node-residual-20260821/figures/fig_transport_cost_split.png)
+![The user/kernel split of transport cost and the share io_uring can reach (about 8%)](../results/node-residual-20260821/figures/fig_transport_cost_split.png)
 
-**`fig_transport_cost_split.png`** — transport 비용의 유저/커널 분해와 io_uring 이 닿는 몫(≈8%)
+**`fig_transport_cost_split.png`** — the user/kernel split of transport cost and
+the share io_uring can reach (≈8%)
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`
 
 ---
 

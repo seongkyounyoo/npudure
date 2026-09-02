@@ -195,8 +195,9 @@ We would rather you find these here than in the comments.
 - **No authentication, no TLS.** gRPC is plaintext and node registration is
   unverified. This is scoped for a trusted private network, not a hostile one --
   a boundary, not a defect.
-- **Most detailed documentation is in Korean.** This file and the figures are
-  the English entry point.
+- **Documentation is English-first; the Korean original sits beside it as
+  `X.ko.md`.** The READMEs, the FAQ and the experiment reports are English.
+  The ADRs and the internal working notes are still Korean-only.
 
 ---
 
@@ -328,8 +329,10 @@ you have. Full list in
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Terminology, experiment ID scheme, pre-registered rules |
 | [`docs/01-TECHSPEC.md`](docs/01-TECHSPEC.md) | Architecture, protocol, config schema, benchmark design |
 
-Most are Korean. The experiment reports lead with tables and figures, which
-survive machine translation reasonably well.
+English is the primary language for documentation. Where a Korean original
+exists it is kept next to its English counterpart as `X.ko.md` — the English
+file is authoritative. The ADRs are still Korean-only; they lead with tables and
+decision summaries, which survive machine translation reasonably well.
 
 ---
 

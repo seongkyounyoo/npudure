@@ -1,213 +1,229 @@
 # S3.9b — Node-side Residual Cost Profiling
 
-- 실험 ID: **S3.9b**
-- 측정일: 2026-08-21
-- 코드: `62855bd`
-- 상태: **완료** (4 조건 × 45초 수집, 오류 0)
-- 원본: [`../../results/node-residual-20260821/`](../../results/node-residual-20260821/)
-- 선행: [`S3_5_TRANSPORT_PROFILE.md`](S3_5_TRANSPORT_PROFILE.md) ·
+*[한국어 원문](S3_9B_NODE_RESIDUAL.ko.md)*
+
+- Experiment ID: **S3.9b**
+- Measured: 2026-08-21
+- Code: `62855bd`
+- Status: **complete** (4 conditions × 45 s of collection, 0 errors)
+- Raw data: [`../../results/node-residual-20260821/`](../../results/node-residual-20260821/)
+- Predecessors: [`S3_5_TRANSPORT_PROFILE.md`](S3_5_TRANSPORT_PROFILE.md) ·
   [`S3_9A_SCALEOUT_PROFILE.md`](S3_9A_SCALEOUT_PROFILE.md)
 
 ---
 
-## 1. Research Question (좁게)
+## 1. Research Question (narrow)
 
-> **161.5 → 135.5 사이의 residual gap 에서 node-side serialization /
-> copy / syscall 비용이 유의미한 비중을 차지하는가?**
+> **In the residual gap between 161.5 and 135.5, do node-side serialization,
+> copy and syscall costs account for a meaningful share?**
 
-**gap 전체를 설명하는 것이 목적이 아니다.** S3.9a 에서 scale-out
-tail/TCP 쪽 비용이 별도로 드러났으므로 node-side 프로파일이 26.0 inf/s
-전부를 설명해야 할 이유가 없다. 설명 못 한 잔여는 잔여로 남긴다.
+**Explaining the whole gap is not the objective.** S3.9a separately surfaced the
+scale-out tail/TCP cost, so there is no reason a node-side profile should have
+to account for all 26.0 inf/s. Whatever is not explained stays unexplained.
 
-판정 규칙은 **측정 전에** 정했다.
+The decision rule was fixed **before measuring**.
 
-| 결과 | 결정 |
+| Result | Decision |
 |---|---|
-| syscall·copy 가 **충분히 큼** | S4 io_uring 진입 |
-| **작음** | **S4 취소/보류** |
-| **다른 항이 큼** | 그 항만 기록. 핵심 범위 밖이면 더 안 판다 |
+| syscall and copy are **large enough** | proceed to S4 io_uring |
+| **small** | **cancel/shelve S4** |
+| **some other term is large** | record that term only. If it is outside the core scope, dig no further |
 
 ## 2. Method
 
-S3.5 와의 결정적 차이는 **운영점에서 잰다**는 것이다.
+The decisive difference from S3.5 is that **this measures at the operating
+point**.
 
 ```text
-S3.5    c32 · conn1   116.6 inf/s   과부하 · baseline
-S3.9b   c12 · conn2   136.6 inf/s   운영점 · optimized
+S3.5    c32 . conn1   116.6 inf/s   overload . baseline
+S3.9b   c12 . conn2   136.6 inf/s   operating point . optimized
 ```
 
-과부하 구간 값을 운영 판단에 쓰지 않는다(README §4.1). 이 저장소는 같은
-함정에 이미 한 번 걸렸다 — 13.2% 오인용 사건.
+Overload-region values are not used for operating decisions (README §4.1). This
+repository has already fallen into that trap once — the 13.2% misquotation
+incident.
 
-- 1노드(king only). queen·jack 을 내려 RR 이 나눠 가지 못하게 하고,
-  probe 로 **응답한 노드 ID 가 king 하나**임을 물증으로 남긴다.
-- 부하 80초 중 **t+20 부터 45초**만 수집. 램프와 warmup 을 뺀다.
-- 조건 4개: `idle`(계측기 바닥값) / `op`(운영점) / `strace` / `local`(direct 8스레드).
+- One node (king only). queen and jack are brought down so round-robin cannot
+  split the load, and a probe leaves evidence that **the only responding node ID
+  is king**.
+- Of the 80 s of load, only **45 s starting at t+20** is collected, excluding
+  the ramp and warmup.
+- Four conditions: `idle` (instrument floor) / `op` (operating point) /
+  `strace` / `local` (direct, 8 threads).
 
-### 2.1 계기 선택 — perf 가 없다
+### 2.1 Choice of instrument — there is no perf
 
-보드에 `perf` · `bpftrace` · `gdb` 가 없다(커널 6.1.141, 벤더 트리).
-심볼 단위 프로파일은 불가능하다. 대신 **`/proc/PID/stat` 의 utime/stime
-분리**를 쓴다.
+The boards have no `perf`, `bpftrace` or `gdb` (kernel 6.1.141, vendor tree).
+Symbol-level profiling is impossible. Instead, the **utime/stime split from
+`/proc/PID/stat`** is used.
 
 ```text
-utime  유저 시간 — protobuf 직렬화, 유저공간 copy, HTTP/2 프레이밍
-stime  커널 시간 — syscall 진입, TCP 스택, copy_to_user, skb, 드라이버
+utime  user time   - protobuf serialization, user-space copies, HTTP/2 framing
+stime  kernel time - syscall entry, TCP stack, copy_to_user, skb, driver
 ```
 
-**io_uring 이 줄이는 것은 stime 의 일부다.** 따라서 stime 전체가
-io_uring 의 절대 상한이고, 실제 회수 가능분은 그보다 작다.
+**What io_uring reduces is a portion of stime.** So the whole of stime is
+io_uring's absolute upper bound, and what is actually recoverable is smaller
+than that.
 
-보조로 `strace -c` 를 10초. ptrace 가 syscall 마다 정지시켜 체류시간이
-**부풀려져** 나오므로 **상한으로만** 쓴다 — 부풀린 값이 작으면 실제는
-확정적으로 더 작다. 한쪽 방향으로만 유효한 검정이다.
+As a secondary instrument, `strace -c` for 10 s. Because ptrace stops the
+process at every syscall, the reported residency is **inflated**, so it is used
+**only as an upper bound** — if the inflated figure is small, the real one is
+conclusively smaller. It is a test that is valid in one direction only.
 
 ## 3. Results
 
-### 3.1 요청당 노드 CPU
+### 3.1 Node CPU per request
 
-| 조건 | throughput | utime/req | stime/req | **CPU-ms/req** | user% | kernel% |
+| Condition | throughput | utime/req | stime/req | **CPU-ms/req** | user% | kernel% |
 |---|---:|---:|---:|---:|---:|---:|
-| op (운영점) | 136.6 | 14.50 | 11.09 | **25.59** | 56.7 | 43.3 |
+| op (operating point) | 136.6 | 14.50 | 11.09 | **25.59** | 56.7 | 43.3 |
 | local direct | 157.9 | 5.14 | 4.10 | **9.23** | 55.6 | 44.4 |
-| **transport 비용** | | **9.37** | **6.99** | **16.35** | **57.3** | **42.7** |
+| **transport cost** | | **9.37** | **6.99** | **16.35** | **57.3** | **42.7** |
 
-운영점 136.6 은 S3.8 의 135.5±0.4, S3.7b 의 136.4±0.3 과 일치한다 —
-조건이 제대로 잡혔다는 확인이다.
+The operating point of 136.6 agrees with S3.8's 135.5 ± 0.4 and S3.7b's
+136.4 ± 0.3 — confirmation that the condition was set up correctly.
 
-> ⚠️ local 의 157.9 는 80초 **전체 평균**이라 램프를 포함한다. 수집 창
-> (t+20~65)의 정상 구간 속도는 162.6 이었다. 이 차이는 local 의
-> 요청당 CPU 를 약 3% 과대평가하는 방향이며, **transport 비용을 과소가
-> 아니라 과대 추정**하므로 아래 결론(비용이 작다)을 약화시키지 않는다.
+> ⚠️ The local figure of 157.9 is the average over the **full 80 s** and so
+> includes the ramp. The steady-state rate within the collection window
+> (t+20–65) was 162.6. That difference overestimates local's per-request CPU by
+> about 3%, which **overestimates rather than underestimates the transport
+> cost** — so it does not weaken the conclusion below (that the cost is small).
 
-### 3.2 어느 코어도 포화가 아니다
+### 3.2 No core is saturated
 
 ```text
-op    cpu0  soft=68.3  idle=21.2   ← 유일한 뜨거운 코어 (78.8% busy)
-      cpu1~3            idle 61~64
-      cpu4~7            idle 42~47
-      전체              idle 48.9
-local 전체              idle 82.5   softirq 0
+op    cpu0  soft=68.3  idle=21.2   <- the only hot core (78.8% busy)
+      cpu1-3            idle 61-64
+      cpu4-7            idle 42-47
+      overall           idle 48.9
+local overall           idle 82.5   softirq 0
 ```
 
-가장 뜨거운 cpu0 도 21% 남는다. cpu0 의 부하는 대부분 **softirq**
-(NIC 단일 수신 큐)인데, **S3.5 §4.3 이 이미 RPS 로 분산시켜 보고
-−0.2% null 을 얻었다.** cpu0 softirq 도 제약이 아니다.
+Even the hottest core, cpu0, has 21% left. cpu0's load is mostly **softirq**
+(the NIC's single receive queue) — and **S3.5 §4.3 already spread that with RPS
+and got a −0.2% null.** cpu0 softirq is not a constraint either.
 
-### 3.3 syscall — 횟수는 많고 비용은 작다
+### 3.3 Syscalls — many calls, small cost
 
-`strace -c` 10초 (요청 약 1,284건):
+`strace -c` over 10 s (about 1,284 requests):
 
-| syscall | 체류시간 | 호출 수 | calls/req | |
+| syscall | residency | calls | calls/req | |
 |---|---:|---:|---:|---|
-| futex | 30.07s | 48,565 | 37.8 | 스레드 동기화 **대기** |
-| ioctl | 24.72s | 68,924 | 53.7 | RKNN 드라이버 (NPU 제출) |
-| epoll_pwait | 9.78s | 37,157 | 28.9 | 이벤트 **대기** |
-| **recvfrom** | 9.50s | 136,602 | **106.4** | 요청 수신 ← io_uring 대상 |
-| **writev** | 5.91s | 69,245 | **53.9** | 응답 송신 ← io_uring 대상 |
-| **write** | 0.35s | 5,524 | **4.3** | 응답 송신 ← io_uring 대상 |
+| futex | 30.07s | 48,565 | 37.8 | thread synchronization **wait** |
+| ioctl | 24.72s | 68,924 | 53.7 | RKNN driver (NPU submission) |
+| epoll_pwait | 9.78s | 37,157 | 28.9 | event **wait** |
+| **recvfrom** | 9.50s | 136,602 | **106.4** | request receive ← io_uring target |
+| **writev** | 5.91s | 69,245 | **53.9** | response send ← io_uring target |
+| **write** | 0.35s | 5,524 | **4.3** | response send ← io_uring target |
 
-**네트워크 syscall 체류시간은 15.77s / 80.36s = 19.6%** 다. 나머지
-80.4% 는 futex(동기화 대기) · ioctl(NPU 드라이버) · epoll(이벤트 대기)로,
-**io_uring 이 손대는 영역이 아니다.**
+**Network syscall residency is 15.77 s / 80.36 s = 19.6%.** The other 80.4% is
+futex (synchronization wait), ioctl (NPU driver) and epoll (event wait) — **none
+of which io_uring touches.**
 
-## 4. 판정 — **S4 io_uring 취소/보류**
+## 4. Verdict — **S4 io_uring cancelled/shelved**
 
-요청당 네트워크 syscall 은 약 **165회**(recvfrom 106 + writev 54 + write 4).
-aarch64 syscall 진입 비용을 **넉넉히 1 µs** 로 잡아도
-
-```text
-165 회 × 1 µs = 0.165 ms/req
-0.165 / 16.35 = 요청당 transport CPU 의 1.0%
-```
-
-등록 버퍼로 1.2 MB copy 를 양방향 모두 없앤다고 **가정해도**(RK3576
-메모리 대역폭 기준 약 0.6~1.2 ms) 합계는 **1.4 ms/req ≈ transport
-비용의 8%** 다.
-
-그리고 그 8% 를 다 회수해도 **처리량은 오르지 않는다.** 보드 CPU 가
-48.9% idle 이고 어느 코어도 포화가 아니며, 가장 뜨거운 cpu0 의 softirq
-는 RPS 로 분산해도 −0.2% null 이었기 때문이다.
-
-> **CPU-ms/req 는 비용이지 제약이 아니다.** 포화되지 않은 자원의
-> 사용량을 줄이는 것은 처리량을 올리지 않는다.
+Network syscalls per request come to about **165** (recvfrom 106 + writev 54 +
+write 4). Even taking aarch64 syscall entry cost **generously at 1 µs**:
 
 ```text
-질문   io_uring 이 남은 16.1% 를 회수하는가?
-답     아니다. 회수 대상(syscall 진입)이 transport 비용의 1%,
-       가장 관대한 가정으로도 8%. 게다가 CPU 는 제약이 아니다.
+165 calls x 1 us = 0.165 ms/req
+0.165 / 16.35    = 1.0% of per-request transport CPU
 ```
 
-**S4 는 취소/보류한다.** TECHSPEC §15 의 io_uring 항목은 "필요성 미증명"
-이 아니라 **"측정으로 반박됨"** 으로 상태가 바뀐다.
+Even **assuming** registered buffers eliminate the 1.2 MB copy in both
+directions (roughly 0.6–1.2 ms at RK3576 memory bandwidth), the total is
+**1.4 ms/req ≈ 8% of transport cost**.
 
-## 5. 판정 규칙 3번째 가지 — 큰 항은 따로 기록한다
+And recovering all of that 8% **would not raise throughput.** The board CPU is
+48.9% idle, no core is saturated, and spreading the hottest core's (cpu0)
+softirq with RPS produced a −0.2% null.
 
-질문은 "serialization / copy / syscall" 셋을 묶어 물었는데, 답이 갈렸다.
+> **CPU-ms/req is a cost, not a constraint.** Reducing consumption of an
+> unsaturated resource does not raise throughput.
 
-| 항 | 크기 | 판정 |
+```text
+Question   Does io_uring recover the remaining 16.1%?
+Answer     No. What it targets (syscall entry) is 1% of transport cost, and 8%
+           under the most generous assumptions. And CPU is not the constraint.
+```
+
+**S4 is cancelled/shelved.** The io_uring item in TECHSPEC §15 changes status
+from "necessity unproven" to **"refuted by measurement"**.
+
+## 5. The third branch of the decision rule — record the large term separately
+
+The question bundled three things — serialization / copy / syscall — and the
+answer split them.
+
+| Term | Size | Verdict |
 |---|---|---|
-| **syscall** | transport 비용의 ~1% | **작다** |
-| **serialization / 유저공간 copy** | **9.37 ms/req = 57%** | **크다** |
+| **syscall** | ~1% of transport cost | **small** |
+| **serialization / user-space copy** | **9.37 ms/req = 57%** | **large** |
 
-**유저 시간이 커널 시간보다 크다**(9.37 vs 6.99). transport 비용의
-과반이 protobuf 직렬화·유저공간 copy·HTTP/2 프레이밍이다. io_uring 은
-이쪽을 건드리지 않는다.
+**User time exceeds kernel time** (9.37 vs 6.99). The majority of transport cost
+is protobuf serialization, user-space copies and HTTP/2 framing. io_uring does
+not touch that side.
 
-다만 **여기서 멈춘다.** 사전 판정 규칙의 3번째 가지대로다 — 큰 항을
-기록하되, CPU 가 제약이 아닌 이상 이것을 줄이는 것도 처리량을 올린다는
-보장이 없다. 파고들 근거가 아직 없다.
+But **we stop here**, per the third branch of the pre-registered rule: record
+the large term, but as long as CPU is not the constraint there is no guarantee
+that reducing this raises throughput either. There is not yet grounds to dig in.
 
-## 6. 그러면 gap 26.0 inf/s 는 무엇인가 — 범위 밖, 관측만 남긴다
+## 6. So what is the 26.0 inf/s gap — out of scope, observation only
 
-이 실험의 임무가 아니지만 방향은 관측된다. 고정 동시성에서
-처리량 = 동시성 / 지연이다.
+Not this experiment's job, but the direction is observable. At fixed
+concurrency, throughput = concurrency / latency.
 
 ```text
-op     c12,  136.6 inf/s  ->  평균 지연 87.8 ms
-local  8스레드, 157.9      ->  평균 지연 50.5 ms   (래퍼 실측 50,531 µs)
-                              차이 +37.3 ms
+op     c12,  136.6 inf/s  ->  mean latency 87.8 ms
+local  8 threads, 157.9   ->  mean latency 50.5 ms   (wrapper measured 50,531 us)
+                              difference +37.3 ms
 ```
 
-그중 노드 CPU 작업은 16.35 ms 뿐이고 나머지는 **대기**다. 페이로드가
-요청 1.2 MB · 응답 1.2 MB 이므로 실측 링크(2.34 Gbps ≈ 292 MB/s)에서
-**순수 전송 시간만 방향당 약 4.1 ms, 왕복 8.2 ms** 다. 여기에 스케줄러
-홉과 큐잉이 더해진다.
+Of that, node CPU work is only 16.35 ms; the rest is **waiting**. With a 1.2 MB
+request and a 1.2 MB response, on the measured link (2.34 Gbps ≈ 292 MB/s)
+**pure transfer time alone is about 4.1 ms per direction, 8.2 ms round trip.**
+The scheduler hop and queueing add to that.
 
-> gap 은 CPU 비용이 아니라 **경로 지연**의 문제로 보인다. 이것을 줄이는
-> 지렛대는 io_uring 이 아니라 **페이로드 크기**다(ADR-008 의 640×640×3
-> raw 전송). 다만 이는 S3.9b 의 범위 밖이므로 **관측으로만 남긴다.**
+> The gap looks like a **path-latency** problem rather than a CPU-cost one. The
+> lever for reducing it is not io_uring but **payload size** (ADR-008's raw
+> 640×640×3 transfer). That is outside S3.9b's scope, so it is **left as an
+> observation only.**
 
 ## 7. Limitations
 
-- 조건당 1 run(45초 수집)이다. utime/stime 델타는 45초 누적이라 안정적
-  이지만 run 간 SD 는 없다.
-- `strace -c` 의 seconds 는 **블로킹 포함 체류시간**이지 CPU 시간이
-  아니다. futex·epoll 이 상위인 것은 그 때문이며, 네트워크 syscall
-  비중 19.6% 도 같은 척도 안에서만 유효하다. 판정의 주 근거는
-  utime/stime 분리이고 strace 는 보조다.
-- syscall 진입 비용 1 µs 는 실측이 아니라 aarch64 통상값을 **넉넉히**
-  잡은 것이다. 실측하려면 마이크로벤치가 필요하나, 1 µs 가정에서 이미
-  1% 이므로 결론이 뒤집히지 않는다.
-- local direct 는 `sustained_load_test`(별도 바이너리)라 노드와 코드
-  경로가 완전히 같지 않다. 비교의 기준선으로서 S3.5 이래 일관되게 쓴 값이다.
+- One run per condition (45 s of collection). The utime/stime deltas are stable
+  because they accumulate over 45 s, but there is no run-to-run SD.
+- The seconds reported by `strace -c` are **residency including blocking**, not
+  CPU time. That is why futex and epoll top the list, and the 19.6% network
+  syscall share is only valid within that same scale. The primary basis for the
+  verdict is the utime/stime split; strace is secondary.
+- The 1 µs syscall entry cost is not measured but a **generous** take on the
+  usual aarch64 figure. Measuring it would need a microbenchmark, but since the
+  1 µs assumption already yields 1%, the conclusion does not flip.
+- local direct uses `sustained_load_test` (a separate binary), so its code path
+  is not identical to the node's. It is the reference baseline used consistently
+  since S3.5.
 
-## 8. 이 실험에서 잡은 계기 오류
+## 8. The instrument error caught in this experiment
 
-`strace -c` 요약을 파싱하는 정규식이 **`usecs/call` 과 `calls` 컬럼을
-뒤바꿔** 읽었다. 호출 수가 100배 작게 나와 "strace 가 한 스레드에만
-붙었다 → 상한 검정 무효" 로 판단할 뻔했다. 기대치(요청당 write 83.4회,
-`/proc/PID/io`)와 대조해 잡았다.
+The regular expression parsing the `strace -c` summary read the **`usecs/call`
+and `calls` columns swapped**. The call count came out 100× too small, and we
+nearly concluded "strace attached to only one thread → the upper-bound test is
+invalid". It was caught by comparing against the expected value (83.4 writes per
+request, from `/proc/PID/io`).
 
-> 계측기의 출력이 예상과 다르면 **계측기부터 의심한다**(README §4.10).
-> 이번엔 측정이 아니라 파서가 틀렸다.
+> When an instrument's output differs from expectation, **suspect the instrument
+> first** (README §4.10). This time it was not the measurement but the parser
+> that was wrong.
 
 ---
 
 ## Figure
 
-![transport 비용의 유저/커널 분해와 io_uring 이 닿는 몫(≈8%)](../../results/node-residual-20260821/figures/fig_transport_cost_split.png)
+![The user/kernel split of transport cost and the share io_uring can reach (about 8%)](../../results/node-residual-20260821/figures/fig_transport_cost_split.png)
 
-**`fig_transport_cost_split.png`** — transport 비용의 유저/커널 분해와 io_uring 이 닿는 몫(≈8%)
+**`fig_transport_cost_split.png`** — the user/kernel split of transport cost and
+the share io_uring can reach (≈8%)
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`

@@ -1,59 +1,70 @@
 # S3.8 — Optimized gRPC Scale-out
 
-- 실험 ID: **S3.8**
-- 측정일: 2026-08-20
-- 코드: `0af696d` + `[transport] node_connections = 2`
-- 상태: **완료 (36 run, 9/9 구성 노드 수 검증 통과)**
-- 원본: [`../../results/scaleout-optimized-20260820/`](../../results/scaleout-optimized-20260820/)
-- 선행: [`S3_7_CONNECTION_TUNING.md`](S3_7_CONNECTION_TUNING.md)
+*[한국어 원문](S3_8_OPTIMIZED_SCALEOUT.ko.md)*
+
+- Experiment ID: **S3.8**
+- Measured: 2026-08-20
+- Code: `0af696d` + `[transport] node_connections = 2`
+- Status: **complete (36 runs, node-count verification passed on 9/9 configurations)**
+- Raw data: [`../../results/scaleout-optimized-20260820/`](../../results/scaleout-optimized-20260820/)
+- Predecessor: [`S3_7_CONNECTION_TUNING.md`](S3_7_CONNECTION_TUNING.md)
 
 ---
 
 ## 1. Research Question
 
-> **S3.7 이 찾은 노드당 운영점(커넥션 2개 @ c12)이 scale-out 을 해치지 않는가?**
+> **Does the per-node operating point S3.7 found (2 connections @ c12) hurt
+> scale-out?**
 
-S3.7 은 **1노드** 결과다. 3노드가 되면 스케줄러가 커넥션을 2×3 = 6개 들고
-전송량도 3배가 된다. 서버 쪽에 새 병목이 생길 수 있다.
+S3.7 is a **single-node** result. At three nodes the scheduler holds 2 × 3 = 6
+connections and carries three times the traffic. A new bottleneck may appear on
+the server side.
 
 ## 2. Method
 
-- **노드 수마다 concurrency 를 다시 훑어 각자의 운영점을 찾는다.**
-  고정 concurrency 로 비교하면 configuration effect 가 아니라 overload
-  behavior 를 보게 된다(S3.7 §4.3 에서 실제로 겪었다).
-- 커넥션은 **노드당 2개** — 1N→2, 2N→4, 3N→6 total.
-- 1N: c8/12/16/20 · 2N: c16/24/32/40 · 3N: c24/36/48/60, 각 **3 run**, 60초.
-- rep 마다 노드 수 순서와 concurrency 순서를 모두 회전.
-- 운영점 정의는 S3.7 과 동일 — **peak 의 98% 이상을 내는 가장 낮은 concurrency**.
+- **Sweep concurrency again at each node count and find each one's own
+  operating point.** Comparing at a fixed concurrency shows overload behaviour
+  rather than a configuration effect — which is exactly what happened in S3.7
+  §4.3.
+- Connections are **2 per node** — 1N→2, 2N→4, 3N→6 total.
+- 1N: c8/12/16/20 · 2N: c16/24/32/40 · 3N: c24/36/48/60, **3 runs** each, 60 s.
+- Both the node-count order and the concurrency order rotate per repetition.
+- The operating-point definition matches S3.7 — **the lowest concurrency
+  delivering at least 98% of peak**.
 
-### 2.1 측정 전 노드 수 검증 — 실제로 걸렸다
+### 2.1 Node-count verification before measuring — it actually fired
 
-각 구성마다 짧은 probe bench 를 던져 **응답한 노드 ID 분포**를 세고
-`expected ≠ observed` 면 그 구성을 건너뛴다.
+For each configuration a short probe bench counts **the distribution of
+responding node IDs**, and the configuration is skipped when
+`expected ≠ observed`.
 
-**1차 실행에서 2N·3N 6개 구성이 전부 걸렸다.**
+**On the first attempt all six 2N and 3N configurations were caught.**
 
 ```text
-!! 노드 수 불일치 — expected=2 observed=1 (king). 이 구성 건너뜀
-!! 노드 수 불일치 — expected=3 observed=1 (king). 이 구성 건너뜀
+!! node count mismatch - expected=2 observed=1 (king). skipping this configuration
+!! node count mismatch - expected=3 observed=1 (king). skipping this configuration
 ```
 
-원인은 `[transport]` 설정을 쓰는 `npuforge-node.s36` 빌드가 **king 에만**
-배포돼 있었던 것이다(S3.6 이후 모든 실험이 1노드라 드러나지 않았다).
-기동 로직이 `pgrep || 실행` 이라 파일이 없으면 조용히 실패한다.
+The cause was that the `npuforge-node.s36` build — the one that reads the
+`[transport]` settings — had only been deployed **to king** (every experiment
+after S3.6 was single-node, so it never surfaced). The startup logic is
+`pgrep || run`, so a missing file fails silently.
 
-> **이 검증이 없었다면 1N 을 세 번 재고 "2N·3N" 으로 기록했을 것이다.**
-> 그 결과는 2N 136, 3N 136 — "scale-out 이 완전히 무너졌다" 는 정반대
-> 결론이 나왔을 것이다. **프로세스가 떠 있다 ≠ 트래픽을 받는다.**
+> **Without this check we would have measured 1N three times and recorded it as
+> "2N and 3N".** The result would have been 2N 136, 3N 136 — the exact opposite
+> conclusion, "scale-out has completely collapsed". **A process being up ≠ it
+> receiving traffic.**
 
-세 보드에 배포 후(해시 `73227f64…` 동일) 재실행 — **9/9 구성 검증 통과**.
+After deploying to all three boards (hash `73227f64…` identical) and re-running
+— **9/9 configurations passed verification**.
 
 ## 3. Results
 
-오류율 전 구간 **0**, 노드 간 분배 편차 전 구간 **0.0%p**.
-지연은 run-level percentile 의 run 간 평균(pooled 아님, S2 §7.4.1).
+Error rate **0** throughout; inter-node distribution deviation **0.0 pp**
+throughout. Latency is the run-to-run average of run-level percentiles (not
+pooled, S2 §7.4.1).
 
-### 3.1 노드 수별 곡선
+### 3.1 Curves by node count
 
 | conc | 1N tp | 1N p95 | | conc | 2N tp | 2N p95 | | conc | 3N tp | 3N p95 |
 |---:|---:|---:|---|---:|---:|---:|---|---:|---:|---:|
@@ -62,10 +73,11 @@ S3.7 은 **1노드** 결과다. 3노드가 되면 스케줄러가 커넥션을 2
 | 16 | 137.4 | 175.8 | | 32 | 262.5 | 237.0 | | 48 | 385.0 | 288.7 |
 | 20 | 134.9 | 245.0 | | 40 | 260.6 | 349.7 | | 60 | 385.8 | 407.3 |
 
-세 구성 모두 **범위 안에서 포화가 확인됐다**(peak 양쪽이 더 낮다).
-노드당 concurrency 는 셋 다 12 로 같다 — S3.7b 의 knee 가 다노드에서도 유지된다.
+All three configurations **show saturation within the swept range** (both sides
+of the peak are lower). Per-node concurrency is 12 in all three — S3.7b's knee
+holds at multiple nodes as well.
 
-### 3.2 운영점 비교
+### 3.2 Operating points compared
 
 | Nodes | Tot.conn | Op.conc | Throughput | p95 | p99 | Scaling | Efficiency |
 |---:|---:|---:|---:|---:|---:|---:|---:|
@@ -73,9 +85,9 @@ S3.7 은 **1노드** 결과다. 3노드가 되면 스케줄러가 커넥션을 2
 | **2** | 4 | 24 | **263.3** | 140.7 | 172.7 | **1.94×** | **97.1%** |
 | **3** | 6 | 36 | **387.2** | 151.1 | 201.6 | **2.86×** | **95.3%** |
 
-### 3.3 baseline 대비
+### 3.3 Against the baseline
 
-| | baseline (S3 ceiling, conn1) | optimized (S3.8, conn2/node) | 개선 | per-node |
+| | baseline (S3 ceiling, conn1) | optimized (S3.8, conn2/node) | gain | per-node |
 |---|---:|---:|---:|---:|
 | 1N | 115.2 | **135.5** | **+17.6%** | 135.5 |
 | 2N | 232.0 | **263.3** | **+13.5%** | 131.7 |
@@ -84,97 +96,106 @@ S3.7 은 **1노드** 결과다. 3노드가 되면 스케줄러가 커넥션을 2
 
 ## 4. Interpretation
 
-### 4.1 절대 처리량은 올랐다 — 3노드 +13.3%
+### 4.1 Absolute throughput went up — 3 nodes +13.3%
 
-**387.2 inf/s.** 커넥션 설정 한 줄로 얻었고, 오류 0·분배 편차 0.0%p 로
-scale-out 자체는 건강하다.
+**387.2 inf/s.** Obtained from a single line of connection configuration, with
+0 errors and 0.0 pp distribution deviation — scale-out itself is healthy.
 
-### 4.2 그러나 scaling efficiency 는 조금 내려갔다 (98.9% → 95.3%)
+### 4.2 But scaling efficiency slipped (98.9% → 95.3%)
 
-**이 점을 좋게 포장하지 않는다.** 노드당 이득이 노드 수에 따라 줄어든다.
+**We are not dressing this up.** The per-node gain shrinks as nodes are added.
 
 ```text
-1N  +17.6%   (115.2 → 135.5)
-2N  +13.5%   (232.0 → 263.3)
-3N  +13.3%   (341.8 → 387.2)
+1N  +17.6%   (115.2 -> 135.5)
+2N  +13.5%   (232.0 -> 263.3)
+3N  +13.3%   (341.8 -> 387.2)
 ```
 
-노드당 처리량으로 보면 **135.5 → 131.7 → 129.1** 로 단조 감소한다.
-1노드 최적화의 효과가 다노드에서 **온전히 보존되지 않는다.**
+Per-node throughput falls monotonically: **135.5 → 131.7 → 129.1**. The
+single-node optimization is **not fully preserved** at multiple nodes.
 
-이상적 3N(135.5×3 = 406.5) 대비 실제 387.2 — **19.3 inf/s 부족**하다.
+Against an ideal 3N (135.5 × 3 = 406.5), the measured 387.2 is **19.3 inf/s
+short**.
 
-### 4.3 유력한 후보: 서버 쪽
+### 4.3 Leading candidate: the server side
 
-> ⚠️ **[2026-08-21 철회 — S3.9a]** 아래 "10G 76%" 는 **계산 오류**다.
-> **10GbE 는 full-duplex** 라 요청(TX)과 응답(RX)이 각자의 10 Gbps 를 쓰는데,
-> 둘을 한 링크 예산에 합산했다. 실측은 **방향당 40.5%** 다(S3.9a §3).
+> ⚠️ **[Withdrawn 2026-08-21 — S3.9a]** The "10G 76%" below is an **arithmetic
+> error**. **10GbE is full-duplex**, so requests (TX) and responses (RX) each
+> get their own 10 Gbps, and the two were summed into one link budget. The
+> measured figure is **40.5% per direction** (S3.9a §3).
 >
-> S3.9a 가 서버 자원을 모두 배제했다 — CPU 42%, 링크 방향당 40%, drop 0,
-> 스레드 직렬화 없음. **손실은 전적으로 tail 증가**이며 p50 은 평평하다.
+> S3.9a excluded every server resource — CPU 42%, 40% per link direction, 0
+> drops, no thread serialization. **The loss is entirely a rise in the tail**,
+> with p50 flat.
 > → [S3.9a](S3_9A_SCALEOUT_PROFILE.md)
 
-~~추론당 스케줄러↔노드 전송량은 2,446,800 byte 다. 3N 운영점에서~~
+~~Scheduler↔node traffic per inference is 2,446,800 bytes. At the 3N operating point~~
 
 | | baseline 3N | optimized 3N |
 |---|---:|---:|
-| 처리량 | 341.8 | **387.2** |
-| ~~서버 NIC 부하~~ | ~~6.69 Gbps~~ | ~~7.58 Gbps~~ |
-| ~~10G 링크 대비~~ | ~~67%~~ | ~~76%~~ |
+| Throughput | 341.8 | **387.2** |
+| ~~Server NIC load~~ | ~~6.69 Gbps~~ | ~~7.58 Gbps~~ |
+| ~~Against the 10G link~~ | ~~67%~~ | ~~76%~~ |
 
-**위 두 줄은 철회한다.** 양방향 합산은 full-duplex 링크에 적용할 수 없다.
+**Those two rows are withdrawn.** Summing both directions cannot be applied to
+a full-duplex link.
 
-### 4.4 지연은 노드 수에 따라 늘어난다
+### 4.4 Latency rises with node count
 
-노드당 부하가 셋 다 12 로 같은데도 운영점 p95 가
-**120.7 → 140.7 → 151.1 ms** 로 늘어난다. 노드당 조건이 동일하므로
-이 증가분은 **스케줄러 팬아웃 경로**에서 온다고 볼 수 있다. 다만 어느
-단계인지는 분해하지 않았다.
+Even though per-node load is 12 in all three cases, p95 at the operating point
+rises **120.7 → 140.7 → 151.1 ms**. Since the per-node conditions are identical,
+that increase can be attributed to the **scheduler fan-out path** — though which
+stage it comes from was not decomposed.
 
 ## 5. Limitations
 
-- **efficiency 하락의 원인은 미확인**(§4.3). 서버 NIC·CPU·스케줄러 팬아웃 중
-  무엇인지 분리하지 않았다. S3.5 와 같은 방식의 **서버 쪽 프로파일**이 필요하다.
-- 60초 측정이다. **throttling 발현 전 구간**이므로 지속 부하(S0)에서는
-  다를 수 있다.
-- concurrency 격자가 성기다(1N 4단위, 3N 12단위). 운영점의 절대값보다
-  구성 간 비교에 쓴다.
-- percentile 은 run-level 평균(S2 §7.4.1).
-- 2노드 조합은 king+queen 하나만 봤다.
+- **The cause of the efficiency drop is unidentified** (§4.3). Whether it is the
+  server NIC, CPU or scheduler fan-out was not separated. A **server-side
+  profile** in the manner of S3.5 is needed.
+- These are 60-second measurements, sitting **before throttling appears**, so
+  sustained load (S0) may differ.
+- The concurrency grid is coarse (steps of 4 at 1N, 12 at 3N). Use it for
+  comparison between configurations rather than for the absolute operating-point
+  value.
+- Percentiles are run-level averages (S2 §7.4.1).
+- Only one 2-node combination was examined: king+queen.
 
 ## 6. Reproduction
 
 ```bash
-bash scripts/run-scaleout-optimized.sh 3     # 36 run, 약 50분
+bash scripts/run-scaleout-optimized.sh 3     # 36 runs, about 50 minutes
 PYTHONIOENCODING=utf-8 python scripts/analyze-scaleout.py \
     results/scaleout-optimized-20260820/raw/results.csv
 ```
 
-> 세 보드에 `npuforge-node.s36`(= `[transport]` 지원 빌드)이 배포돼 있어야
-> 한다. 없으면 노드 수 검증이 그 구성을 건너뛴다 — 조용히 틀린 결과를 내는
-> 대신 큰 소리로 멈춘다.
+> `npuforge-node.s36` (the build with `[transport]` support) must be deployed on
+> all three boards. Without it the node-count check skips that configuration —
+> stopping loudly instead of silently producing a wrong result.
 
 ## 7. Conclusion
 
-**노드당 운영점(커넥션 2개 @ c12)은 3노드까지 유지되며, 절대 처리량을
-341.8 → 387.2 inf/s (+13.3%) 로 끌어올린다.** 오류 0, 분배 균등.
+**The per-node operating point (2 connections @ c12) holds up to three nodes and
+lifts absolute throughput from 341.8 to 387.2 inf/s (+13.3%).** Zero errors,
+even distribution.
 
-다만 **scaling efficiency 는 98.9% → 95.3% 로 소폭 내려갔고**, 노드당
-이득이 +17.6%(1N) → +13.3%(3N) 으로 줄어든다. 1노드 최적화가 다노드에서
-온전히 보존되지 않는다는 뜻이다. ~~서버 10G 링크가 76% 까지~~ — **S3.9a 에서 철회**(full-duplex 계산 오류,
-실제 방향당 40%). S3.9a 는 서버 자원을 모두 배제하고 손실이 **tail 증가**임을
-확인했다.
+That said, **scaling efficiency slipped from 98.9% to 95.3%**, and the per-node
+gain shrinks from +17.6% (1N) to +13.3% (3N) — meaning the single-node
+optimization is not fully preserved at multiple nodes. ~~The server 10G link at
+76%~~ — **withdrawn in S3.9a** (full-duplex arithmetic error; the real figure is
+40% per direction). S3.9a excluded every server resource and confirmed the loss
+is **a rise in the tail**.
 
-→ 다음은 **서버 쪽 프로파일**이다. 노드 쪽은 S3.5 에서 했고, 이번엔 서버가
-후보로 올라왔다. 그 결과가 나오기 전에는 남은 gap 을 노드 쪽 비용
-(protobuf·복사·syscall)으로만 돌리면 안 된다.
+→ Next is a **server-side profile**. The node side was done in S3.5; this time
+the server has become a candidate. Until that result is in, the remaining gap
+must not be attributed solely to node-side costs (protobuf, copies, syscalls).
 
 ---
 
 ## Figure
 
-![절대값은 모든 규모에서 오르고 efficiency 는 98.9% → 95.3%](../../results/scaleout-optimized-20260820/figures/fig_scaleout_optimized.png)
+![Absolute values rise at every scale while efficiency goes 98.9% -> 95.3%](../../results/scaleout-optimized-20260820/figures/fig_scaleout_optimized.png)
 
-**`fig_scaleout_optimized.png`** — 절대값은 모든 규모에서 오르고 efficiency 는 98.9% → 95.3%
+**`fig_scaleout_optimized.png`** — absolute values rise at every scale while
+efficiency goes 98.9% → 95.3%
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`
