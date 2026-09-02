@@ -189,6 +189,7 @@ RKNN 지원 없이 빌드한 바이너리에 RKNN 설정을 주면 시작 시점
 | 문서 | 내용 |
 |---|---|
 | **[`docs/experiments/README.md`](docs/experiments/README.md)** | **실험 대장 — 여기서 시작한다.** 무엇을 묻고 무엇이 배제됐는지 한 장. 원본 데이터 대응표와 방법론 교훈 포함 |
+| **[`docs/FAQ.md`](docs/FAQ.md)** | **FAQ — 자주 받는 질문 10개.** 각 답변에 수치·측정 조건·원본 링크를 붙였다 (영문) |
 | [`adrs/`](adrs/README.md) | **왜 이렇게 되어 있는가 — 아키텍처 결정 기록 28건** |
 | [`docs/experiments/`](docs/experiments/) | 실험 보고서 12건 (S2 · S3 · S3.5~3.9b · S0-A~D) |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | 기술 용어 13개 절 — 실험 ID 체계, 측정 방법론, 사전 등록 규칙 |
