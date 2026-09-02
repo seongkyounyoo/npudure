@@ -14,15 +14,39 @@
 
 **Do three 6 TOPS NPUs actually give you 18?**
 
-NPUDure is an open-source distributed inference runtime in Rust that spreads
-independent inference requests across several low-cost edge NPUs over ordinary
-Ethernet and standard gRPC — no custom transport, no RDMA, no kernel bypass.
+NPUDure is an open-source **Edge NPU Cluster** runtime for scaling distributed
+AI inference across low-cost NPUs over standard Ethernet. It is written in Rust
+and speaks plain gRPC — no custom transport, no RDMA, no kernel bypass.
+
+An **Edge NPU Cluster** is several cheap NPU boards, each holding a full copy of
+the model, behind one scheduler that hands each incoming request to one of them.
+It raises how many requests per second you can serve. It does not merge the
+boards into one larger accelerator, and it does not make any single request
+faster.
 
 We ran **421 valid hardware measurements, with zero inference errors in the
 valid runs**, to find out where scale-out performance actually goes.
 
 Short answer: **it scales.** The interesting part is everything that almost
 stopped it.
+
+## NPUDure at a glance
+
+| | |
+|---|---|
+| **What it is** | An Edge NPU Cluster runtime — one scheduler distributing independent inference requests across several low-cost NPU boards over ordinary Ethernet |
+| **Hardware tested** | 3 × NanoPi R76S — Rockchip RK3576, 6 TOPS NPU each |
+| **Network** | 2.5 GbE per node; scheduler host on 10 GbE |
+| **Transport** | gRPC over HTTP/2 (tonic), plaintext |
+| **Workload** | YOLOv8n INT8 through RKNN, 640×640×3 RGB |
+| **Measurements** | **421 valid benchmark runs, zero inference errors** |
+| **1 → 3 node throughput** | 112.9 → 338.4 inf/s — **3.00×** |
+| **Best throughput** | **387.2 inf/s** with the transport tuned — scaling efficiency falls 98.9% → 95.3% |
+| **Tested scale** | 1, 2 and 3 nodes |
+| **4+ nodes** | **not measured** |
+
+Each of these with its conditions and a link to the raw data:
+[`docs/FAQ.md`](docs/FAQ.md).
 
 ---
 
