@@ -1041,43 +1041,45 @@ failure bypass paths           output tensor shapes
 
 <a id="adr-005"></a>
 
-# ADR-005. RKNN 링크를 feature 뒤에 두고 기본값을 끈다
+# ADR-005. Put the RKNN link behind a feature and default it off
+
+*[한국어 원문](005-rknn-feature-gate-off-by-default.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-004](#adr-004), [ADR-006](#adr-006) |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-004](#adr-004), [ADR-006](#adr-006) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> `npuforge-rknn` 은 workspace 멤버지만 **기본 빌드에서 RKNN 을 링크하지
-> 않는다.** 그래서 Windows/x86 개발 PC 와 CI 에서 `cargo build --workspace`
-> 가 통과한다. 실장비 빌드만 `--features rknn` 을 켠다.
+> `npuforge-rknn` is a workspace member but **does not link RKNN in the default
+> build.** So `cargo build --workspace` passes on a Windows/x86 development PC
+> and in CI. Only real-hardware builds turn on `--features rknn`.
 
-## 배경
+## Context
 
-RKNN Runtime(`librknnrt.so`)은 **ARM64 Linux 전용 공유 라이브러리**다.
-Rockchip 이 배포하고, 이 저장소에는 포함되지 않는다.
+The RKNN Runtime (`librknnrt.so`) is **an ARM64 Linux-only shared library**. It
+is distributed by Rockchip and is not included in this repository.
 
-이 크레이트를 그냥 workspace 에 넣으면 이렇게 된다.
+Simply putting this crate in the workspace leads to:
 
 ```text
-Windows 개발 PC 에서 cargo build --workspace
-  → npuforge-rknn 이 librknnrt.so 를 찾는다
-  → 없다
-  → workspace 전체 빌드 실패
-  → 아무 코드도 못 짠다
+cargo build --workspace on a Windows development PC
+  -> npuforge-rknn looks for librknnrt.so
+  -> it is not there
+  -> the whole workspace build fails
+  -> no code can be written at all
 ```
 
-[ADR-004](#adr-004) 에서 "하드웨어 없이 전체가
-돌아야 한다" 를 원칙으로 정했는데, 링크 단계에서 그것이 깨진다.
+[ADR-004](#adr-004) established the principle that
+"everything has to run without hardware", and this breaks it at the link stage.
 
-## 결정
+## Decision
 
-**1. `rknn` feature 를 만들고 기본값을 비운다.**
+**1. Create an `rknn` feature and leave the default empty.**
 
 ```toml
 [features]
@@ -1085,115 +1087,120 @@ default = []
 rknn = []
 ```
 
-**2. 실장비 빌드만 명시적으로 켠다.**
+**2. Only real-hardware builds turn it on explicitly.**
 
 ```bash
 cargo build --release --target aarch64-unknown-linux-gnu \
       -p npuforge-node --features rknn
 ```
 
-저장소에는 `cargo build-node` 별칭으로 등록해 두었다.
+It is registered in the repository as the `cargo build-node` alias.
 
-**3. feature 가 꺼진 빌드에서도 타입은 존재한다.** 자리표시자 구현이
-컴파일되고, 추론을 시도하면 명확한 오류를 낸다.
+**3. The types exist even in a build with the feature off.** A placeholder
+implementation compiles and returns a clear error if inference is attempted.
 
 ```rust
 async fn infer(&self, _input: InferenceInput) -> Result<InferenceOutput> {
     Err(NpuForgeError::new(
         ErrorCode::BackendError,
-        "RKNN 지원 없이 빌드된 바이너리입니다",
+        "this binary was built without RKNN support",
     ))
 }
 ```
 
-**4. 빌드와 설정이 어긋나면 시작 시점에 죽는다.**
+**4. A mismatch between build and configuration dies at startup.**
 
 ```rust
 pub const fn is_rknn_enabled() -> bool { cfg!(feature = "rknn") }
 ```
 
-노드 에이전트가 기동 시 이 값을 확인한다. `[backend] type = "rknn"` 설정을
-RKNN 없이 빌드한 바이너리에 주면 **첫 요청을 받기 전에** 멈춘다.
+The node agent checks this value at startup. Giving a `[backend] type = "rknn"`
+configuration to a binary built without RKNN stops it **before it takes its
+first request.**
 
-## 근거
+## Rationale
 
-### 실수 하나를 구조적으로 막는다
+### It structurally blocks one mistake
 
-**Mock 전용 바이너리를 실제 노드에 배포하는 사고**가 가장 무섭다. 그대로
-돌면 노드가 가짜 결과를 내는데, 처리량은 오히려 좋게 나온다. Mock 은
-NPU 를 안 쓰니까.
+**Deploying a Mock-only binary to a real node** is the most frightening
+accident. It would run and the node would produce fake results — with better
+throughput, since the Mock does not use the NPU.
 
-`is_rknn_enabled()` 검사가 없으면 이 사고는 **벤치마크 결과가 다 나온 뒤에야**
-발견된다. 기동 시점에 죽으면 즉시 알 수 있다.
+Without the `is_rknn_enabled()` check, that accident is only discovered **after
+the benchmark results are all in.** Dying at startup makes it immediately known.
 
-이 프로젝트에서 이미 겪은 유형이다 — 컨텍스트 공유도, 원격 실행 실패도
-"성공처럼 보이는 실패" 였다.
+This is a type already encountered in this project — the shared context and the
+remote execution failure were both "failures that looked like success".
 
-### `publish = false` 도 같은 이유
+### `publish = false` is for the same reason
 
-`librknnrt.so` 가 없는 환경에서 실수로 발행되지 않도록 막아 두었다.
+It guards against accidental publication from an environment without
+`librknnrt.so`.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 기본값을 켠다 (`default = ["rknn"]`) | Windows/CI 빌드가 깨진다. ADR-004 의 전제가 무너진다 |
-| `npuforge-rknn` 을 workspace 에서 뺀다 | 별도 빌드가 되어 CI 가 이 크레이트의 컴파일조차 확인하지 않는다 |
-| `#[cfg(target_arch)]` 로 자동 판별 | aarch64 Linux 라고 해서 RKNN SDK 가 있다는 보장이 없다. 빌드 환경과 실행 환경이 다를 수도 있다 |
-| 런타임 `dlopen` 으로 동적 로드 | 링크 문제는 풀리지만 FFI 시그니처 검증을 컴파일 타임에 못 한다. 실기 헤더 대조로 이미 잡은 위험을 다시 열게 된다 |
+| Default it on (`default = ["rknn"]`) | Windows and CI builds break. ADR-004's premise collapses |
+| Take `npuforge-rknn` out of the workspace | It becomes a separate build and CI stops even checking that this crate compiles |
+| Auto-detect with `#[cfg(target_arch)]` | Being aarch64 Linux is no guarantee the RKNN SDK is present. The build environment and the run environment can differ |
+| Load dynamically at runtime with `dlopen` | Solves the link problem but loses compile-time verification of the FFI signatures. It would reopen a risk already caught by checking against the real headers |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- `cargo test --workspace` 가 Windows/x86 에서 통과한다 (209 tests)
-- CI 가 RKNN SDK 없이 fmt·clippy·test·aarch64 크로스까지 돈다
-- Mock 바이너리 오배포가 기동 시점에 잡힌다
+- `cargo test --workspace` passes on Windows/x86 (209 tests)
+- CI runs fmt, clippy, test and the aarch64 cross-build without the RKNN SDK
+- Misdeployment of a Mock binary is caught at startup
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **`--features rknn` 경로는 CI 에서 실행 검증을 못 한다.** 크로스 컴파일은
-  하지만 돌려 보지는 못한다. 그래서 실장비 통합 테스트가 따로 필요하다
-  (`crates/npuforge-rknn/tests/real_device.rs`)
-- 빌드 명령이 두 갈래가 된다. 실장비 배포 시 feature 를 빠뜨리면 안 된다
-  (그래서 `is_rknn_enabled()` 검사가 있다)
+- **The `--features rknn` path cannot be execution-verified in CI.** It
+  cross-compiles but is never run. Hence the need for separate real-hardware
+  integration tests (`crates/npuforge-rknn/tests/real_device.rs`)
+- The build command forks in two. The feature must not be forgotten when
+  deploying to real hardware (hence the `is_rknn_enabled()` check)
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- `#[cfg(feature = "rknn")]` 두 경로가 **같은 인터페이스를 유지해야 한다.**
-  한쪽만 고치면 다른 쪽이 컴파일되지 않거나, 더 나쁘게는 조용히 갈라진다
+- The two `#[cfg(feature = "rknn")]` paths **have to keep the same interface.**
+  Fixing one leaves the other failing to compile, or worse, silently diverging
 
-## 뒤집힌다면
+## What would overturn this
 
-- **개발 PC 가 전부 ARM64 Linux 가 되면** 이 분리의 이유가 줄어든다.
-  다만 CI 러너까지 바꿔야 하므로 가능성은 낮다
-- **다른 NPU 백엔드가 추가되면** feature 이름과 구조를 다시 봐야 한다.
-  `rknn` 하나를 전제로 짜여 있다
+- **If every development PC becomes ARM64 Linux**, the reason for this
+  separation weakens. Though the CI runners would have to change too, so it is
+  unlikely
+- **If another NPU backend is added**, the feature naming and structure need
+  re-examination. It is written assuming `rknn` alone
 
 ---
 
 <a id="adr-006"></a>
 
-# ADR-006. 크레이트를 7개로 나누고 `unsafe` 를 한 곳에 가둔다
+# ADR-006. Split into seven crates and confine `unsafe` to one of them
+
+*[한국어 원문](006-crate-split-unsafe-isolation.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-004](#adr-004), [ADR-005](#adr-005), [ADR-007](#adr-007) |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-004](#adr-004), [ADR-005](#adr-005), [ADR-007](#adr-007) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> C 라이브러리를 직접 부르는 `unsafe` 코드는 **`npuforge-rknn` 안에서만**
-> 존재한다. 나머지 여섯 크레이트는 안전한 Rust 만 쓴다. 메모리 문제가
-> 생기면 **찾아볼 곳이 한 군데**다.
+> `unsafe` code calling the C library exists **only inside `npuforge-rknn`.**
+> The other six crates use safe Rust only. When a memory problem appears, there
+> is **one place to look.**
 
-## 배경
+## Context
 
-Rust 는 메모리 안전을 컴파일러가 보장하지만, C 함수를 부르는 순간 그
-보장이 끊긴다. RKNN Runtime 은 C 라이브러리다.
+Rust has the compiler guarantee memory safety, but that guarantee ends the
+moment a C function is called. The RKNN Runtime is a C library.
 
 ```c
 int rknn_init(rknn_context* ctx, void* model, uint32_t size, uint32_t flag, ...);
@@ -1201,86 +1208,91 @@ int rknn_inputs_set(rknn_context ctx, uint32_t n, rknn_input inputs[]);
 int rknn_outputs_get(rknn_context ctx, uint32_t n, rknn_output outputs[], ...);
 ```
 
-포인터, 수명, 해제 시점을 사람이 관리해야 한다. 이 코드가 저장소 여기저기에
-흩어지면 "해제 후 사용" 같은 버그가 어디서 왔는지 찾을 수 없게 된다.
+Pointers, lifetimes and release timing have to be managed by hand. Scatter that
+code around the repository and there is no way to find where a bug like
+use-after-free came from.
 
-## 결정
+## Decision
 
-**1. 크레이트를 7개로 나눈다.**
+**1. Split into seven crates.**
 
-| 크레이트 | 책임 | `unsafe` |
+| Crate | Responsibility | `unsafe` |
 |---|---|---|
-| `npuforge-common` | 타입, 오류 코드, 설정, 백엔드 인터페이스 | 없음 |
-| `npuforge-proto` | gRPC 정의 (.proto → tonic 생성) | 없음 |
-| `npuforge-scheduler` | 정책, 레지스트리, 재시도, 헬스체크 | 없음 |
-| `npuforge-node` | 워커 풀, 큐, 등록·하트비트 | 없음 |
-| `npuforge-mock-backend` | 하드웨어 없는 백엔드 | 없음 |
-| `npuforge-bench` | 부하 생성, 집계, 유효성 판정 | 없음 |
-| **`npuforge-rknn`** | **RKNN FFI 와 안전한 래퍼** | **여기만** |
+| `npuforge-common` | types, error codes, configuration, backend interface | none |
+| `npuforge-proto` | gRPC definitions (.proto → tonic generated) | none |
+| `npuforge-scheduler` | policies, registry, retries, health checks | none |
+| `npuforge-node` | worker pool, queue, registration and heartbeat | none |
+| `npuforge-mock-backend` | the hardware-free backend | none |
+| `npuforge-bench` | load generation, aggregation, validity judgement | none |
+| **`npuforge-rknn`** | **RKNN FFI and its safe wrapper** | **only here** |
 
-**2. `unsafe` 는 `npuforge-rknn` 밖으로 나가지 않는다.** 이 크레이트의
-설명문에 그렇게 적어 두었다 — "unsafe 코드는 이 크레이트로 제한한다".
+**2. `unsafe` does not leave `npuforge-rknn`.** The crate's documentation says
+so — "unsafe code is confined to this crate".
 
-**3. 경계에서 안전한 타입으로 바꾼다.** 바깥은 `InferenceBackend` /
-`LoadedModel` 인터페이스만 본다. 포인터는 경계를 넘지 않는다.
+**3. Convert to safe types at the boundary.** The outside sees only the
+`InferenceBackend` / `LoadedModel` interfaces. Pointers do not cross the
+boundary.
 
-**4. 위험한 계약은 타입으로 표현한다.** 예: `RknnContext::infer` 가
-`&mut self` 를 받아 동시 호출을 컴파일러가 막는다
+**4. Express dangerous contracts as types.** For example `RknnContext::infer`
+takes `&mut self` so the compiler blocks concurrent calls
 ([ADR-007](#adr-007)).
 
-## 근거
+## Rationale
 
-### 1. 찾아볼 곳이 한 군데다
+### 1. There is one place to look
 
-메모리 오류, 이상한 크래시, 설명 안 되는 값이 나오면 `npuforge-rknn` 부터
-본다. 이 크레이트는 workspace 전체에서 작은 비중이라 훑는 비용이 낮다.
+When a memory error, a strange crash or an unexplainable value appears,
+`npuforge-rknn` is where you start. That crate is a small share of the whole
+workspace, so scanning it is cheap.
 
-### 2. 나머지 크레이트를 하드웨어 없이 검증할 수 있다
+### 2. The other crates can be verified without hardware
 
-`unsafe` 와 하드웨어 의존이 같은 자리에 모여 있어서, 그것만 떼면 나머지가
-전부 순수 Rust 다. Mock 으로 갈아 끼우는 것도 이 분리 덕분에 가능하다.
+`unsafe` and the hardware dependency sit in the same place, so removing that
+leaves everything else as pure Rust. Swapping in the Mock is possible thanks to
+the same separation.
 
-### 3. C wrapper 를 얇게 유지할 근거가 된다
+### 3. It gives grounds to keep the C wrapper thin
 
-FFI 는 `native/rknn_wrapper.c` 를 거친다. 이 wrapper 는 **실기 헤더와 대조해
-시그니처를 확인**했고, `rknn_context` 가 aarch64 에서 `uint64_t` 라는 것까지
-확인해 두었다. 한 곳에 모여 있으니 이런 대조가 가능하다.
+The FFI goes through `native/rknn_wrapper.c`. That wrapper had **its signatures
+verified against the real headers**, down to confirming that `rknn_context` is a
+`uint64_t` on aarch64. Being in one place is what makes such a check possible.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 단일 크레이트 | `unsafe` 가 전체에 번진다. feature gate 로 Windows 빌드를 살리기도 어려워진다 |
-| 크레이트를 더 잘게 쪼갠다 | 7개도 이 규모에서는 충분히 많다. 더 쪼개면 의존 관리 비용만 는다 |
-| `bindgen` 으로 FFI 자동 생성 | 헤더가 저장소에 없고 SDK 버전에 묶인다. 손으로 쓰고 실기 대조하는 편이 통제 가능했다 |
-| `unsafe` 를 노드 안에 직접 | 노드가 RKNN 에 묶여 Mock 경로가 성립하지 않는다 |
+| A single crate | `unsafe` spreads through everything. Keeping the Windows build alive with a feature gate would also get harder |
+| Split into more crates | Seven is already plenty at this scale. Splitting further only raises dependency management cost |
+| Auto-generate FFI with `bindgen` | The headers are not in the repository and it ties to an SDK version. Writing by hand and checking against real hardware was more controllable |
+| `unsafe` directly inside the node | The node becomes tied to RKNN and the Mock path does not hold |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- `unsafe` 감사 범위가 한 크레이트로 고정
-- 여섯 크레이트가 하드웨어 없이 테스트된다
-- 백엔드 교체 지점이 명확하다
+- The `unsafe` audit scope is fixed to one crate
+- Six crates are tested without hardware
+- The backend swap point is clear
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 크레이트 경계를 넘는 리팩터가 번거롭다. 타입을 `npuforge-common` 으로
-  올려야 하는 경우가 생긴다
-- `npuforge-common` 이 모두의 의존이라 여기를 고치면 전체가 재컴파일된다
+- Refactors crossing crate boundaries are cumbersome. Types sometimes have to be
+  lifted into `npuforge-common`
+- `npuforge-common` is everyone's dependency, so touching it recompiles
+  everything
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **`npuforge-common` 에 무엇을 넣을지 신중해야 한다.** 여기가 계약서라서,
-  한 크레이트에만 필요한 것을 올리면 결합이 늘어난다
-- `unsafe` 를 다른 크레이트에서 쓰고 싶어지는 순간이 오면, 그건 설계를
-  다시 볼 신호다
+- **Be careful about what goes into `npuforge-common`.** It is the contract, so
+  lifting something needed by only one crate raises coupling
+- The moment there is an urge to use `unsafe` in another crate, that is a signal
+  to re-examine the design
 
-## 뒤집힌다면
+## What would overturn this
 
-- **다른 NPU 백엔드가 추가되면** `npuforge-rknn` 과 나란히 새 크레이트가
-  생긴다. "unsafe 는 한 곳" 이 "unsafe 는 백엔드 크레이트들에만" 으로
-  넓어진다. 그때 공통 FFI 유틸을 어디 둘지 정해야 한다
+- **If another NPU backend is added**, a new crate appears alongside
+  `npuforge-rknn`. "unsafe in one place" widens to "unsafe only in the backend
+  crates". At that point, where common FFI utilities live has to be decided
 
 ---
 
@@ -1791,145 +1803,158 @@ hours.
 
 <a id="adr-010"></a>
 
-# ADR-010. ECT 점수식과 그 안의 각 항
+# ADR-010. The ECT score formula and each term inside it
+
+*[한국어 원문](010-ect-formula.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 (실장비 검증 전) |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-009](#adr-009), [ADR-027](#adr-027), `docs/01-TECHSPEC.md` §10.4 |
+| **Status** | accepted (before real-hardware validation) |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-009](#adr-009), [ADR-027](#adr-027), `docs/01-TECHSPEC.md` §10.4 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 기본 정책 ECT 는 **"이 요청을 저 노드에 주면 언제 끝나는가"** 를 점수로
-> 매겨 가장 낮은 노드를 고른다. 식의 각 항은 전부 이유가 있고, 특히
-> `+ 1` 과 `load_factor` 는 없으면 잘못 동작한다.
+> The default policy, ECT, scores **"if this request goes to that node, when
+> will it finish"** and picks the lowest. Every term in the formula has a
+> reason, and in particular `+ 1` and `load_factor` make it misbehave if
+> removed.
 
-## 배경
+## Context
 
-Least Queue 는 "큐가 짧은 노드" 를 고른다. 노드 성능이 같으면 그것으로
-충분하지만, 실제로는 다르다.
+Least Queue picks "the node with the shortest queue". That is enough when nodes
+perform identically, but in practice they do not.
 
 ```text
-노드 A  큐 2건, 한 건에 50 ms   →  약 100 ms 뒤 빔
-노드 B  큐 1건, 한 건에 200 ms  →  약 200 ms 뒤 빔
+node A  queue 2, 50 ms each   ->  free in about 100 ms
+node B  queue 1, 200 ms each  ->  free in about 200 ms
 ```
 
-Least Queue 는 B 를 고른다. **틀렸다.** 큐 길이만으로는 "언제 빌지" 를 알 수
-없다. 노드마다 속도가 다르고, 온도로 느려지기도 하고, 최근 실패가 잦을 수도
-있다.
+Least Queue picks B. **Wrong.** Queue length alone cannot tell you "when it will
+be free". Nodes differ in speed, they slow down with heat, and they may have
+been failing recently.
 
-## 결정
+## Decision
 
 ```text
-ECT = ((queue_depth + in_flight + 1) × EWMA_inference_time
+ECT = ((queue_depth + in_flight + 1) x EWMA_inference_time
        + EWMA_network_time
        + thermal_penalty
        + error_penalty)
       / load_factor
 ```
 
-가장 낮은 점수의 노드를 고른다. 동점이면 **Node ID 사전순**.
+The node with the lowest score is chosen. Ties break on **Node ID in
+lexicographic order**.
 
-### 각 항
+### Each term
 
-| 항 | 뜻 |
+| Term | Meaning |
 |---|---|
-| `queue_depth` | 그 노드가 아직 시작 못 한 대기 건수 |
-| `in_flight` | 지금 처리 중인 건수 |
-| `+ 1` | **지금 배정하려는 이 요청 자신** |
-| `EWMA_inference_time` | 최근 추론 시간의 이동평균. 노드별 실제 속도 |
-| `EWMA_network_time` | 스케줄러↔노드 왕복 이동평균 |
-| `thermal_penalty` | 온도가 높으면 가산 |
-| `error_penalty` | 최근 오류가 잦으면 가산 |
-| `load_factor` | 노드 상태별 가중치. 나누는 값 |
+| `queue_depth` | requests on that node not yet started |
+| `in_flight` | requests currently being processed |
+| `+ 1` | **this very request being assigned** |
+| `EWMA_inference_time` | moving average of recent inference times. The node's actual speed |
+| `EWMA_network_time` | moving average of scheduler↔node round trip |
+| `thermal_penalty` | added when the temperature is high |
+| `error_penalty` | added when errors have been frequent recently |
+| `load_factor` | a per-state weight. The divisor |
 
-## 근거
+## Rationale
 
-### `+ 1` 이 없으면 안 되는 이유
+### Why `+ 1` cannot be omitted
 
-두 가지다.
+Two reasons.
 
-**첫째, ECT 의 정의가 그렇다.** "이 요청이 언제 끝나는가" 를 추정하는
-값이므로 **자기 추론 시간이 포함되어야** 한다. 앞에 2건 있는 노드에 넣으면
-내 것까지 3건이 걸린다.
+**First, that is ECT's definition.** It estimates "when will this request
+finish", so **its own inference time has to be included**. Placing it on a node
+with 2 ahead means 3 including mine.
 
-**둘째, 없으면 `load_factor` 가 무력화된다.**
+**Second, without it `load_factor` is neutralised.**
 
 ```text
-큐가 빈 노드:  (0 + 0) × EWMA = 0
-               0 / load_factor = 0     ← 상태가 뭐든 항상 0
+a node with an empty queue:  (0 + 0) x EWMA = 0
+                             0 / load_factor = 0     <- always 0, whatever the state
 ```
 
-0 은 무엇으로 나눠도 0 이다. 아래 `Recovering` 억제가 통째로 사라진다.
+Zero divided by anything is zero. The `Recovering` suppression below disappears
+entirely.
 
-### `load_factor` 가 푸는 문제
+### The problem `load_factor` solves
 
-| 상태 | load_factor |
+| State | load_factor |
 |---|---:|
 | Healthy | 1.0 |
 | Busy | 1.0 |
 | Degraded | 0.5 |
 | Recovering | 0.25 |
-| 그 외 | 0.0 (후보 제외) |
+| Otherwise | 0.0 (excluded from candidates) |
 
-**`Recovering` 노드는 큐가 비어 있어서 점수만 보면 항상 이긴다.** 방금
-살아난 노드에 요청이 전부 몰리고, 같은 원인으로 다시 죽는다.
+**A `Recovering` node has an empty queue, so on score alone it always wins.**
+Every request piles onto a node that has just come back, and it dies again from
+the same cause.
 
-PRD FR-07 은 "복구된 노드에는 제한된 요청만 할당" 을 요구한다. 이걸
-별도 카운터나 토큰 버킷으로 구현할 수도 있었지만, **점수 하나로 표현했다.**
-`0.25` 로 나누면 점수가 4배가 되어 자연히 덜 뽑힌다.
+PRD FR-07 requires "assign only limited requests to a recovered node". This
+could have been implemented with a separate counter or token bucket, but it is
+**expressed as a single score.** Dividing by `0.25` quadruples the score, so it
+naturally gets picked less.
 
-상태를 후보 필터가 아니라 **점수에 넣은 것**이 요점이다. 필터로 빼면
-"쓰거나 안 쓰거나" 둘 뿐인데, 점수로 두면 **정도**를 표현할 수 있다.
+The point is putting state into **the score rather than the candidate filter**.
+Filtering gives only "use it or do not"; a score can express **degree**.
 
-### 동점 처리를 Node ID 사전순으로 고정한 이유
+### Why tie-breaking is fixed to lexicographic Node ID
 
-**재현성 때문이다.** 동점을 무작위나 해시 순서로 깨면 같은 조건의 반복
-실험이 매번 다른 분배를 낸다. 그러면 확장 효율 측정의 분산이 커지고,
-그 분산이 어디서 왔는지 설명할 수 없다.
+**Reproducibility.** Breaking ties randomly or by hash order would give a
+different distribution each time the same experiment is repeated. That inflates
+the variance of scaling-efficiency measurements, with no way to explain where
+the variance came from.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| Least Queue 만 쓴다 | 노드 속도 차이를 반영 못 한다. 위 A/B 예시에서 틀린 답 |
-| `Recovering` 을 후보에서 제외 | 복구된 노드가 영영 안 들어온다. 언제 넣을지 또 정해야 한다 |
-| 별도 토큰 버킷으로 복구 노드 제한 | 상태가 하나 더 생긴다. 점수식 하나로 되는 일 |
-| 동점을 무작위로 | 재현성이 깨진다 |
-| 온도·오류를 필터로만 처리 | 이분법이 된다. 79°C 와 81°C 가 전혀 다르게 취급된다 |
+| Use Least Queue only | Does not reflect node speed differences. Wrong answer in the A/B example above |
+| Exclude `Recovering` from candidates | A recovered node never comes back in. Then when to admit it has to be decided anyway |
+| A separate token bucket to limit recovered nodes | One more piece of state. The score formula alone does the job |
+| Break ties randomly | Reproducibility breaks |
+| Handle temperature and errors as filters only | Becomes binary. 79 °C and 81 °C get treated as entirely different |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 노드 속도 차이·온도·오류율·복구 상태를 **점수 하나로 통합**
-- 복구 노드 억제가 별도 상태 없이 구현됨
-- 동점이 결정적이라 반복 실험이 재현된다
+- Node speed differences, temperature, error rate and recovery state
+  **unified into one score**
+- Recovered-node suppression implemented without additional state
+- Ties are deterministic, so repeated experiments reproduce
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **튜닝 파라미터가 늘었다.** EWMA 계수, `thermal_penalty` / `error_penalty`
-  의 크기, `load_factor` 값 — 전부 정해야 한다
-- 식이 복잡해 로그만 보고 "왜 이 노드를 골랐는지" 즉시 알기 어렵다
+- **More tuning parameters.** The EWMA coefficients, the magnitudes of
+  `thermal_penalty` / `error_penalty`, the `load_factor` values — all have to be
+  set
+- The formula is complex enough that "why was this node picked" is hard to read
+  straight off a log
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **아직 실장비에서 검증하지 않았다.** Mock 3노드에서 동작은 확인했지만,
-  `load_factor` 나 penalty 값이 실제로 맞는지는 M4 에서 봐야 한다.
-  현재 값은 **초안**이다
-- 온도 임계치(80 / 90°C)도 초안이다. 정식 S0 열 측정 후 재설정한다
+- **Not yet validated on real hardware.** Behaviour was confirmed on a 3-node
+  Mock, but whether `load_factor` and the penalty values are actually right has
+  to be seen in M4. The current values are **a draft**
+- The temperature thresholds (80 / 90 °C) are a draft too. They are reset after
+  the formal S0 thermal measurement
 
-## 뒤집힌다면
+## What would overturn this
 
-- **M4 실장비 검증에서 ECT 가 Least Queue 보다 낫지 않으면** 식을 의심한다.
-  다만 그 결과 자체도 유효한 산출물이다 ([ADR-002](#adr-002))
-- **`Recovering` 노드가 0.25 로도 여전히 과부하를 받으면** 값을 낮추거나
-  절대 상한을 추가한다
-- **penalty 항이 실제로 아무 효과가 없으면** 빼는 것도 결과다. 항이 있다는
-  것과 그것이 동작한다는 것은 다르다
+- **If ECT is not better than Least Queue in M4's real-hardware validation**,
+  suspect the formula. Though that result is itself a valid output
+  ([ADR-002](#adr-002))
+- **If a `Recovering` node still gets overloaded even at 0.25**, lower the value
+  or add an absolute cap
+- **If the penalty terms turn out to have no effect at all**, removing them is
+  also a result. A term existing and a term working are different things
 
 ---
 
@@ -3371,132 +3396,141 @@ ssh-keygen -R npuforge-j   # PC 의 known_hosts 정리
 
 <a id="adr-020"></a>
 
-# ADR-020. `worker_count = 8` 로 하고 `core_mask` 는 설정하지 않는다
+# ADR-020. Use `worker_count = 8` and do not set `core_mask`
+
+*[한국어 원문](020-worker-count-8-no-core-mask.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-10 |
-| **관련** | [ADR-007](#adr-007), [ADR-011](#adr-011), `docs/discuss.md` §4 |
+| **Status** | accepted |
+| **Date** | 2026-08-10 |
+| **Related** | [ADR-007](#adr-007), [ADR-011](#adr-011), `docs/discuss.md` §4 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 워커 8개가 4개보다 **+27%** 다. NPU 코어를 손으로 배정하는
-> `core_mask` 는 8스레드에서 **+0.1%** — 사실상 없다. `CORE_AUTO` 의 분배가
-> 이미 균등하다. **손대지 않는 것이 결론이다.**
+> Eight workers beat four by **+27%**. Assigning NPU cores by hand with
+> `core_mask` is worth **+0.1%** at 8 threads — effectively nothing.
+> `CORE_AUTO`'s distribution is already even. **Not touching it is the
+> conclusion.**
 
-## 배경
+## Context
 
-RK3576 의 NPU 는 코어가 2개다. RKNN 은 어느 코어를 쓸지 지정하는
-`core_mask` 를 제공한다.
+The RK3576's NPU has two cores. RKNN provides `core_mask` to specify which core
+to use.
 
-측정 초기에 "Core1 점유율이 38% 밖에 안 된다" 는 관찰이 있었고, 두 번째
-코어가 놀고 있다는 가설이 나왔다. 코어를 명시적으로 배정하면 처리량이
-올라갈 것으로 봤다.
+Early in measurement there was an observation that "Core1 occupancy is only
+38%", and a hypothesis followed that the second core was idling. Assigning cores
+explicitly was expected to raise throughput.
 
-**그런데 그 38% 가 실제로 처리량에 기여하는지 확인한 적이 없었다.**
-점유율 숫자만 봤다.
+**But whether that 38% actually contributed to throughput had never been
+checked.** Only the occupancy number had been looked at.
 
-## 근거
+## Rationale
 
-### 대조군을 넣었다
+### A control group was added
 
-이전 측정에는 "코어 하나만 쓰면 얼마나 나오는가" 가 없었다. 그걸 넣어야
-두 번째 코어의 기여를 판정할 수 있다.
+Earlier measurements lacked "how much do you get using only one core". That has
+to be there to judge the second core's contribution.
 
 ```text
-측정 조건: queen, FP16, 스레드당 200회, 워밍업 4초 후 샘플링
+conditions: queen, FP16, 200 iterations per thread, sampled after a 4 s warmup
 ```
 
-| 스레드 | AUTO | ALTERNATE | CORE_0_1 | **CORE_0_ONLY** |
+| Threads | AUTO | ALTERNATE | CORE_0_1 | **CORE_0_ONLY** |
 |---:|---:|---:|---:|---:|
 | 1 | 16.7 | 16.7 | **18.2** | 16.5 |
 | 2 | 36.2 | 36.5 | 36.4 | 26.4 |
 | 4 | 52.4 | **57.1** | 48.5 | 38.5 |
 | 8 | 72.9 | **73.0** | 64.5 | **48.2** |
 
-### 발견 1. 두 번째 코어는 실제로 기여한다 — 다만 1.51배다
+### Finding 1. The second core does contribute — but by 1.51×
 
 ```text
-8스레드   단일 코어 48.2  →  두 코어 73.0 inf/s   =  1.51배
+8 threads   single core 48.2  ->  two cores 73.0 inf/s   =  1.51x
 ```
 
-38% 점유율은 장식이 아니었다. **그런데 2배가 아니라 1.51배다.** 코어를 두
-배로 늘려도 처리량은 절반만 는다. 코어 밖에 공유 자원이 있다는 뜻이고,
-이후 확인된 "제출 경로 직렬화" 와 맞는다.
+The 38% occupancy was not decoration. **But it is 1.51×, not 2×.** Doubling the
+cores raises throughput by only half as much. That means there is a shared
+resource outside the cores, which matches the "submission path serialization"
+confirmed later.
 
-### 발견 2. 명시 배정은 이득이 없다
+### Finding 2. Explicit assignment brings no gain
 
 ```text
-4스레드   52.4 → 57.1   +9.0%
-8스레드   72.9 → 73.0   +0.1%
+4 threads   52.4 -> 57.1   +9.0%
+8 threads   72.9 -> 73.0   +0.1%
 ```
 
-4스레드에서만 오르고 8스레드에서 사라진다. 게다가 4스레드 개선분을 뜯어보면
-대부분이 `outputs_get` 감소(13.6 → 10.0 ms)라 **코어 배정 효과인지 측정
-노이즈인지 분리되지 않는다.**
+It rises only at 4 threads and vanishes at 8. And unpacking that 4-thread
+improvement, most of it is a reduction in `outputs_get` (13.6 → 10.0 ms), so
+**whether it is a core-assignment effect or measurement noise is not
+separated.**
 
-`AUTO` 의 분배는 이미 균등하다 — 8스레드에서 Core0 39% / Core1 37%.
-런타임 스케줄러가 제 역할을 하고 있어 수동 개입의 여지가 없다.
+`AUTO`'s distribution is already even — Core0 39% / Core1 37% at 8 threads. The
+runtime scheduler is doing its job and there is no room for manual intervention.
 
-### 발견 3. `CORE_0_1` 은 오히려 손해다
+### Finding 3. `CORE_0_1` is actually a loss
 
 ```text
-8스레드   72.9 → 64.5   -11.5%
+8 threads   72.9 -> 64.5   -11.5%
 ```
 
-모든 스레드가 두 코어를 함께 쓰게 하면 더 느려진다.
+Making every thread use both cores together is slower.
 
-## 결정
+## Decision
 
-**1. `worker_count = 8` 을 실장비 기본값으로 한다.** 4 대비 +27% 이고,
-8에서 아직 꺾이지 않았다.
+**1. `worker_count = 8` is the real-hardware default.** It is +27% over 4, and
+it has not yet bent at 8.
 
-**2. `core_mask` 를 설정하지 않는다.** `CORE_AUTO` 에 맡긴다.
+**2. Do not set `core_mask`.** Leave it to `CORE_AUTO`.
 
-**3. 설정 기본값은 1 로 두고, 실장비 설정에서 명시적으로 8 을 준다.**
-기본값 1 은 백엔드를 모르는 상태에서의 안전값이다.
+**3. The configuration default stays 1, with real-hardware configuration giving
+8 explicitly.** A default of 1 is the safe value when the backend is unknown.
 
-**4. `worker_count` 는 컨텍스트 수와 직결된다는 것을 명시한다.**
-백엔드가 이 수만큼 RKNN 컨텍스트를 만든다
+**4. State explicitly that `worker_count` is directly tied to context count.**
+The backend creates that many RKNN contexts
 ([ADR-007](#adr-007)).
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| `core_mask = ALTERNATE` | 8스레드에서 +0.1%. 설정 항목만 늘고 이득이 없다 |
-| `core_mask = CORE_0_1` | -11.5%. 명확히 손해 |
-| `worker_count = 4` | 8 대비 -27% |
-| `worker_count` 를 더 키운다 | **아직 꺾이는 지점을 못 찾았다.** 다만 컨텍스트가 그만큼 늘어나므로 메모리 확인이 먼저다 |
+| `core_mask = ALTERNATE` | +0.1% at 8 threads. Adds a configuration item and no gain |
+| `core_mask = CORE_0_1` | −11.5%. Clearly a loss |
+| `worker_count = 4` | −27% against 8 |
+| Raise `worker_count` further | **The point where it bends has not been found yet.** But contexts grow with it, so a memory check comes first |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 튜닝 항목이 하나 줄었다. **설정하지 않기로 한 것도 결정이다**
-- NPU 2코어의 실제 기여가 1.51배라는 수치를 확보 — 이후 병목 분석의 근거
+- One tuning item removed. **Deciding not to configure something is also a
+  decision**
+- Obtained the figure that the NPU's two cores contribute 1.51× — grounds for
+  later bottleneck analysis
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 4스레드 조건에서는 +9% 를 포기한다. 다만 실장비는 8워커로 돌린다
+- +9% is given up at the 4-thread condition. But real hardware runs 8 workers
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **`worker_count` 를 늘리면 RKNN 컨텍스트가 그만큼 늘어난다.** 메모리 여유를
-  확인하지 않고 키우면 안 된다. 현재 컨텍스트당 메모리 증가량은 **측정하지
-  않았다**
-- 8이 상한이라는 근거는 없다. "8에서 아직 안 꺾였다" 가 정확한 표현이다.
-  `MAX_THREADS` 를 넓혀 다시 재는 것이 미확정 항목으로 남아 있다
+- **Raising `worker_count` raises the RKNN context count with it.** It must not
+  be increased without checking memory headroom. The per-context memory increase
+  has **not been measured**
+- There is no basis for 8 being the ceiling. "It has not bent yet at 8" is the
+  accurate statement. Widening `MAX_THREADS` and re-measuring remains an open
+  item
 
-## 뒤집힌다면
+## What would overturn this
 
-- **INT8 기준으로 다시 재면 최적값이 달라질 수 있다.** 위 스윕은 FP16 이다.
-  INT8 은 건당 시간이 짧아 최적 동시성이 다를 수 있다. **아직 확인하지 않았다**
-- **`MAX_THREADS` 를 넓혀 12·16 을 재면** 더 좋은 값이 나올 수 있다
-- 메모리가 부족해지면 8을 낮춰야 한다
+- **Re-measuring against INT8 could give a different optimum.** The sweep above
+  is FP16. INT8 takes less time per inference, so the optimal concurrency may
+  differ. **Not yet checked**
+- **Widening `MAX_THREADS` and measuring 12 and 16** could give a better value
+- If memory runs short, 8 has to come down
 
 ---
 
@@ -3899,545 +3933,581 @@ ondemand vs performance, 동일한 300초 조건, 3노드
 
 <a id="adr-024"></a>
 
-# ADR-024. 오류를 `NPF-xxxx` 코드 체계로 고정하고 외부 API 에서 안정적으로 유지한다
+# ADR-024. Fix errors to an `NPF-xxxx` code scheme and keep it stable in the external API
+
+*[한국어 원문](024-error-code-scheme.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-008](#adr-008), [ADR-026](#adr-026) |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-008](#adr-008), [ADR-026](#adr-026) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 오류를 `NPF-1302` 같은 **안정된 코드**로 표현한다. 번호대가 오류의 성격을
-> 나타내고, 그 성격이 **재시도 여부를 결정**한다. 메시지 문자열은 바뀔 수
-> 있지만 코드는 바뀌지 않는다.
+> Errors are expressed as **stable codes** such as `NPF-1302`. The number range
+> indicates the error's nature, and that nature **determines whether it is
+> retried**. Message strings may change; the codes do not.
 
-## 배경
+## Context
 
-이 시스템에서 오류는 여러 경계를 넘는다.
+Errors cross several boundaries in this system.
 
 ```text
-노드 백엔드  →  노드 에이전트  →  gRPC  →  스케줄러  →  gRPC  →  클라이언트
-                                              ↓
-                                        재시도할지 판단
+node backend  ->  node agent  ->  gRPC  ->  scheduler  ->  gRPC  ->  client
+                                                |
+                                          decide whether to retry
 ```
 
-스케줄러가 재시도 여부를 판단하려면 **노드가 보낸 오류가 무엇인지** 알아야
-한다. 메시지 문자열로 판단하면 문구를 고칠 때마다 판단 로직이 깨진다.
+For the scheduler to decide about retrying, it has to know **what the error the
+node sent actually is**. Deciding from message strings breaks the decision logic
+every time the wording is edited.
 
-## 결정
+## Decision
 
-**1. 번호대로 성격을 나눈다.**
+**1. The number range carries the nature.**
 
-| 번호대 | 성격 | 예 |
+| Range | Nature | Examples |
 |---|---|---|
-| 1000 | 요청 자체의 문제 | `NPF-1001 INVALID_REQUEST`, `NPF-1002 PAYLOAD_TOO_LARGE` |
-| 1100 | 모델 문제 | `NPF-1101 MODEL_NOT_FOUND`, `NPF-1102 MODEL_VERSION_MISMATCH` |
-| 1200 | 스케줄링 문제 | `NPF-1201 NO_AVAILABLE_NODE`, `NPF-1202 DEADLINE_UNSATISFIABLE` |
-| 1300 | 노드 문제 | `NPF-1301 NODE_TIMEOUT`, `NPF-1302 NODE_UNAVAILABLE`, `NPF-1303 NODE_OVERLOADED` |
-| 1400 | 백엔드 문제 | `NPF-1401 BACKEND_ERROR`, `NPF-1402 INFERENCE_FAILED` |
-| 1500 | 내부 오류 | `NPF-1501 INTERNAL_ERROR` |
+| 1000 | a problem with the request itself | `NPF-1001 INVALID_REQUEST`, `NPF-1002 PAYLOAD_TOO_LARGE` |
+| 1100 | a model problem | `NPF-1101 MODEL_NOT_FOUND`, `NPF-1102 MODEL_VERSION_MISMATCH` |
+| 1200 | a scheduling problem | `NPF-1201 NO_AVAILABLE_NODE`, `NPF-1202 DEADLINE_UNSATISFIABLE` |
+| 1300 | a node problem | `NPF-1301 NODE_TIMEOUT`, `NPF-1302 NODE_UNAVAILABLE`, `NPF-1303 NODE_OVERLOADED` |
+| 1400 | a backend problem | `NPF-1401 BACKEND_ERROR`, `NPF-1402 INFERENCE_FAILED` |
+| 1500 | an internal error | `NPF-1501 INTERNAL_ERROR` |
 
-**2. 열거형 하나로 정의하고 문자열 변환을 양방향으로 제공한다.**
+**2. Defined in a single enum, with string conversion in both directions.**
 
 ```rust
 pub const fn as_str(self) -> &'static str { ... }   // NPF-1302
-pub fn from_str_code(s: &str) -> Option<Self>       // 모르면 None
+pub fn from_str_code(s: &str) -> Option<Self>       // None when unknown
 ```
 
-역방향이 필요한 이유: **노드가 보낸 코드를 스케줄러가 재시도 판정에 써야
-한다.**
+Why the reverse direction is needed: **the scheduler has to use the code the
+node sent in its retry decision.**
 
-**3. 모르는 코드는 `None` 이고, 호출자가 보수적인 기본값을 정한다.**
-새 코드가 추가된 노드와 옛 스케줄러가 섞여도 조용히 오작동하지 않는다.
+**3. An unknown code is `None`, and the caller sets a conservative default.**
+A node carrying new codes mixed with an old scheduler does not silently
+misbehave.
 
-**4. 코드는 외부 API 에서 안정적으로 유지한다.** 번호를 재사용하지 않고,
-의미를 바꾸지 않는다.
+**4. Codes stay stable in the external API.** Numbers are not reused and
+meanings are not changed.
 
-## 근거
+## Rationale
 
-### 재시도 판정이 코드에 달려 있다
+### The retry decision hangs on the code
 
-| 재시도 가능 | 재시도 불가 |
+| Retryable | Not retryable |
 |---|---|
-| 네트워크 연결 실패 | 잘못된 입력 |
-| `NPF-1301` 노드 타임아웃 | 지원하지 않는 모델 |
-| `NPF-1302` 노드 사용 불가 | 지원하지 않는 입력 형식 |
-| `NPF-1303` 노드 과부하 | 모델 버전 불일치 |
-| 일시적 런타임 오류 | payload 크기 초과 |
+| Network connection failure | Invalid input |
+| `NPF-1301` node timeout | Unsupported model |
+| `NPF-1302` node unavailable | Unsupported input format |
+| `NPF-1303` node overloaded | Model version mismatch |
+| Transient runtime errors | Payload size exceeded |
 
-**1300 번대는 재시도, 1000·1100 번대는 재시도 불가** — 번호대만 봐도 대략
-갈린다. 잘못된 입력을 다른 노드에 다시 보내 봐야 똑같이 실패한다.
+**The 1300 range is retryable, the 1000 and 1100 ranges are not** — the number
+range alone roughly separates them. Resending invalid input to another node just
+fails the same way.
 
-### 문자열 매칭을 코드 여러 곳에 흩지 않는다
+### String matching is not scattered through the code
 
-`SchedulingPolicyKind` 와 같은 원칙이다
-([ADR-009](#adr-009)). 파싱을 한 곳에 모아 두면
-표기 흔들림이 생길 자리가 없다.
+The same principle as `SchedulingPolicyKind`
+([ADR-009](#adr-009)). Gathering the parsing in one
+place leaves nowhere for notation drift to appear.
 
-### 진단에 실제로 쓰였다
+### It was actually used in diagnosis
 
-Mock 3노드 통합 테스트에서 "전 노드 사망" 케이스의 기대값이
-**`NPF-1302` + 시도한 노드 목록**이다. 코드가 안정적이라 테스트가 이것을
-단언할 수 있다.
+In the Mock 3-node integration test, the expected value for the "all nodes dead"
+case is **`NPF-1302` plus the list of nodes attempted**. Because the code is
+stable, the test can assert on it.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| gRPC status code 만 사용 | 종류가 부족하고 도메인 의미를 못 담는다. `UNAVAILABLE` 하나로 노드 사망·과부하·타임아웃이 뭉개진다 |
-| 메시지 문자열로 판단 | 문구를 고치면 로직이 깨진다. 다국어도 불가능 |
-| HTTP 상태 코드 | 내부 RPC 가 gRPC 라 어울리지 않는다. 관리 API 에서는 함께 쓸 수 있다 |
-| 오류를 계층별로 다르게 정의 | 경계를 넘을 때마다 변환이 필요하고, 변환 과정에서 정보가 사라진다 |
+| Use gRPC status codes only | Too few kinds, and they cannot carry domain meaning. A single `UNAVAILABLE` smears node death, overload and timeout together |
+| Decide from message strings | Editing the wording breaks the logic. Localisation becomes impossible too |
+| HTTP status codes | Ill-suited given internal RPC is gRPC. They can be used alongside in the management API |
+| Define errors differently per layer | Conversion is needed at each boundary, and information disappears in the conversion |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 재시도 판정이 코드 하나로 결정된다
-- 로그·메트릭·테스트가 같은 식별자를 쓴다
-- gRPC 와 REST 양쪽에서 같은 오류 표현이 가능하다
+- The retry decision is settled by one code
+- Logs, metrics and tests use the same identifier
+- The same error representation works over both gRPC and REST
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 코드를 한 번 공개하면 **바꿀 수 없다.** 추가만 가능하다
-- 새 오류마다 번호를 정해야 한다
+- Once a code is published it **cannot be changed.** Only additions are possible
+- Every new error needs a number assigned
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **번호를 재사용하지 않는다.** 폐기해도 자리를 비워 둔다
-- 새 코드를 추가할 때 **재시도 가능 여부를 함께 정해야 한다.** 정하지 않으면
-  호출자가 보수적 기본값(재시도 불가)으로 처리한다
+- **Numbers are not reused.** Retiring one leaves the slot empty
+- Adding a new code requires **deciding its retryability at the same time.**
+  Without that, the caller treats it with the conservative default (not
+  retryable)
 
-## 뒤집힌다면
+## What would overturn this
 
-번호대 구획이 부족해지면 확장한다(예: 1600 번대). **기존 번호의 의미는
-바꾸지 않는다.**
+If the range partitioning runs out of room, extend it (a 1600 range, for
+example). **The meaning of existing numbers does not change.**
 
 ---
 
 <a id="adr-025"></a>
 
-# ADR-025. 하트비트가 실패하면 곧바로 재등록한다 — 등록은 멱등하게 만든다
+# ADR-025. Re-register immediately when a heartbeat fails — and make registration idempotent
+
+*[한국어 원문](025-heartbeat-failure-reregister.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-003](#adr-003), [ADR-016](#adr-016), [ADR-027](#adr-027) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-003](#adr-003), [ADR-016](#adr-016), [ADR-027](#adr-027) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드 입장에서 **일시적 네트워크 오류와 스케줄러 재시작은 구분할 수 없다.**
-> 그래서 구분하려 애쓰지 않고, 하트비트가 실패하면 무조건 재등록한다.
-> 등록이 멱등이라 헛수고가 손해로 이어지지 않는다.
+> From the node's point of view, **a transient network error and a scheduler
+> restart are indistinguishable.** So no effort is spent distinguishing them: a
+> failed heartbeat always triggers re-registration. Registration is idempotent,
+> so wasted effort does not translate into loss.
 
-## 배경
+## Context
 
-노드는 주기적으로 하트비트를 보낸다(기본 1~2초). 이게 실패하면 두 경우다.
-
-```text
-경우 A. 네트워크가 잠깐 끊겼다      → 잠시 뒤 다시 되면 그만
-경우 B. 스케줄러가 재시작했다        → 스케줄러의 노드 목록이 비었다
-                                       재등록하지 않으면 영영 안 들어간다
-```
-
-**노드는 둘을 구분할 수 없다.** 둘 다 "응답이 없다" 로 똑같이 보인다.
-
-구분하려면 스케줄러의 인스턴스 식별자 같은 것을 주고받아야 하는데, 그러면
-스케줄러가 그 값을 유지·전파해야 하고 상태가 늘어난다.
-
-## 결정
-
-**1. 하트비트 실패를 곧바로 재등록으로 전환한다.** 구분하지 않는다.
-
-**2. 등록을 멱등하게 만든다.** 같은 노드가 여러 번 등록해도 결과가 같다.
-
-**3. 스케줄러가 재등록을 요구할 수 있게 한다.** 응답에 `must_reregister`
-플래그를 둔다. 스케줄러가 모르는 노드에게서 하트비트를 받으면 이걸 켠다.
-
-**4. 최초 등록에는 백오프 재시도를 둔다.** 노드가 스케줄러보다 먼저 뜨는
-경우가 정상이기 때문이다.
-
-## 근거
-
-### 더 비싼 쪽을 택했다
-
-두 선택지의 비용을 비교하면 이렇다.
-
-| | 비용 |
-|---|---|
-| 재등록했는데 필요 없었다 | RPC 한 번. 멱등이라 상태 변화 없음 |
-| 재등록 안 했는데 필요했다 | **노드가 클러스터에서 영구히 빠진다** |
-
-비대칭이 크다. 싼 쪽 실수를 반복하는 편이 낫다.
-
-### 실측: 1.3초
-
-실제 프로세스 4개(스케줄러 + 노드 3)로 확인했다.
+Nodes send heartbeats periodically (1–2 seconds by default). When one fails,
+there are two cases.
 
 ```text
-스케줄러를 죽인다  →  다시 띄운다  →  세 노드가 약 1.3초 안에 스스로 복귀
+case A. the network dropped briefly      -> it comes back shortly and that is that
+case B. the scheduler restarted          -> the scheduler's node list is empty
+                                            without re-registering, the node never returns
 ```
 
-이 값이 [ADR-003](#adr-003) 의 "단일 장애점을 받아들이되
-복구를 싸게 만든다" 를 실제로 뒷받침한다. **스케줄러 이중화 없이도 재시작
-비용이 1.3초라면, 실험 장비로서는 충분하다.**
+**The node cannot tell them apart.** Both look identically like "no response".
 
-### 멱등성이 이 결정의 전제다
+Telling them apart would mean exchanging something like a scheduler instance
+identifier, which then has to be maintained and propagated by the scheduler,
+adding state.
 
-등록이 멱등이 아니면 이 설계가 성립하지 않는다. 중복 등록이 노드를 두 개로
-만들거나 상태를 리셋하면, 재등록을 남발하는 순간 클러스터가 망가진다.
+## Decision
 
-그래서 **등록은 "이 노드가 존재한다" 를 선언하는 것**이지 "새로 추가한다"
-가 아니다.
+**1. A failed heartbeat switches straight to re-registration.** No
+distinguishing.
 
-## 대안과 버린 이유
+**2. Registration is idempotent.** The same node registering repeatedly gives
+the same result.
 
-| 대안 | 버린 이유 |
+**3. The scheduler can demand re-registration.** The response carries a
+`must_reregister` flag. The scheduler sets it on receiving a heartbeat from a
+node it does not know.
+
+**4. Initial registration has backoff retries**, because a node coming up before
+the scheduler is normal.
+
+## Rationale
+
+### The more expensive option was chosen
+
+Comparing the cost of the two options:
+
+| | Cost |
 |---|---|
-| 스케줄러 인스턴스 ID 로 재시작 감지 | 상태가 늘고, 그 값이 틀리면 같은 문제가 다시 생긴다. 얻는 것이 RPC 몇 번 |
-| 하트비트 실패 N 회 후 재등록 | 복구가 N 배 느려진다. 얻는 것은 RPC 절약뿐 |
-| 스케줄러가 노드 목록을 디스크에 저장 | 재시작 시 복원되지만 낡은 정보일 수 있다. 노드가 사라졌는데 있다고 믿는다 |
-| 노드가 재등록하지 않고 스케줄러가 발견 | 스케줄러가 노드를 몰라서 못 찾는다. 발견 메커니즘(브로드캐스트 등)이 또 필요하다 |
+| Re-registered when it was not needed | One RPC. Idempotent, so no state change |
+| Did not re-register when it was needed | **The node drops out of the cluster permanently** |
 
-## 결과
+The asymmetry is large. Better to repeat the cheap mistake.
 
-**얻은 것**
+### Measured: 1.3 seconds
 
-- 스케줄러 재시작 복구 1.3초
-- 스케줄러가 노드 목록을 영속화하지 않아도 된다
-- 실패 처리 경로가 하나다 (구분 없음 = 분기 없음)
+Verified with four real processes (scheduler + 3 nodes).
 
-**잃은 것 / 대가**
+```text
+kill the scheduler  ->  bring it back  ->  all three nodes return by themselves in about 1.3 s
+```
 
-- 네트워크가 불안정하면 불필요한 등록 RPC 가 늘어난다. 멱등이라 무해하지만
-  트래픽은 발생한다
-- "왜 재등록했는지" 가 로그에 남지만 원인(순단인지 재시작인지)은 알 수 없다
+That figure is what actually supports
+[ADR-003](#adr-003)'s "accept the single point of failure
+but make recovery cheap". **If a restart costs 1.3 seconds without scheduler
+redundancy, that is sufficient for experimental equipment.**
 
-**새로 생긴 제약**
+### Idempotency is this decision's premise
 
-- **등록 처리는 반드시 멱등을 유지해야 한다.** 여기에 부작용을 추가하면
-  전체 설계가 무너진다
-- 재등록 이벤트만으로는 **보드 리셋과 프로세스 재시작을 구분할 수 없다.**
-  그건 `boot_id` 의 몫이다 ([ADR-016](#adr-016))
+Without idempotent registration this design does not hold. If duplicate
+registration created two nodes or reset state, the moment re-registration gets
+issued liberally the cluster would break.
 
-## 뒤집힌다면
+So **registration declares "this node exists"** rather than "add a new one".
 
-- **노드가 수십 대가 되면** 동시 재등록이 스케줄러에 몰릴 수 있다.
-  그때는 지터를 넣는다
-- **재등록 비용이 커지면**(등록 시 모델 목록 전송 등) 구분할 이유가 생긴다.
-  현재 등록 메시지는 가볍다
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
+|---|---|
+| Detect restarts via a scheduler instance ID | Adds state, and if that value is wrong the same problem returns. What it buys is a few RPCs |
+| Re-register after N failed heartbeats | Recovery becomes N times slower. All it buys is saved RPCs |
+| Have the scheduler persist the node list to disk | It restores on restart but may be stale. It believes a node is there when it has gone |
+| Have the scheduler discover nodes instead of nodes re-registering | The scheduler cannot find what it does not know about. A discovery mechanism (broadcast or similar) would then be needed |
+
+## Consequences
+
+**Gained**
+
+- Scheduler restart recovery in 1.3 seconds
+- The scheduler does not have to persist a node list
+- One failure-handling path (no distinction = no branch)
+
+**Lost / the cost**
+
+- Unstable networks produce unnecessary registration RPCs. Harmless because
+  idempotent, but traffic all the same
+- "Why it re-registered" is in the log, but the cause (a blip or a restart)
+  cannot be known
+
+**New constraints introduced**
+
+- **Registration handling must remain idempotent.** Adding a side effect here
+  collapses the whole design
+- Re-registration events alone **cannot distinguish a board reset from a process
+  restart.** That is `boot_id`'s job
+  ([ADR-016](#adr-016))
+
+## What would overturn this
+
+- **With tens of nodes**, simultaneous re-registration could pile onto the
+  scheduler. Add jitter at that point
+- **If registration becomes expensive** (sending a model list at registration,
+  for instance), a reason to distinguish appears. The registration message is
+  currently light
 
 ---
 
 <a id="adr-026"></a>
 
-# ADR-026. 재시도는 반드시 다른 노드로 보내고, 백오프를 짧게 유지한다
+# ADR-026. A retry always goes to a different node, and the backoff stays short
+
+*[한국어 원문](026-retry-different-node.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-024](#adr-024), [ADR-009](#adr-009), `docs/01-TECHSPEC.md` §12 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-024](#adr-024), [ADR-009](#adr-009), `docs/01-TECHSPEC.md` §12 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 실패한 노드에 다시 보내지 않는다. **실패 노드를 후보에서 일시 제외하고
-> 다른 노드를 고른다.** 재시도는 기본 1회, 백오프는 10~100 ms — 실시간
-> 추론이라 긴 exponential backoff 를 쓰지 않는다.
+> Never resend to the node that failed. **Temporarily exclude the failed node
+> from the candidates and pick another.** One retry by default, backoff of
+> 10–100 ms — this is real-time inference, so no long exponential backoff.
 
-## 배경
+## Context
 
-추론 요청이 실패했을 때 선택지는 셋이다.
+When an inference request fails there are three options.
 
 ```text
-1. 그냥 실패로 돌려준다
-2. 같은 노드에 다시 보낸다
-3. 다른 노드에 보낸다
+1. return it as a failure
+2. resend to the same node
+3. send to a different node
 ```
 
-추론 요청은 **부작용이 없다.** 같은 입력을 두 번 처리해도 상태가 바뀌지
-않는다. 그래서 재시도가 안전하다 — 이것이 전제다.
+Inference requests have **no side effects.** Processing the same input twice
+changes no state. That makes retrying safe — that is the premise.
 
-## 결정
+## Decision
 
-**1. 재시도 가능 여부를 오류 코드로 판정한다.**
+**1. Retryability is judged from the error code.**
 
-| 재시도 가능 | 재시도 불가 |
+| Retryable | Not retryable |
 |---|---|
-| 네트워크 연결 실패 | 잘못된 입력 |
-| 노드 타임아웃 (`NPF-1301`) | 지원하지 않는 모델 |
-| 노드 사용 불가 (`NPF-1302`) | 지원하지 않는 입력 형식 |
-| 노드 과부하 (`NPF-1303`) | 모델 버전 불일치 |
-| 일시적 런타임 오류 | payload 크기 초과 / 인증 실패 |
+| Network connection failure | Invalid input |
+| Node timeout (`NPF-1301`) | Unsupported model |
+| Node unavailable (`NPF-1302`) | Unsupported input format |
+| Node overloaded (`NPF-1303`) | Model version mismatch |
+| Transient runtime errors | Payload size exceeded / authentication failure |
 
-**2. 재시도 시 실패한 노드를 후보에서 일시 제외한다.** 그 다음 정책이
-남은 후보 중에서 고른다.
+**2. On retry, the failed node is temporarily excluded from the candidates.**
+The policy then picks from what remains.
 
-**3. 기본값을 짧게 잡는다.**
-
-```text
-최대 재시도       1회
-전체 요청 timeout  5초
-retry backoff     10~100 ms
-```
-
-**4. 긴 exponential backoff 를 쓰지 않는다.**
-
-**5. 시도한 노드 목록을 오류에 담는다.** 전부 실패하면 `NPF-1302` 와 함께
-어느 노드를 시도했는지 돌려준다.
-
-## 근거
-
-### 같은 노드에 다시 보내면 안 되는 이유
-
-실패 원인이 노드에 있으면 **다시 보내도 똑같이 실패한다.**
+**3. The defaults are short.**
 
 ```text
-노드가 죽었다      → 다시 보내도 죽어 있다
-노드가 과부하다    → 다시 보내면 더 과부하가 된다   ← 더 나쁘다
-노드가 뜨겁다      → 다시 보내면 더 뜨거워진다
+maximum retries       1
+overall request timeout  5 s
+retry backoff         10-100 ms
 ```
 
-특히 `NPF-1303` 과부하는 재시도가 **문제를 악화**시킨다. 이미 큐가 찬 노드에
-같은 요청을 또 넣는 셈이다.
+**4. No long exponential backoff.**
 
-### 왜 백오프가 짧은가
+**5. The list of nodes attempted is carried in the error.** If all fail,
+`NPF-1302` comes back along with which nodes were tried.
 
-이건 배치 작업이 아니라 **실시간 추론**이다. 클라이언트는 지금 답을 기다리고
-있다.
+## Rationale
+
+### Why not resend to the same node
+
+If the cause of failure is in the node, **resending fails the same way.**
 
 ```text
-exponential backoff (1s, 2s, 4s...)   →  성공해도 이미 늦었다
-짧은 backoff (10~100ms)               →  다른 노드가 살아 있으면 거의 안 늦는다
+the node died         -> it is still dead on resend
+the node is overloaded -> resending overloads it further   <- worse
+the node is hot        -> resending makes it hotter
 ```
 
-전체 요청 타임아웃이 5초인데 백오프에 4초를 쓰면 재시도할 시간이 없다.
+`NPF-1303` overload in particular means a retry **makes the problem worse**. It
+amounts to putting the same request into an already-full queue.
 
-### 왜 재시도가 1회인가
+### Why the backoff is short
 
-노드가 3대다. 한 번 실패하고 다른 노드에서도 실패하면, 세 번째를 시도할
-이유가 약하다 — 공통 원인(모델 문제, 요청 문제)일 가능성이 높아진다.
+This is not batch work but **real-time inference.** A client is waiting for an
+answer right now.
 
-그리고 재시도가 늘수록 **장애 시 지연 분포가 오염된다.** S4 장애 대응 실험에서
-재시도 횟수가 많으면 "장애 시 지연" 이 재시도 정책의 함수가 되어 버린다.
+```text
+exponential backoff (1s, 2s, 4s...)   ->  even success arrives late
+short backoff (10-100ms)              ->  barely late at all if another node is alive
+```
 
-### 시도한 노드 목록이 필요한 이유
+With a 5-second overall request timeout, spending 4 seconds on backoff leaves no
+time to retry.
 
-전부 실패했을 때 "아무 노드도 없다" 만으로는 진단이 안 된다. 어느 노드를
-시도했고 각각 왜 실패했는지가 있어야 원인을 좁힌다.
+### Why one retry
 
-Mock 3노드 통합 테스트의 "전 노드 사망" 케이스가 이걸 단언한다.
+There are three nodes. Failing once and failing again on another node leaves a
+weak case for a third — a common cause (a model problem, a request problem)
+becomes likely.
 
-## 대안과 버린 이유
+And the more retries there are, **the more the latency distribution during a
+failure gets contaminated.** In the S4 failure-handling experiment, a high retry
+count would make "latency during failure" a function of the retry policy.
 
-| 대안 | 버린 이유 |
+### Why the list of nodes attempted is needed
+
+When everything fails, "no node available" alone does not support diagnosis.
+Which nodes were tried and why each failed is what narrows the cause.
+
+The "all nodes dead" case in the Mock 3-node integration test asserts on this.
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
 |---|---|
-| 같은 노드에 재시도 | 원인이 노드에 있으면 무의미하고, 과부하는 악화시킨다 |
-| exponential backoff | 실시간 추론에 맞지 않는다. 성공해도 늦다 |
-| 재시도 3회 이상 | 지연 분포가 재시도 정책에 지배된다. 노드가 3대뿐이라 실익도 적다 |
-| 재시도 안 함 | 노드 하나가 잠깐 흔들려도 클라이언트가 실패를 본다. 장애 허용이 목표 중 하나다 |
-| 모든 오류를 재시도 | 잘못된 입력을 세 노드에 돌려가며 실패시킨다. 낭비이고 오류 원인만 흐려진다 |
+| Retry on the same node | Pointless if the cause is in the node, and it worsens overload |
+| Exponential backoff | Unsuited to real-time inference. Even success arrives late |
+| Three or more retries | The latency distribution becomes dominated by the retry policy. With only three nodes there is little to gain |
+| No retries | A client sees a failure whenever one node wobbles briefly. Fault tolerance is one of the goals |
+| Retry every error | Invalid input gets failed round three nodes in turn. Wasteful, and it only blurs the cause |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 노드 하나가 죽어도 클라이언트가 성공을 본다 (Mock 테스트 6/6 성공)
-- 과부하 노드에 부하가 더 쏠리지 않는다
-- 실패해도 진단 정보가 남는다
+- Clients see success even when one node dies (6/6 succeeded in the Mock test)
+- Load does not concentrate further on an overloaded node
+- Diagnostic information survives a failure
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 재시도된 요청은 지연이 늘어난다. 이 값이 지연 분포의 꼬리를 만든다
-- **재시도 건수를 결과에 함께 기록해야 한다.** 안 그러면 지연 분포가 왜
-  두꺼운지 설명할 수 없다 (벤치 도구가 기록한다)
+- Retried requests take longer. That value creates a tail in the latency
+  distribution
+- **The retry count has to be recorded with the results.** Otherwise there is no
+  way to explain why the latency distribution is heavy (the bench tool records
+  it)
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- 재시도가 성공한 요청도 **한 건**으로 센다. 두 번 처리했다고 처리량을 두 배로
-  세면 안 된다
-- 실패 요청은 처리량과 노드 몫에서 제외한다
+- A request that succeeded on retry still counts as **one**. Processing it twice
+  must not double the throughput count
+- Failed requests are excluded from throughput and per-node shares
   ([ADR-028](#adr-028))
 
-## 뒤집힌다면
+## What would overturn this
 
-- **노드가 많아지면** 재시도 횟수를 늘릴 여지가 생긴다. 3대에서는 실익이 적다
-- **부작용이 있는 요청**(상태를 바꾸는 API)이 추가되면 이 전제가 깨진다.
-  그때는 멱등 키가 필요하다. 현재 스케줄러는 짧은 TTL 의 Request ID 캐시로
-  중복 제출만 감지하고, 결과 캐시는 v0.1 필수가 아니다
+- **With more nodes** there is room to raise the retry count. At three there is
+  little to gain
+- **If requests with side effects** (state-changing APIs) are added, this
+  premise breaks. Idempotency keys would then be needed. The scheduler currently
+  only detects duplicate submissions with a short-TTL Request ID cache, and a
+  result cache is not required for v0.1
 
 ---
 
 <a id="adr-027"></a>
 
-# ADR-027. 노드 상태를 명시적 상태 머신으로 두고, drain 과 disable 을 나눈다
+# ADR-027. Node state is an explicit state machine, with drain and disable kept separate
+
+*[한국어 원문](027-node-state-machine-drain-disable.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 (임계치는 초안) |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-009](#adr-009), [ADR-010](#adr-010), [ADR-025](#adr-025) |
+| **Status** | accepted (thresholds are a draft) |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-009](#adr-009), [ADR-010](#adr-010), [ADR-025](#adr-025) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드를 "살았다/죽었다" 둘로 보지 않는다. **여덟 상태의 명시적 전이**로
-> 관리하고, 특히 **계획된 제외(drain)와 강제 차단(disable)을 다른 것으로**
-> 다룬다.
+> A node is not seen as merely "alive or dead". It is managed as **eight states
+> with explicit transitions**, and in particular **planned removal (drain) and
+> forced exclusion (disable) are treated as different things.**
 
-## 배경
+## Context
 
-노드가 요청을 받을 수 있는지는 이분법이 아니다.
+Whether a node can take requests is not binary.
 
 ```text
-살아 있지만 느리다
-살아 있지만 뜨겁다
-살아 있지만 오류가 잦다
-방금 살아났는데 아직 못 믿겠다
-살아 있지만 곧 끌 예정이다
+alive but slow
+alive but hot
+alive but failing often
+just came back and not yet trustworthy
+alive but about to be shut down
 ```
 
-전부 다르게 다뤄야 한다. `bool is_alive` 하나로는 표현할 수 없다.
+All of these need different handling. A single `bool is_alive` cannot express
+them.
 
-## 결정
+## Decision
 
-**1. 상태를 명시적으로 정의하고 전이 조건을 고정한다.**
+**1. Define the states explicitly and fix the transition conditions.**
 
 ```text
 Registering
-   │ 등록 성공
-   ▼
-Healthy ──────────────┐
-   │ 부하 높음         │ 수동 drain
-   ▼                   ▼
+   | registration succeeded
+   v
+Healthy --------------\
+   | load high        | manual drain
+   v                  v
 Busy                Draining
-   │ 오류 증가          │ 큐가 빔
-   ▼                    ▼
+   | errors rising    | queue empty
+   v                  v
 Degraded            Disabled
-   │ 헬스체크 실패
-   ▼
+   | health check failed
+   v
 Unreachable
-   │ 헬스체크 성공
-   ▼
+   | health check succeeded
+   v
 Recovering
-   │ 연속 성공
-   └───────────────→ Healthy
+   | consecutive successes
+   \---------------> Healthy
 ```
 
-**2. `Draining` 과 `Disabled` 를 구분한다.**
+**2. Distinguish `Draining` from `Disabled`.**
 
-| | 뜻 | 진행 중인 요청 |
+| | Meaning | In-flight requests |
 |---|---|---|
-| `Draining` | 새 요청은 안 받지만 **하던 건 끝낸다** | 완료를 기다린다 |
-| `Disabled` | 스케줄링에서 완전히 뺀다 | 이미 비어 있다 |
+| `Draining` | takes no new requests but **finishes what it has** | waits for completion |
+| `Disabled` | removed from scheduling entirely | already empty |
 
-`Draining` → 큐가 비면 → `Disabled` 로 넘어간다.
+`Draining` → queue empties → transitions to `Disabled`.
 
-**3. 임계치를 전부 설정 가능하게 한다.**
-
-```text
-Heartbeat interval     2초
-Health timeout         1초
-연속 실패 3회      →  Unreachable
-연속 성공 3회      →  Recovering 에서 Healthy
-큐 길이 초과       →  Busy
-최근 오류율 10% 초과 →  Degraded
-온도 80°C 이상      →  Degraded
-온도 90°C 이상      →  스케줄링 제외
-```
-
-**4. 상태를 후보 필터와 점수 양쪽에서 쓴다.** 필터는 `is_schedulable()` 로
-자격을 보고, ECT 는 `load_factor` 로 **정도**를 본다
-([ADR-010](#adr-010)).
-
-## 근거
-
-### drain 을 나눈 이유
-
-측정 중에 노드를 빼야 하는 상황이 있다. 그때 즉시 끊으면 **진행 중이던
-요청이 실패로 기록**되고, 그 실패가 오류율 통계에 들어간다.
+**3. Make every threshold configurable.**
 
 ```text
-즉시 차단     진행 중 3건이 실패 → 오류율 상승 → 측정 결과 오염
-drain 사용    진행 중 3건 완료 후 조용히 빠짐 → 통계 깨끗
+Heartbeat interval     2 s
+Health timeout         1 s
+3 consecutive failures     ->  Unreachable
+3 consecutive successes    ->  Recovering to Healthy
+queue length exceeded      ->  Busy
+recent error rate over 10% ->  Degraded
+temperature at or above 80 C ->  Degraded
+temperature at or above 90 C ->  excluded from scheduling
 ```
 
-S4 장애 대응 실험에서 **의도된 제외**와 **실제 장애**를 구분해야 하는데,
-drain 이 없으면 둘이 똑같이 실패로 보인다.
+**4. State is used both in the candidate filter and in the score.** The filter
+checks eligibility via `is_schedulable()`, and ECT reads **degree** via
+`load_factor` ([ADR-010](#adr-010)).
 
-### `Recovering` 을 따로 둔 이유
+## Rationale
 
-죽었다 살아난 노드를 바로 `Healthy` 로 올리면, 큐가 비어 있어서 요청이 전부
-몰린다. 같은 원인으로 다시 죽는다.
+### Why drain is separated
 
-`Recovering` 은 "살아났지만 아직 못 믿는" 상태다. 연속 성공 3회를 채워야
-`Healthy` 가 되고, 그동안 ECT 는 `load_factor 0.25` 로 억제한다.
-
-### 온도를 두 단계로 나눈 이유
+There are situations where a node has to be pulled out mid-measurement. Cutting
+it off immediately **records in-flight requests as failures**, and those
+failures enter the error-rate statistics.
 
 ```text
-80°C  →  Degraded          받긴 받되 덜 받는다
-90°C  →  스케줄링 제외      아예 안 준다
+immediate block   3 in-flight fail -> error rate rises -> measurement contaminated
+using drain       3 in-flight finish, then it leaves quietly -> statistics clean
 ```
 
-한 단계만 두면 이분법이 된다. 79°C 와 81°C 가 전혀 다르게 취급되면 경계에서
-노드가 들락날락한다.
+The S4 failure-handling experiment has to distinguish **intentional removal**
+from **actual failure**, and without drain the two look identically like
+failures.
 
-## ⚠️ 임계치는 초안이다
+### Why `Recovering` exists separately
 
-**현재 온도 임계치(80 / 90°C)는 정상 동작 범위와 충돌한다.**
+Promoting a node straight to `Healthy` after it comes back means requests all
+pile onto it, because its queue is empty. It dies again from the same cause.
 
-실측에서 지속 부하 시 NPU 온도가 67.5~75.8°C 이고, 부하 프로파일에 따라
-86~90°C 까지 올라간 기록도 있다. 즉 **정상 동작 중에 `Degraded` 로 떨어질
-수 있다.**
+`Recovering` is the state of "alive but not yet trusted". Three consecutive
+successes are needed to reach `Healthy`, and meanwhile ECT suppresses it with
+`load_factor 0.25`.
 
-정식 S0 열 측정 후 재설정해야 한다. 그전까지 이 값은 **초안**이고, 알려진
-이슈로 `docs/TODO.md` §6 에 올라 있다.
+### Why temperature has two stages
 
-## 대안과 버린 이유
+```text
+80 C  ->  Degraded              still takes work, but less of it
+90 C  ->  excluded from scheduling   given nothing at all
+```
 
-| 대안 | 버린 이유 |
+A single stage makes it binary. If 79 °C and 81 °C are treated as entirely
+different, a node flaps in and out at the boundary.
+
+## ⚠️ The thresholds are a draft
+
+**The current temperature thresholds (80 / 90 °C) conflict with the normal
+operating range.**
+
+Measurements show NPU temperature at 67.5–75.8 °C under sustained load, with
+records of 86–90 °C depending on the load profile. That means **a node can drop
+to `Degraded` during normal operation.**
+
+They have to be reset after the formal S0 thermal measurement. Until then these
+values are **a draft**, filed as a known issue in `docs/TODO.md` §6.
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
 |---|---|
-| `bool is_alive` 하나 | 느림·뜨거움·복구 중을 표현할 수 없다 |
-| drain 없이 즉시 차단 | 진행 중 요청이 실패로 기록되어 통계가 오염된다 |
-| `Recovering` 없이 바로 `Healthy` | 복구 직후 전량을 받아 다시 죽는다 |
-| 온도 임계치 한 단계 | 경계에서 진동한다 |
-| 상태를 정책마다 다르게 해석 | 정책 비교 실험이 무효가 된다 ([ADR-009](#adr-009)) |
+| A single `bool is_alive` | Cannot express slow, hot or recovering |
+| Immediate blocking without drain | In-flight requests get recorded as failures and contaminate the statistics |
+| Straight to `Healthy` with no `Recovering` | Takes the full load right after recovery and dies again |
+| A single temperature threshold | Oscillates at the boundary |
+| Interpret state differently per policy | Invalidates the policy comparison experiment ([ADR-009](#adr-009)) |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 계획된 제외와 장애가 구분된다
-- 복구 노드 과부하가 구조적으로 억제된다
-- 상태 전이가 이벤트로 기록되어 타임라인 재구성이 가능하다
+- Planned removal is distinguished from failure
+- Overloading a recovering node is structurally suppressed
+- State transitions are recorded as events, making timeline reconstruction
+  possible
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 상태가 8개라 전이 조합을 다 검증해야 한다
-- 튜닝할 임계치가 8개 늘었다
+- With eight states, every transition combination has to be verified
+- Eight more thresholds to tune
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **임계치를 바꾸면 실험 조건이 바뀐 것이다.** 결과에 함께 기록해야 한다
-- 온도 임계치가 초안이라, S0 전 측정에서는 노드가 예상치 못하게 `Degraded`
-  로 떨어질 수 있다. 그 경우 run 해석에 주의해야 한다
+- **Changing a threshold is a change of experimental conditions.** It has to be
+  recorded with the results
+- Because the temperature thresholds are a draft, nodes can drop unexpectedly to
+  `Degraded` in measurements taken before S0. Interpret those runs with care
 
-## 뒤집힌다면
+## What would overturn this
 
-- **S0 결과로 온도 임계치를 확정한다.** 이건 예정된 변경이다
-- **상태가 더 필요해지면** 추가한다. 다만 상태 하나가 늘면 전이 검증이
-  비선형으로 늘어난다는 것을 감안한다
+- **S0's results settle the temperature thresholds.** That change is planned
+- **If more states become necessary**, add them. But bear in mind that each
+  additional state grows transition verification non-linearly
 
 ---
 

@@ -1,117 +1,123 @@
-# ADR-024. 오류를 `NPF-xxxx` 코드 체계로 고정하고 외부 API 에서 안정적으로 유지한다
+# ADR-024. Fix errors to an `NPF-xxxx` code scheme and keep it stable in the external API
+
+*[한국어 원문](024-error-code-scheme.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-008](008-grpc-tonic-protobuf.md), [ADR-026](026-retry-different-node.md) |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-008](008-grpc-tonic-protobuf.md), [ADR-026](026-retry-different-node.md) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 오류를 `NPF-1302` 같은 **안정된 코드**로 표현한다. 번호대가 오류의 성격을
-> 나타내고, 그 성격이 **재시도 여부를 결정**한다. 메시지 문자열은 바뀔 수
-> 있지만 코드는 바뀌지 않는다.
+> Errors are expressed as **stable codes** such as `NPF-1302`. The number range
+> indicates the error's nature, and that nature **determines whether it is
+> retried**. Message strings may change; the codes do not.
 
-## 배경
+## Context
 
-이 시스템에서 오류는 여러 경계를 넘는다.
+Errors cross several boundaries in this system.
 
 ```text
-노드 백엔드  →  노드 에이전트  →  gRPC  →  스케줄러  →  gRPC  →  클라이언트
-                                              ↓
-                                        재시도할지 판단
+node backend  ->  node agent  ->  gRPC  ->  scheduler  ->  gRPC  ->  client
+                                                |
+                                          decide whether to retry
 ```
 
-스케줄러가 재시도 여부를 판단하려면 **노드가 보낸 오류가 무엇인지** 알아야
-한다. 메시지 문자열로 판단하면 문구를 고칠 때마다 판단 로직이 깨진다.
+For the scheduler to decide about retrying, it has to know **what the error the
+node sent actually is**. Deciding from message strings breaks the decision logic
+every time the wording is edited.
 
-## 결정
+## Decision
 
-**1. 번호대로 성격을 나눈다.**
+**1. The number range carries the nature.**
 
-| 번호대 | 성격 | 예 |
+| Range | Nature | Examples |
 |---|---|---|
-| 1000 | 요청 자체의 문제 | `NPF-1001 INVALID_REQUEST`, `NPF-1002 PAYLOAD_TOO_LARGE` |
-| 1100 | 모델 문제 | `NPF-1101 MODEL_NOT_FOUND`, `NPF-1102 MODEL_VERSION_MISMATCH` |
-| 1200 | 스케줄링 문제 | `NPF-1201 NO_AVAILABLE_NODE`, `NPF-1202 DEADLINE_UNSATISFIABLE` |
-| 1300 | 노드 문제 | `NPF-1301 NODE_TIMEOUT`, `NPF-1302 NODE_UNAVAILABLE`, `NPF-1303 NODE_OVERLOADED` |
-| 1400 | 백엔드 문제 | `NPF-1401 BACKEND_ERROR`, `NPF-1402 INFERENCE_FAILED` |
-| 1500 | 내부 오류 | `NPF-1501 INTERNAL_ERROR` |
+| 1000 | a problem with the request itself | `NPF-1001 INVALID_REQUEST`, `NPF-1002 PAYLOAD_TOO_LARGE` |
+| 1100 | a model problem | `NPF-1101 MODEL_NOT_FOUND`, `NPF-1102 MODEL_VERSION_MISMATCH` |
+| 1200 | a scheduling problem | `NPF-1201 NO_AVAILABLE_NODE`, `NPF-1202 DEADLINE_UNSATISFIABLE` |
+| 1300 | a node problem | `NPF-1301 NODE_TIMEOUT`, `NPF-1302 NODE_UNAVAILABLE`, `NPF-1303 NODE_OVERLOADED` |
+| 1400 | a backend problem | `NPF-1401 BACKEND_ERROR`, `NPF-1402 INFERENCE_FAILED` |
+| 1500 | an internal error | `NPF-1501 INTERNAL_ERROR` |
 
-**2. 열거형 하나로 정의하고 문자열 변환을 양방향으로 제공한다.**
+**2. Defined in a single enum, with string conversion in both directions.**
 
 ```rust
 pub const fn as_str(self) -> &'static str { ... }   // NPF-1302
-pub fn from_str_code(s: &str) -> Option<Self>       // 모르면 None
+pub fn from_str_code(s: &str) -> Option<Self>       // None when unknown
 ```
 
-역방향이 필요한 이유: **노드가 보낸 코드를 스케줄러가 재시도 판정에 써야
-한다.**
+Why the reverse direction is needed: **the scheduler has to use the code the
+node sent in its retry decision.**
 
-**3. 모르는 코드는 `None` 이고, 호출자가 보수적인 기본값을 정한다.**
-새 코드가 추가된 노드와 옛 스케줄러가 섞여도 조용히 오작동하지 않는다.
+**3. An unknown code is `None`, and the caller sets a conservative default.**
+A node carrying new codes mixed with an old scheduler does not silently
+misbehave.
 
-**4. 코드는 외부 API 에서 안정적으로 유지한다.** 번호를 재사용하지 않고,
-의미를 바꾸지 않는다.
+**4. Codes stay stable in the external API.** Numbers are not reused and
+meanings are not changed.
 
-## 근거
+## Rationale
 
-### 재시도 판정이 코드에 달려 있다
+### The retry decision hangs on the code
 
-| 재시도 가능 | 재시도 불가 |
+| Retryable | Not retryable |
 |---|---|
-| 네트워크 연결 실패 | 잘못된 입력 |
-| `NPF-1301` 노드 타임아웃 | 지원하지 않는 모델 |
-| `NPF-1302` 노드 사용 불가 | 지원하지 않는 입력 형식 |
-| `NPF-1303` 노드 과부하 | 모델 버전 불일치 |
-| 일시적 런타임 오류 | payload 크기 초과 |
+| Network connection failure | Invalid input |
+| `NPF-1301` node timeout | Unsupported model |
+| `NPF-1302` node unavailable | Unsupported input format |
+| `NPF-1303` node overloaded | Model version mismatch |
+| Transient runtime errors | Payload size exceeded |
 
-**1300 번대는 재시도, 1000·1100 번대는 재시도 불가** — 번호대만 봐도 대략
-갈린다. 잘못된 입력을 다른 노드에 다시 보내 봐야 똑같이 실패한다.
+**The 1300 range is retryable, the 1000 and 1100 ranges are not** — the number
+range alone roughly separates them. Resending invalid input to another node just
+fails the same way.
 
-### 문자열 매칭을 코드 여러 곳에 흩지 않는다
+### String matching is not scattered through the code
 
-`SchedulingPolicyKind` 와 같은 원칙이다
-([ADR-009](009-three-policies-shared-filter.md)). 파싱을 한 곳에 모아 두면
-표기 흔들림이 생길 자리가 없다.
+The same principle as `SchedulingPolicyKind`
+([ADR-009](009-three-policies-shared-filter.md)). Gathering the parsing in one
+place leaves nowhere for notation drift to appear.
 
-### 진단에 실제로 쓰였다
+### It was actually used in diagnosis
 
-Mock 3노드 통합 테스트에서 "전 노드 사망" 케이스의 기대값이
-**`NPF-1302` + 시도한 노드 목록**이다. 코드가 안정적이라 테스트가 이것을
-단언할 수 있다.
+In the Mock 3-node integration test, the expected value for the "all nodes dead"
+case is **`NPF-1302` plus the list of nodes attempted**. Because the code is
+stable, the test can assert on it.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| gRPC status code 만 사용 | 종류가 부족하고 도메인 의미를 못 담는다. `UNAVAILABLE` 하나로 노드 사망·과부하·타임아웃이 뭉개진다 |
-| 메시지 문자열로 판단 | 문구를 고치면 로직이 깨진다. 다국어도 불가능 |
-| HTTP 상태 코드 | 내부 RPC 가 gRPC 라 어울리지 않는다. 관리 API 에서는 함께 쓸 수 있다 |
-| 오류를 계층별로 다르게 정의 | 경계를 넘을 때마다 변환이 필요하고, 변환 과정에서 정보가 사라진다 |
+| Use gRPC status codes only | Too few kinds, and they cannot carry domain meaning. A single `UNAVAILABLE` smears node death, overload and timeout together |
+| Decide from message strings | Editing the wording breaks the logic. Localisation becomes impossible too |
+| HTTP status codes | Ill-suited given internal RPC is gRPC. They can be used alongside in the management API |
+| Define errors differently per layer | Conversion is needed at each boundary, and information disappears in the conversion |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 재시도 판정이 코드 하나로 결정된다
-- 로그·메트릭·테스트가 같은 식별자를 쓴다
-- gRPC 와 REST 양쪽에서 같은 오류 표현이 가능하다
+- The retry decision is settled by one code
+- Logs, metrics and tests use the same identifier
+- The same error representation works over both gRPC and REST
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 코드를 한 번 공개하면 **바꿀 수 없다.** 추가만 가능하다
-- 새 오류마다 번호를 정해야 한다
+- Once a code is published it **cannot be changed.** Only additions are possible
+- Every new error needs a number assigned
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **번호를 재사용하지 않는다.** 폐기해도 자리를 비워 둔다
-- 새 코드를 추가할 때 **재시도 가능 여부를 함께 정해야 한다.** 정하지 않으면
-  호출자가 보수적 기본값(재시도 불가)으로 처리한다
+- **Numbers are not reused.** Retiring one leaves the slot empty
+- Adding a new code requires **deciding its retryability at the same time.**
+  Without that, the caller treats it with the conservative default (not
+  retryable)
 
-## 뒤집힌다면
+## What would overturn this
 
-번호대 구획이 부족해지면 확장한다(예: 1600 번대). **기존 번호의 의미는
-바꾸지 않는다.**
+If the range partitioning runs out of room, extend it (a 1600 range, for
+example). **The meaning of existing numbers does not change.**

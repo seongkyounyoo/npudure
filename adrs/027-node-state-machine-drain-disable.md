@@ -1,159 +1,168 @@
-# ADR-027. 노드 상태를 명시적 상태 머신으로 두고, drain 과 disable 을 나눈다
+# ADR-027. Node state is an explicit state machine, with drain and disable kept separate
+
+*[한국어 원문](027-node-state-machine-drain-disable.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 (임계치는 초안) |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-009](009-three-policies-shared-filter.md), [ADR-010](010-ect-formula.md), [ADR-025](025-heartbeat-failure-reregister.md) |
+| **Status** | accepted (thresholds are a draft) |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-009](009-three-policies-shared-filter.md), [ADR-010](010-ect-formula.md), [ADR-025](025-heartbeat-failure-reregister.md) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드를 "살았다/죽었다" 둘로 보지 않는다. **여덟 상태의 명시적 전이**로
-> 관리하고, 특히 **계획된 제외(drain)와 강제 차단(disable)을 다른 것으로**
-> 다룬다.
+> A node is not seen as merely "alive or dead". It is managed as **eight states
+> with explicit transitions**, and in particular **planned removal (drain) and
+> forced exclusion (disable) are treated as different things.**
 
-## 배경
+## Context
 
-노드가 요청을 받을 수 있는지는 이분법이 아니다.
+Whether a node can take requests is not binary.
 
 ```text
-살아 있지만 느리다
-살아 있지만 뜨겁다
-살아 있지만 오류가 잦다
-방금 살아났는데 아직 못 믿겠다
-살아 있지만 곧 끌 예정이다
+alive but slow
+alive but hot
+alive but failing often
+just came back and not yet trustworthy
+alive but about to be shut down
 ```
 
-전부 다르게 다뤄야 한다. `bool is_alive` 하나로는 표현할 수 없다.
+All of these need different handling. A single `bool is_alive` cannot express
+them.
 
-## 결정
+## Decision
 
-**1. 상태를 명시적으로 정의하고 전이 조건을 고정한다.**
+**1. Define the states explicitly and fix the transition conditions.**
 
 ```text
 Registering
-   │ 등록 성공
-   ▼
-Healthy ──────────────┐
-   │ 부하 높음         │ 수동 drain
-   ▼                   ▼
+   | registration succeeded
+   v
+Healthy --------------\
+   | load high        | manual drain
+   v                  v
 Busy                Draining
-   │ 오류 증가          │ 큐가 빔
-   ▼                    ▼
+   | errors rising    | queue empty
+   v                  v
 Degraded            Disabled
-   │ 헬스체크 실패
-   ▼
+   | health check failed
+   v
 Unreachable
-   │ 헬스체크 성공
-   ▼
+   | health check succeeded
+   v
 Recovering
-   │ 연속 성공
-   └───────────────→ Healthy
+   | consecutive successes
+   \---------------> Healthy
 ```
 
-**2. `Draining` 과 `Disabled` 를 구분한다.**
+**2. Distinguish `Draining` from `Disabled`.**
 
-| | 뜻 | 진행 중인 요청 |
+| | Meaning | In-flight requests |
 |---|---|---|
-| `Draining` | 새 요청은 안 받지만 **하던 건 끝낸다** | 완료를 기다린다 |
-| `Disabled` | 스케줄링에서 완전히 뺀다 | 이미 비어 있다 |
+| `Draining` | takes no new requests but **finishes what it has** | waits for completion |
+| `Disabled` | removed from scheduling entirely | already empty |
 
-`Draining` → 큐가 비면 → `Disabled` 로 넘어간다.
+`Draining` → queue empties → transitions to `Disabled`.
 
-**3. 임계치를 전부 설정 가능하게 한다.**
-
-```text
-Heartbeat interval     2초
-Health timeout         1초
-연속 실패 3회      →  Unreachable
-연속 성공 3회      →  Recovering 에서 Healthy
-큐 길이 초과       →  Busy
-최근 오류율 10% 초과 →  Degraded
-온도 80°C 이상      →  Degraded
-온도 90°C 이상      →  스케줄링 제외
-```
-
-**4. 상태를 후보 필터와 점수 양쪽에서 쓴다.** 필터는 `is_schedulable()` 로
-자격을 보고, ECT 는 `load_factor` 로 **정도**를 본다
-([ADR-010](010-ect-formula.md)).
-
-## 근거
-
-### drain 을 나눈 이유
-
-측정 중에 노드를 빼야 하는 상황이 있다. 그때 즉시 끊으면 **진행 중이던
-요청이 실패로 기록**되고, 그 실패가 오류율 통계에 들어간다.
+**3. Make every threshold configurable.**
 
 ```text
-즉시 차단     진행 중 3건이 실패 → 오류율 상승 → 측정 결과 오염
-drain 사용    진행 중 3건 완료 후 조용히 빠짐 → 통계 깨끗
+Heartbeat interval     2 s
+Health timeout         1 s
+3 consecutive failures     ->  Unreachable
+3 consecutive successes    ->  Recovering to Healthy
+queue length exceeded      ->  Busy
+recent error rate over 10% ->  Degraded
+temperature at or above 80 C ->  Degraded
+temperature at or above 90 C ->  excluded from scheduling
 ```
 
-S4 장애 대응 실험에서 **의도된 제외**와 **실제 장애**를 구분해야 하는데,
-drain 이 없으면 둘이 똑같이 실패로 보인다.
+**4. State is used both in the candidate filter and in the score.** The filter
+checks eligibility via `is_schedulable()`, and ECT reads **degree** via
+`load_factor` ([ADR-010](010-ect-formula.md)).
 
-### `Recovering` 을 따로 둔 이유
+## Rationale
 
-죽었다 살아난 노드를 바로 `Healthy` 로 올리면, 큐가 비어 있어서 요청이 전부
-몰린다. 같은 원인으로 다시 죽는다.
+### Why drain is separated
 
-`Recovering` 은 "살아났지만 아직 못 믿는" 상태다. 연속 성공 3회를 채워야
-`Healthy` 가 되고, 그동안 ECT 는 `load_factor 0.25` 로 억제한다.
-
-### 온도를 두 단계로 나눈 이유
+There are situations where a node has to be pulled out mid-measurement. Cutting
+it off immediately **records in-flight requests as failures**, and those
+failures enter the error-rate statistics.
 
 ```text
-80°C  →  Degraded          받긴 받되 덜 받는다
-90°C  →  스케줄링 제외      아예 안 준다
+immediate block   3 in-flight fail -> error rate rises -> measurement contaminated
+using drain       3 in-flight finish, then it leaves quietly -> statistics clean
 ```
 
-한 단계만 두면 이분법이 된다. 79°C 와 81°C 가 전혀 다르게 취급되면 경계에서
-노드가 들락날락한다.
+The S4 failure-handling experiment has to distinguish **intentional removal**
+from **actual failure**, and without drain the two look identically like
+failures.
 
-## ⚠️ 임계치는 초안이다
+### Why `Recovering` exists separately
 
-**현재 온도 임계치(80 / 90°C)는 정상 동작 범위와 충돌한다.**
+Promoting a node straight to `Healthy` after it comes back means requests all
+pile onto it, because its queue is empty. It dies again from the same cause.
 
-실측에서 지속 부하 시 NPU 온도가 67.5~75.8°C 이고, 부하 프로파일에 따라
-86~90°C 까지 올라간 기록도 있다. 즉 **정상 동작 중에 `Degraded` 로 떨어질
-수 있다.**
+`Recovering` is the state of "alive but not yet trusted". Three consecutive
+successes are needed to reach `Healthy`, and meanwhile ECT suppresses it with
+`load_factor 0.25`.
 
-정식 S0 열 측정 후 재설정해야 한다. 그전까지 이 값은 **초안**이고, 알려진
-이슈로 `docs/TODO.md` §6 에 올라 있다.
+### Why temperature has two stages
 
-## 대안과 버린 이유
+```text
+80 C  ->  Degraded              still takes work, but less of it
+90 C  ->  excluded from scheduling   given nothing at all
+```
 
-| 대안 | 버린 이유 |
+A single stage makes it binary. If 79 °C and 81 °C are treated as entirely
+different, a node flaps in and out at the boundary.
+
+## ⚠️ The thresholds are a draft
+
+**The current temperature thresholds (80 / 90 °C) conflict with the normal
+operating range.**
+
+Measurements show NPU temperature at 67.5–75.8 °C under sustained load, with
+records of 86–90 °C depending on the load profile. That means **a node can drop
+to `Degraded` during normal operation.**
+
+They have to be reset after the formal S0 thermal measurement. Until then these
+values are **a draft**, filed as a known issue in `docs/TODO.md` §6.
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
 |---|---|
-| `bool is_alive` 하나 | 느림·뜨거움·복구 중을 표현할 수 없다 |
-| drain 없이 즉시 차단 | 진행 중 요청이 실패로 기록되어 통계가 오염된다 |
-| `Recovering` 없이 바로 `Healthy` | 복구 직후 전량을 받아 다시 죽는다 |
-| 온도 임계치 한 단계 | 경계에서 진동한다 |
-| 상태를 정책마다 다르게 해석 | 정책 비교 실험이 무효가 된다 ([ADR-009](009-three-policies-shared-filter.md)) |
+| A single `bool is_alive` | Cannot express slow, hot or recovering |
+| Immediate blocking without drain | In-flight requests get recorded as failures and contaminate the statistics |
+| Straight to `Healthy` with no `Recovering` | Takes the full load right after recovery and dies again |
+| A single temperature threshold | Oscillates at the boundary |
+| Interpret state differently per policy | Invalidates the policy comparison experiment ([ADR-009](009-three-policies-shared-filter.md)) |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 계획된 제외와 장애가 구분된다
-- 복구 노드 과부하가 구조적으로 억제된다
-- 상태 전이가 이벤트로 기록되어 타임라인 재구성이 가능하다
+- Planned removal is distinguished from failure
+- Overloading a recovering node is structurally suppressed
+- State transitions are recorded as events, making timeline reconstruction
+  possible
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 상태가 8개라 전이 조합을 다 검증해야 한다
-- 튜닝할 임계치가 8개 늘었다
+- With eight states, every transition combination has to be verified
+- Eight more thresholds to tune
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **임계치를 바꾸면 실험 조건이 바뀐 것이다.** 결과에 함께 기록해야 한다
-- 온도 임계치가 초안이라, S0 전 측정에서는 노드가 예상치 못하게 `Degraded`
-  로 떨어질 수 있다. 그 경우 run 해석에 주의해야 한다
+- **Changing a threshold is a change of experimental conditions.** It has to be
+  recorded with the results
+- Because the temperature thresholds are a draft, nodes can drop unexpectedly to
+  `Degraded` in measurements taken before S0. Interpret those runs with care
 
-## 뒤집힌다면
+## What would overturn this
 
-- **S0 결과로 온도 임계치를 확정한다.** 이건 예정된 변경이다
-- **상태가 더 필요해지면** 추가한다. 다만 상태 하나가 늘면 전이 검증이
-  비선형으로 늘어난다는 것을 감안한다
+- **S0's results settle the temperature thresholds.** That change is planned
+- **If more states become necessary**, add them. But bear in mind that each
+  additional state grows transition verification non-linearly

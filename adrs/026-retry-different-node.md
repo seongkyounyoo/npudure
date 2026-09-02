@@ -1,136 +1,145 @@
-# ADR-026. 재시도는 반드시 다른 노드로 보내고, 백오프를 짧게 유지한다
+# ADR-026. A retry always goes to a different node, and the backoff stays short
+
+*[한국어 원문](026-retry-different-node.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-024](024-error-code-scheme.md), [ADR-009](009-three-policies-shared-filter.md), `docs/01-TECHSPEC.md` §12 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-024](024-error-code-scheme.md), [ADR-009](009-three-policies-shared-filter.md), `docs/01-TECHSPEC.md` §12 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 실패한 노드에 다시 보내지 않는다. **실패 노드를 후보에서 일시 제외하고
-> 다른 노드를 고른다.** 재시도는 기본 1회, 백오프는 10~100 ms — 실시간
-> 추론이라 긴 exponential backoff 를 쓰지 않는다.
+> Never resend to the node that failed. **Temporarily exclude the failed node
+> from the candidates and pick another.** One retry by default, backoff of
+> 10–100 ms — this is real-time inference, so no long exponential backoff.
 
-## 배경
+## Context
 
-추론 요청이 실패했을 때 선택지는 셋이다.
+When an inference request fails there are three options.
 
 ```text
-1. 그냥 실패로 돌려준다
-2. 같은 노드에 다시 보낸다
-3. 다른 노드에 보낸다
+1. return it as a failure
+2. resend to the same node
+3. send to a different node
 ```
 
-추론 요청은 **부작용이 없다.** 같은 입력을 두 번 처리해도 상태가 바뀌지
-않는다. 그래서 재시도가 안전하다 — 이것이 전제다.
+Inference requests have **no side effects.** Processing the same input twice
+changes no state. That makes retrying safe — that is the premise.
 
-## 결정
+## Decision
 
-**1. 재시도 가능 여부를 오류 코드로 판정한다.**
+**1. Retryability is judged from the error code.**
 
-| 재시도 가능 | 재시도 불가 |
+| Retryable | Not retryable |
 |---|---|
-| 네트워크 연결 실패 | 잘못된 입력 |
-| 노드 타임아웃 (`NPF-1301`) | 지원하지 않는 모델 |
-| 노드 사용 불가 (`NPF-1302`) | 지원하지 않는 입력 형식 |
-| 노드 과부하 (`NPF-1303`) | 모델 버전 불일치 |
-| 일시적 런타임 오류 | payload 크기 초과 / 인증 실패 |
+| Network connection failure | Invalid input |
+| Node timeout (`NPF-1301`) | Unsupported model |
+| Node unavailable (`NPF-1302`) | Unsupported input format |
+| Node overloaded (`NPF-1303`) | Model version mismatch |
+| Transient runtime errors | Payload size exceeded / authentication failure |
 
-**2. 재시도 시 실패한 노드를 후보에서 일시 제외한다.** 그 다음 정책이
-남은 후보 중에서 고른다.
+**2. On retry, the failed node is temporarily excluded from the candidates.**
+The policy then picks from what remains.
 
-**3. 기본값을 짧게 잡는다.**
-
-```text
-최대 재시도       1회
-전체 요청 timeout  5초
-retry backoff     10~100 ms
-```
-
-**4. 긴 exponential backoff 를 쓰지 않는다.**
-
-**5. 시도한 노드 목록을 오류에 담는다.** 전부 실패하면 `NPF-1302` 와 함께
-어느 노드를 시도했는지 돌려준다.
-
-## 근거
-
-### 같은 노드에 다시 보내면 안 되는 이유
-
-실패 원인이 노드에 있으면 **다시 보내도 똑같이 실패한다.**
+**3. The defaults are short.**
 
 ```text
-노드가 죽었다      → 다시 보내도 죽어 있다
-노드가 과부하다    → 다시 보내면 더 과부하가 된다   ← 더 나쁘다
-노드가 뜨겁다      → 다시 보내면 더 뜨거워진다
+maximum retries       1
+overall request timeout  5 s
+retry backoff         10-100 ms
 ```
 
-특히 `NPF-1303` 과부하는 재시도가 **문제를 악화**시킨다. 이미 큐가 찬 노드에
-같은 요청을 또 넣는 셈이다.
+**4. No long exponential backoff.**
 
-### 왜 백오프가 짧은가
+**5. The list of nodes attempted is carried in the error.** If all fail,
+`NPF-1302` comes back along with which nodes were tried.
 
-이건 배치 작업이 아니라 **실시간 추론**이다. 클라이언트는 지금 답을 기다리고
-있다.
+## Rationale
+
+### Why not resend to the same node
+
+If the cause of failure is in the node, **resending fails the same way.**
 
 ```text
-exponential backoff (1s, 2s, 4s...)   →  성공해도 이미 늦었다
-짧은 backoff (10~100ms)               →  다른 노드가 살아 있으면 거의 안 늦는다
+the node died         -> it is still dead on resend
+the node is overloaded -> resending overloads it further   <- worse
+the node is hot        -> resending makes it hotter
 ```
 
-전체 요청 타임아웃이 5초인데 백오프에 4초를 쓰면 재시도할 시간이 없다.
+`NPF-1303` overload in particular means a retry **makes the problem worse**. It
+amounts to putting the same request into an already-full queue.
 
-### 왜 재시도가 1회인가
+### Why the backoff is short
 
-노드가 3대다. 한 번 실패하고 다른 노드에서도 실패하면, 세 번째를 시도할
-이유가 약하다 — 공통 원인(모델 문제, 요청 문제)일 가능성이 높아진다.
+This is not batch work but **real-time inference.** A client is waiting for an
+answer right now.
 
-그리고 재시도가 늘수록 **장애 시 지연 분포가 오염된다.** S4 장애 대응 실험에서
-재시도 횟수가 많으면 "장애 시 지연" 이 재시도 정책의 함수가 되어 버린다.
+```text
+exponential backoff (1s, 2s, 4s...)   ->  even success arrives late
+short backoff (10-100ms)              ->  barely late at all if another node is alive
+```
 
-### 시도한 노드 목록이 필요한 이유
+With a 5-second overall request timeout, spending 4 seconds on backoff leaves no
+time to retry.
 
-전부 실패했을 때 "아무 노드도 없다" 만으로는 진단이 안 된다. 어느 노드를
-시도했고 각각 왜 실패했는지가 있어야 원인을 좁힌다.
+### Why one retry
 
-Mock 3노드 통합 테스트의 "전 노드 사망" 케이스가 이걸 단언한다.
+There are three nodes. Failing once and failing again on another node leaves a
+weak case for a third — a common cause (a model problem, a request problem)
+becomes likely.
 
-## 대안과 버린 이유
+And the more retries there are, **the more the latency distribution during a
+failure gets contaminated.** In the S4 failure-handling experiment, a high retry
+count would make "latency during failure" a function of the retry policy.
 
-| 대안 | 버린 이유 |
+### Why the list of nodes attempted is needed
+
+When everything fails, "no node available" alone does not support diagnosis.
+Which nodes were tried and why each failed is what narrows the cause.
+
+The "all nodes dead" case in the Mock 3-node integration test asserts on this.
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
 |---|---|
-| 같은 노드에 재시도 | 원인이 노드에 있으면 무의미하고, 과부하는 악화시킨다 |
-| exponential backoff | 실시간 추론에 맞지 않는다. 성공해도 늦다 |
-| 재시도 3회 이상 | 지연 분포가 재시도 정책에 지배된다. 노드가 3대뿐이라 실익도 적다 |
-| 재시도 안 함 | 노드 하나가 잠깐 흔들려도 클라이언트가 실패를 본다. 장애 허용이 목표 중 하나다 |
-| 모든 오류를 재시도 | 잘못된 입력을 세 노드에 돌려가며 실패시킨다. 낭비이고 오류 원인만 흐려진다 |
+| Retry on the same node | Pointless if the cause is in the node, and it worsens overload |
+| Exponential backoff | Unsuited to real-time inference. Even success arrives late |
+| Three or more retries | The latency distribution becomes dominated by the retry policy. With only three nodes there is little to gain |
+| No retries | A client sees a failure whenever one node wobbles briefly. Fault tolerance is one of the goals |
+| Retry every error | Invalid input gets failed round three nodes in turn. Wasteful, and it only blurs the cause |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 노드 하나가 죽어도 클라이언트가 성공을 본다 (Mock 테스트 6/6 성공)
-- 과부하 노드에 부하가 더 쏠리지 않는다
-- 실패해도 진단 정보가 남는다
+- Clients see success even when one node dies (6/6 succeeded in the Mock test)
+- Load does not concentrate further on an overloaded node
+- Diagnostic information survives a failure
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 재시도된 요청은 지연이 늘어난다. 이 값이 지연 분포의 꼬리를 만든다
-- **재시도 건수를 결과에 함께 기록해야 한다.** 안 그러면 지연 분포가 왜
-  두꺼운지 설명할 수 없다 (벤치 도구가 기록한다)
+- Retried requests take longer. That value creates a tail in the latency
+  distribution
+- **The retry count has to be recorded with the results.** Otherwise there is no
+  way to explain why the latency distribution is heavy (the bench tool records
+  it)
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- 재시도가 성공한 요청도 **한 건**으로 센다. 두 번 처리했다고 처리량을 두 배로
-  세면 안 된다
-- 실패 요청은 처리량과 노드 몫에서 제외한다
+- A request that succeeded on retry still counts as **one**. Processing it twice
+  must not double the throughput count
+- Failed requests are excluded from throughput and per-node shares
   ([ADR-028](028-bench-run-validity.md))
 
-## 뒤집힌다면
+## What would overturn this
 
-- **노드가 많아지면** 재시도 횟수를 늘릴 여지가 생긴다. 3대에서는 실익이 적다
-- **부작용이 있는 요청**(상태를 바꾸는 API)이 추가되면 이 전제가 깨진다.
-  그때는 멱등 키가 필요하다. 현재 스케줄러는 짧은 TTL 의 Request ID 캐시로
-  중복 제출만 감지하고, 결과 캐시는 v0.1 필수가 아니다
+- **With more nodes** there is room to raise the retry count. At three there is
+  little to gain
+- **If requests with side effects** (state-changing APIs) are added, this
+  premise breaks. Idempotency keys would then be needed. The scheduler currently
+  only detects duplicate submissions with a short-TTL Request ID cache, and a
+  result cache is not required for v0.1

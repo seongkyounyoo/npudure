@@ -1,126 +1,135 @@
-# ADR-020. `worker_count = 8` 로 하고 `core_mask` 는 설정하지 않는다
+# ADR-020. Use `worker_count = 8` and do not set `core_mask`
+
+*[한국어 원문](020-worker-count-8-no-core-mask.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-10 |
-| **관련** | [ADR-007](007-per-thread-rknn-context.md), [ADR-011](011-int8-quantization.md), `docs/discuss.md` §4 |
+| **Status** | accepted |
+| **Date** | 2026-08-10 |
+| **Related** | [ADR-007](007-per-thread-rknn-context.md), [ADR-011](011-int8-quantization.md), `docs/discuss.md` §4 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 워커 8개가 4개보다 **+27%** 다. NPU 코어를 손으로 배정하는
-> `core_mask` 는 8스레드에서 **+0.1%** — 사실상 없다. `CORE_AUTO` 의 분배가
-> 이미 균등하다. **손대지 않는 것이 결론이다.**
+> Eight workers beat four by **+27%**. Assigning NPU cores by hand with
+> `core_mask` is worth **+0.1%** at 8 threads — effectively nothing.
+> `CORE_AUTO`'s distribution is already even. **Not touching it is the
+> conclusion.**
 
-## 배경
+## Context
 
-RK3576 의 NPU 는 코어가 2개다. RKNN 은 어느 코어를 쓸지 지정하는
-`core_mask` 를 제공한다.
+The RK3576's NPU has two cores. RKNN provides `core_mask` to specify which core
+to use.
 
-측정 초기에 "Core1 점유율이 38% 밖에 안 된다" 는 관찰이 있었고, 두 번째
-코어가 놀고 있다는 가설이 나왔다. 코어를 명시적으로 배정하면 처리량이
-올라갈 것으로 봤다.
+Early in measurement there was an observation that "Core1 occupancy is only
+38%", and a hypothesis followed that the second core was idling. Assigning cores
+explicitly was expected to raise throughput.
 
-**그런데 그 38% 가 실제로 처리량에 기여하는지 확인한 적이 없었다.**
-점유율 숫자만 봤다.
+**But whether that 38% actually contributed to throughput had never been
+checked.** Only the occupancy number had been looked at.
 
-## 근거
+## Rationale
 
-### 대조군을 넣었다
+### A control group was added
 
-이전 측정에는 "코어 하나만 쓰면 얼마나 나오는가" 가 없었다. 그걸 넣어야
-두 번째 코어의 기여를 판정할 수 있다.
+Earlier measurements lacked "how much do you get using only one core". That has
+to be there to judge the second core's contribution.
 
 ```text
-측정 조건: queen, FP16, 스레드당 200회, 워밍업 4초 후 샘플링
+conditions: queen, FP16, 200 iterations per thread, sampled after a 4 s warmup
 ```
 
-| 스레드 | AUTO | ALTERNATE | CORE_0_1 | **CORE_0_ONLY** |
+| Threads | AUTO | ALTERNATE | CORE_0_1 | **CORE_0_ONLY** |
 |---:|---:|---:|---:|---:|
 | 1 | 16.7 | 16.7 | **18.2** | 16.5 |
 | 2 | 36.2 | 36.5 | 36.4 | 26.4 |
 | 4 | 52.4 | **57.1** | 48.5 | 38.5 |
 | 8 | 72.9 | **73.0** | 64.5 | **48.2** |
 
-### 발견 1. 두 번째 코어는 실제로 기여한다 — 다만 1.51배다
+### Finding 1. The second core does contribute — but by 1.51×
 
 ```text
-8스레드   단일 코어 48.2  →  두 코어 73.0 inf/s   =  1.51배
+8 threads   single core 48.2  ->  two cores 73.0 inf/s   =  1.51x
 ```
 
-38% 점유율은 장식이 아니었다. **그런데 2배가 아니라 1.51배다.** 코어를 두
-배로 늘려도 처리량은 절반만 는다. 코어 밖에 공유 자원이 있다는 뜻이고,
-이후 확인된 "제출 경로 직렬화" 와 맞는다.
+The 38% occupancy was not decoration. **But it is 1.51×, not 2×.** Doubling the
+cores raises throughput by only half as much. That means there is a shared
+resource outside the cores, which matches the "submission path serialization"
+confirmed later.
 
-### 발견 2. 명시 배정은 이득이 없다
+### Finding 2. Explicit assignment brings no gain
 
 ```text
-4스레드   52.4 → 57.1   +9.0%
-8스레드   72.9 → 73.0   +0.1%
+4 threads   52.4 -> 57.1   +9.0%
+8 threads   72.9 -> 73.0   +0.1%
 ```
 
-4스레드에서만 오르고 8스레드에서 사라진다. 게다가 4스레드 개선분을 뜯어보면
-대부분이 `outputs_get` 감소(13.6 → 10.0 ms)라 **코어 배정 효과인지 측정
-노이즈인지 분리되지 않는다.**
+It rises only at 4 threads and vanishes at 8. And unpacking that 4-thread
+improvement, most of it is a reduction in `outputs_get` (13.6 → 10.0 ms), so
+**whether it is a core-assignment effect or measurement noise is not
+separated.**
 
-`AUTO` 의 분배는 이미 균등하다 — 8스레드에서 Core0 39% / Core1 37%.
-런타임 스케줄러가 제 역할을 하고 있어 수동 개입의 여지가 없다.
+`AUTO`'s distribution is already even — Core0 39% / Core1 37% at 8 threads. The
+runtime scheduler is doing its job and there is no room for manual intervention.
 
-### 발견 3. `CORE_0_1` 은 오히려 손해다
+### Finding 3. `CORE_0_1` is actually a loss
 
 ```text
-8스레드   72.9 → 64.5   -11.5%
+8 threads   72.9 -> 64.5   -11.5%
 ```
 
-모든 스레드가 두 코어를 함께 쓰게 하면 더 느려진다.
+Making every thread use both cores together is slower.
 
-## 결정
+## Decision
 
-**1. `worker_count = 8` 을 실장비 기본값으로 한다.** 4 대비 +27% 이고,
-8에서 아직 꺾이지 않았다.
+**1. `worker_count = 8` is the real-hardware default.** It is +27% over 4, and
+it has not yet bent at 8.
 
-**2. `core_mask` 를 설정하지 않는다.** `CORE_AUTO` 에 맡긴다.
+**2. Do not set `core_mask`.** Leave it to `CORE_AUTO`.
 
-**3. 설정 기본값은 1 로 두고, 실장비 설정에서 명시적으로 8 을 준다.**
-기본값 1 은 백엔드를 모르는 상태에서의 안전값이다.
+**3. The configuration default stays 1, with real-hardware configuration giving
+8 explicitly.** A default of 1 is the safe value when the backend is unknown.
 
-**4. `worker_count` 는 컨텍스트 수와 직결된다는 것을 명시한다.**
-백엔드가 이 수만큼 RKNN 컨텍스트를 만든다
+**4. State explicitly that `worker_count` is directly tied to context count.**
+The backend creates that many RKNN contexts
 ([ADR-007](007-per-thread-rknn-context.md)).
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| `core_mask = ALTERNATE` | 8스레드에서 +0.1%. 설정 항목만 늘고 이득이 없다 |
-| `core_mask = CORE_0_1` | -11.5%. 명확히 손해 |
-| `worker_count = 4` | 8 대비 -27% |
-| `worker_count` 를 더 키운다 | **아직 꺾이는 지점을 못 찾았다.** 다만 컨텍스트가 그만큼 늘어나므로 메모리 확인이 먼저다 |
+| `core_mask = ALTERNATE` | +0.1% at 8 threads. Adds a configuration item and no gain |
+| `core_mask = CORE_0_1` | −11.5%. Clearly a loss |
+| `worker_count = 4` | −27% against 8 |
+| Raise `worker_count` further | **The point where it bends has not been found yet.** But contexts grow with it, so a memory check comes first |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 튜닝 항목이 하나 줄었다. **설정하지 않기로 한 것도 결정이다**
-- NPU 2코어의 실제 기여가 1.51배라는 수치를 확보 — 이후 병목 분석의 근거
+- One tuning item removed. **Deciding not to configure something is also a
+  decision**
+- Obtained the figure that the NPU's two cores contribute 1.51× — grounds for
+  later bottleneck analysis
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 4스레드 조건에서는 +9% 를 포기한다. 다만 실장비는 8워커로 돌린다
+- +9% is given up at the 4-thread condition. But real hardware runs 8 workers
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **`worker_count` 를 늘리면 RKNN 컨텍스트가 그만큼 늘어난다.** 메모리 여유를
-  확인하지 않고 키우면 안 된다. 현재 컨텍스트당 메모리 증가량은 **측정하지
-  않았다**
-- 8이 상한이라는 근거는 없다. "8에서 아직 안 꺾였다" 가 정확한 표현이다.
-  `MAX_THREADS` 를 넓혀 다시 재는 것이 미확정 항목으로 남아 있다
+- **Raising `worker_count` raises the RKNN context count with it.** It must not
+  be increased without checking memory headroom. The per-context memory increase
+  has **not been measured**
+- There is no basis for 8 being the ceiling. "It has not bent yet at 8" is the
+  accurate statement. Widening `MAX_THREADS` and re-measuring remains an open
+  item
 
-## 뒤집힌다면
+## What would overturn this
 
-- **INT8 기준으로 다시 재면 최적값이 달라질 수 있다.** 위 스윕은 FP16 이다.
-  INT8 은 건당 시간이 짧아 최적 동시성이 다를 수 있다. **아직 확인하지 않았다**
-- **`MAX_THREADS` 를 넓혀 12·16 을 재면** 더 좋은 값이 나올 수 있다
-- 메모리가 부족해지면 8을 낮춰야 한다
+- **Re-measuring against INT8 could give a different optimum.** The sweep above
+  is FP16. INT8 takes less time per inference, so the optimal concurrency may
+  differ. **Not yet checked**
+- **Widening `MAX_THREADS` and measuring 12 and 16** could give a better value
+- If memory runs short, 8 has to come down

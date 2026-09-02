@@ -1,139 +1,152 @@
-# ADR-010. ECT 점수식과 그 안의 각 항
+# ADR-010. The ECT score formula and each term inside it
+
+*[한국어 원문](010-ect-formula.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 (실장비 검증 전) |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-009](009-three-policies-shared-filter.md), [ADR-027](027-node-state-machine-drain-disable.md), `docs/01-TECHSPEC.md` §10.4 |
+| **Status** | accepted (before real-hardware validation) |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-009](009-three-policies-shared-filter.md), [ADR-027](027-node-state-machine-drain-disable.md), `docs/01-TECHSPEC.md` §10.4 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 기본 정책 ECT 는 **"이 요청을 저 노드에 주면 언제 끝나는가"** 를 점수로
-> 매겨 가장 낮은 노드를 고른다. 식의 각 항은 전부 이유가 있고, 특히
-> `+ 1` 과 `load_factor` 는 없으면 잘못 동작한다.
+> The default policy, ECT, scores **"if this request goes to that node, when
+> will it finish"** and picks the lowest. Every term in the formula has a
+> reason, and in particular `+ 1` and `load_factor` make it misbehave if
+> removed.
 
-## 배경
+## Context
 
-Least Queue 는 "큐가 짧은 노드" 를 고른다. 노드 성능이 같으면 그것으로
-충분하지만, 실제로는 다르다.
+Least Queue picks "the node with the shortest queue". That is enough when nodes
+perform identically, but in practice they do not.
 
 ```text
-노드 A  큐 2건, 한 건에 50 ms   →  약 100 ms 뒤 빔
-노드 B  큐 1건, 한 건에 200 ms  →  약 200 ms 뒤 빔
+node A  queue 2, 50 ms each   ->  free in about 100 ms
+node B  queue 1, 200 ms each  ->  free in about 200 ms
 ```
 
-Least Queue 는 B 를 고른다. **틀렸다.** 큐 길이만으로는 "언제 빌지" 를 알 수
-없다. 노드마다 속도가 다르고, 온도로 느려지기도 하고, 최근 실패가 잦을 수도
-있다.
+Least Queue picks B. **Wrong.** Queue length alone cannot tell you "when it will
+be free". Nodes differ in speed, they slow down with heat, and they may have
+been failing recently.
 
-## 결정
+## Decision
 
 ```text
-ECT = ((queue_depth + in_flight + 1) × EWMA_inference_time
+ECT = ((queue_depth + in_flight + 1) x EWMA_inference_time
        + EWMA_network_time
        + thermal_penalty
        + error_penalty)
       / load_factor
 ```
 
-가장 낮은 점수의 노드를 고른다. 동점이면 **Node ID 사전순**.
+The node with the lowest score is chosen. Ties break on **Node ID in
+lexicographic order**.
 
-### 각 항
+### Each term
 
-| 항 | 뜻 |
+| Term | Meaning |
 |---|---|
-| `queue_depth` | 그 노드가 아직 시작 못 한 대기 건수 |
-| `in_flight` | 지금 처리 중인 건수 |
-| `+ 1` | **지금 배정하려는 이 요청 자신** |
-| `EWMA_inference_time` | 최근 추론 시간의 이동평균. 노드별 실제 속도 |
-| `EWMA_network_time` | 스케줄러↔노드 왕복 이동평균 |
-| `thermal_penalty` | 온도가 높으면 가산 |
-| `error_penalty` | 최근 오류가 잦으면 가산 |
-| `load_factor` | 노드 상태별 가중치. 나누는 값 |
+| `queue_depth` | requests on that node not yet started |
+| `in_flight` | requests currently being processed |
+| `+ 1` | **this very request being assigned** |
+| `EWMA_inference_time` | moving average of recent inference times. The node's actual speed |
+| `EWMA_network_time` | moving average of scheduler↔node round trip |
+| `thermal_penalty` | added when the temperature is high |
+| `error_penalty` | added when errors have been frequent recently |
+| `load_factor` | a per-state weight. The divisor |
 
-## 근거
+## Rationale
 
-### `+ 1` 이 없으면 안 되는 이유
+### Why `+ 1` cannot be omitted
 
-두 가지다.
+Two reasons.
 
-**첫째, ECT 의 정의가 그렇다.** "이 요청이 언제 끝나는가" 를 추정하는
-값이므로 **자기 추론 시간이 포함되어야** 한다. 앞에 2건 있는 노드에 넣으면
-내 것까지 3건이 걸린다.
+**First, that is ECT's definition.** It estimates "when will this request
+finish", so **its own inference time has to be included**. Placing it on a node
+with 2 ahead means 3 including mine.
 
-**둘째, 없으면 `load_factor` 가 무력화된다.**
+**Second, without it `load_factor` is neutralised.**
 
 ```text
-큐가 빈 노드:  (0 + 0) × EWMA = 0
-               0 / load_factor = 0     ← 상태가 뭐든 항상 0
+a node with an empty queue:  (0 + 0) x EWMA = 0
+                             0 / load_factor = 0     <- always 0, whatever the state
 ```
 
-0 은 무엇으로 나눠도 0 이다. 아래 `Recovering` 억제가 통째로 사라진다.
+Zero divided by anything is zero. The `Recovering` suppression below disappears
+entirely.
 
-### `load_factor` 가 푸는 문제
+### The problem `load_factor` solves
 
-| 상태 | load_factor |
+| State | load_factor |
 |---|---:|
 | Healthy | 1.0 |
 | Busy | 1.0 |
 | Degraded | 0.5 |
 | Recovering | 0.25 |
-| 그 외 | 0.0 (후보 제외) |
+| Otherwise | 0.0 (excluded from candidates) |
 
-**`Recovering` 노드는 큐가 비어 있어서 점수만 보면 항상 이긴다.** 방금
-살아난 노드에 요청이 전부 몰리고, 같은 원인으로 다시 죽는다.
+**A `Recovering` node has an empty queue, so on score alone it always wins.**
+Every request piles onto a node that has just come back, and it dies again from
+the same cause.
 
-PRD FR-07 은 "복구된 노드에는 제한된 요청만 할당" 을 요구한다. 이걸
-별도 카운터나 토큰 버킷으로 구현할 수도 있었지만, **점수 하나로 표현했다.**
-`0.25` 로 나누면 점수가 4배가 되어 자연히 덜 뽑힌다.
+PRD FR-07 requires "assign only limited requests to a recovered node". This
+could have been implemented with a separate counter or token bucket, but it is
+**expressed as a single score.** Dividing by `0.25` quadruples the score, so it
+naturally gets picked less.
 
-상태를 후보 필터가 아니라 **점수에 넣은 것**이 요점이다. 필터로 빼면
-"쓰거나 안 쓰거나" 둘 뿐인데, 점수로 두면 **정도**를 표현할 수 있다.
+The point is putting state into **the score rather than the candidate filter**.
+Filtering gives only "use it or do not"; a score can express **degree**.
 
-### 동점 처리를 Node ID 사전순으로 고정한 이유
+### Why tie-breaking is fixed to lexicographic Node ID
 
-**재현성 때문이다.** 동점을 무작위나 해시 순서로 깨면 같은 조건의 반복
-실험이 매번 다른 분배를 낸다. 그러면 확장 효율 측정의 분산이 커지고,
-그 분산이 어디서 왔는지 설명할 수 없다.
+**Reproducibility.** Breaking ties randomly or by hash order would give a
+different distribution each time the same experiment is repeated. That inflates
+the variance of scaling-efficiency measurements, with no way to explain where
+the variance came from.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| Least Queue 만 쓴다 | 노드 속도 차이를 반영 못 한다. 위 A/B 예시에서 틀린 답 |
-| `Recovering` 을 후보에서 제외 | 복구된 노드가 영영 안 들어온다. 언제 넣을지 또 정해야 한다 |
-| 별도 토큰 버킷으로 복구 노드 제한 | 상태가 하나 더 생긴다. 점수식 하나로 되는 일 |
-| 동점을 무작위로 | 재현성이 깨진다 |
-| 온도·오류를 필터로만 처리 | 이분법이 된다. 79°C 와 81°C 가 전혀 다르게 취급된다 |
+| Use Least Queue only | Does not reflect node speed differences. Wrong answer in the A/B example above |
+| Exclude `Recovering` from candidates | A recovered node never comes back in. Then when to admit it has to be decided anyway |
+| A separate token bucket to limit recovered nodes | One more piece of state. The score formula alone does the job |
+| Break ties randomly | Reproducibility breaks |
+| Handle temperature and errors as filters only | Becomes binary. 79 °C and 81 °C get treated as entirely different |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 노드 속도 차이·온도·오류율·복구 상태를 **점수 하나로 통합**
-- 복구 노드 억제가 별도 상태 없이 구현됨
-- 동점이 결정적이라 반복 실험이 재현된다
+- Node speed differences, temperature, error rate and recovery state
+  **unified into one score**
+- Recovered-node suppression implemented without additional state
+- Ties are deterministic, so repeated experiments reproduce
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **튜닝 파라미터가 늘었다.** EWMA 계수, `thermal_penalty` / `error_penalty`
-  의 크기, `load_factor` 값 — 전부 정해야 한다
-- 식이 복잡해 로그만 보고 "왜 이 노드를 골랐는지" 즉시 알기 어렵다
+- **More tuning parameters.** The EWMA coefficients, the magnitudes of
+  `thermal_penalty` / `error_penalty`, the `load_factor` values — all have to be
+  set
+- The formula is complex enough that "why was this node picked" is hard to read
+  straight off a log
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **아직 실장비에서 검증하지 않았다.** Mock 3노드에서 동작은 확인했지만,
-  `load_factor` 나 penalty 값이 실제로 맞는지는 M4 에서 봐야 한다.
-  현재 값은 **초안**이다
-- 온도 임계치(80 / 90°C)도 초안이다. 정식 S0 열 측정 후 재설정한다
+- **Not yet validated on real hardware.** Behaviour was confirmed on a 3-node
+  Mock, but whether `load_factor` and the penalty values are actually right has
+  to be seen in M4. The current values are **a draft**
+- The temperature thresholds (80 / 90 °C) are a draft too. They are reset after
+  the formal S0 thermal measurement
 
-## 뒤집힌다면
+## What would overturn this
 
-- **M4 실장비 검증에서 ECT 가 Least Queue 보다 낫지 않으면** 식을 의심한다.
-  다만 그 결과 자체도 유효한 산출물이다 ([ADR-002](002-success-criteria-measurability.md))
-- **`Recovering` 노드가 0.25 로도 여전히 과부하를 받으면** 값을 낮추거나
-  절대 상한을 추가한다
-- **penalty 항이 실제로 아무 효과가 없으면** 빼는 것도 결과다. 항이 있다는
-  것과 그것이 동작한다는 것은 다르다
+- **If ECT is not better than Least Queue in M4's real-hardware validation**,
+  suspect the formula. Though that result is itself a valid output
+  ([ADR-002](002-success-criteria-measurability.md))
+- **If a `Recovering` node still gets overloaded even at 0.25**, lower the value
+  or add an absolute cap
+- **If the penalty terms turn out to have no effect at all**, removing them is
+  also a result. A term existing and a term working are different things

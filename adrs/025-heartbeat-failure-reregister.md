@@ -1,112 +1,124 @@
-# ADR-025. 하트비트가 실패하면 곧바로 재등록한다 — 등록은 멱등하게 만든다
+# ADR-025. Re-register immediately when a heartbeat fails — and make registration idempotent
+
+*[한국어 원문](025-heartbeat-failure-reregister.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-003](003-central-simple-scheduler.md), [ADR-016](016-boot-id-run-invalidation.md), [ADR-027](027-node-state-machine-drain-disable.md) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-003](003-central-simple-scheduler.md), [ADR-016](016-boot-id-run-invalidation.md), [ADR-027](027-node-state-machine-drain-disable.md) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드 입장에서 **일시적 네트워크 오류와 스케줄러 재시작은 구분할 수 없다.**
-> 그래서 구분하려 애쓰지 않고, 하트비트가 실패하면 무조건 재등록한다.
-> 등록이 멱등이라 헛수고가 손해로 이어지지 않는다.
+> From the node's point of view, **a transient network error and a scheduler
+> restart are indistinguishable.** So no effort is spent distinguishing them: a
+> failed heartbeat always triggers re-registration. Registration is idempotent,
+> so wasted effort does not translate into loss.
 
-## 배경
+## Context
 
-노드는 주기적으로 하트비트를 보낸다(기본 1~2초). 이게 실패하면 두 경우다.
-
-```text
-경우 A. 네트워크가 잠깐 끊겼다      → 잠시 뒤 다시 되면 그만
-경우 B. 스케줄러가 재시작했다        → 스케줄러의 노드 목록이 비었다
-                                       재등록하지 않으면 영영 안 들어간다
-```
-
-**노드는 둘을 구분할 수 없다.** 둘 다 "응답이 없다" 로 똑같이 보인다.
-
-구분하려면 스케줄러의 인스턴스 식별자 같은 것을 주고받아야 하는데, 그러면
-스케줄러가 그 값을 유지·전파해야 하고 상태가 늘어난다.
-
-## 결정
-
-**1. 하트비트 실패를 곧바로 재등록으로 전환한다.** 구분하지 않는다.
-
-**2. 등록을 멱등하게 만든다.** 같은 노드가 여러 번 등록해도 결과가 같다.
-
-**3. 스케줄러가 재등록을 요구할 수 있게 한다.** 응답에 `must_reregister`
-플래그를 둔다. 스케줄러가 모르는 노드에게서 하트비트를 받으면 이걸 켠다.
-
-**4. 최초 등록에는 백오프 재시도를 둔다.** 노드가 스케줄러보다 먼저 뜨는
-경우가 정상이기 때문이다.
-
-## 근거
-
-### 더 비싼 쪽을 택했다
-
-두 선택지의 비용을 비교하면 이렇다.
-
-| | 비용 |
-|---|---|
-| 재등록했는데 필요 없었다 | RPC 한 번. 멱등이라 상태 변화 없음 |
-| 재등록 안 했는데 필요했다 | **노드가 클러스터에서 영구히 빠진다** |
-
-비대칭이 크다. 싼 쪽 실수를 반복하는 편이 낫다.
-
-### 실측: 1.3초
-
-실제 프로세스 4개(스케줄러 + 노드 3)로 확인했다.
+Nodes send heartbeats periodically (1–2 seconds by default). When one fails,
+there are two cases.
 
 ```text
-스케줄러를 죽인다  →  다시 띄운다  →  세 노드가 약 1.3초 안에 스스로 복귀
+case A. the network dropped briefly      -> it comes back shortly and that is that
+case B. the scheduler restarted          -> the scheduler's node list is empty
+                                            without re-registering, the node never returns
 ```
 
-이 값이 [ADR-003](003-central-simple-scheduler.md) 의 "단일 장애점을 받아들이되
-복구를 싸게 만든다" 를 실제로 뒷받침한다. **스케줄러 이중화 없이도 재시작
-비용이 1.3초라면, 실험 장비로서는 충분하다.**
+**The node cannot tell them apart.** Both look identically like "no response".
 
-### 멱등성이 이 결정의 전제다
+Telling them apart would mean exchanging something like a scheduler instance
+identifier, which then has to be maintained and propagated by the scheduler,
+adding state.
 
-등록이 멱등이 아니면 이 설계가 성립하지 않는다. 중복 등록이 노드를 두 개로
-만들거나 상태를 리셋하면, 재등록을 남발하는 순간 클러스터가 망가진다.
+## Decision
 
-그래서 **등록은 "이 노드가 존재한다" 를 선언하는 것**이지 "새로 추가한다"
-가 아니다.
+**1. A failed heartbeat switches straight to re-registration.** No
+distinguishing.
 
-## 대안과 버린 이유
+**2. Registration is idempotent.** The same node registering repeatedly gives
+the same result.
 
-| 대안 | 버린 이유 |
+**3. The scheduler can demand re-registration.** The response carries a
+`must_reregister` flag. The scheduler sets it on receiving a heartbeat from a
+node it does not know.
+
+**4. Initial registration has backoff retries**, because a node coming up before
+the scheduler is normal.
+
+## Rationale
+
+### The more expensive option was chosen
+
+Comparing the cost of the two options:
+
+| | Cost |
 |---|---|
-| 스케줄러 인스턴스 ID 로 재시작 감지 | 상태가 늘고, 그 값이 틀리면 같은 문제가 다시 생긴다. 얻는 것이 RPC 몇 번 |
-| 하트비트 실패 N 회 후 재등록 | 복구가 N 배 느려진다. 얻는 것은 RPC 절약뿐 |
-| 스케줄러가 노드 목록을 디스크에 저장 | 재시작 시 복원되지만 낡은 정보일 수 있다. 노드가 사라졌는데 있다고 믿는다 |
-| 노드가 재등록하지 않고 스케줄러가 발견 | 스케줄러가 노드를 몰라서 못 찾는다. 발견 메커니즘(브로드캐스트 등)이 또 필요하다 |
+| Re-registered when it was not needed | One RPC. Idempotent, so no state change |
+| Did not re-register when it was needed | **The node drops out of the cluster permanently** |
 
-## 결과
+The asymmetry is large. Better to repeat the cheap mistake.
 
-**얻은 것**
+### Measured: 1.3 seconds
 
-- 스케줄러 재시작 복구 1.3초
-- 스케줄러가 노드 목록을 영속화하지 않아도 된다
-- 실패 처리 경로가 하나다 (구분 없음 = 분기 없음)
+Verified with four real processes (scheduler + 3 nodes).
 
-**잃은 것 / 대가**
+```text
+kill the scheduler  ->  bring it back  ->  all three nodes return by themselves in about 1.3 s
+```
 
-- 네트워크가 불안정하면 불필요한 등록 RPC 가 늘어난다. 멱등이라 무해하지만
-  트래픽은 발생한다
-- "왜 재등록했는지" 가 로그에 남지만 원인(순단인지 재시작인지)은 알 수 없다
+That figure is what actually supports
+[ADR-003](003-central-simple-scheduler.md)'s "accept the single point of failure
+but make recovery cheap". **If a restart costs 1.3 seconds without scheduler
+redundancy, that is sufficient for experimental equipment.**
 
-**새로 생긴 제약**
+### Idempotency is this decision's premise
 
-- **등록 처리는 반드시 멱등을 유지해야 한다.** 여기에 부작용을 추가하면
-  전체 설계가 무너진다
-- 재등록 이벤트만으로는 **보드 리셋과 프로세스 재시작을 구분할 수 없다.**
-  그건 `boot_id` 의 몫이다 ([ADR-016](016-boot-id-run-invalidation.md))
+Without idempotent registration this design does not hold. If duplicate
+registration created two nodes or reset state, the moment re-registration gets
+issued liberally the cluster would break.
 
-## 뒤집힌다면
+So **registration declares "this node exists"** rather than "add a new one".
 
-- **노드가 수십 대가 되면** 동시 재등록이 스케줄러에 몰릴 수 있다.
-  그때는 지터를 넣는다
-- **재등록 비용이 커지면**(등록 시 모델 목록 전송 등) 구분할 이유가 생긴다.
-  현재 등록 메시지는 가볍다
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
+|---|---|
+| Detect restarts via a scheduler instance ID | Adds state, and if that value is wrong the same problem returns. What it buys is a few RPCs |
+| Re-register after N failed heartbeats | Recovery becomes N times slower. All it buys is saved RPCs |
+| Have the scheduler persist the node list to disk | It restores on restart but may be stale. It believes a node is there when it has gone |
+| Have the scheduler discover nodes instead of nodes re-registering | The scheduler cannot find what it does not know about. A discovery mechanism (broadcast or similar) would then be needed |
+
+## Consequences
+
+**Gained**
+
+- Scheduler restart recovery in 1.3 seconds
+- The scheduler does not have to persist a node list
+- One failure-handling path (no distinction = no branch)
+
+**Lost / the cost**
+
+- Unstable networks produce unnecessary registration RPCs. Harmless because
+  idempotent, but traffic all the same
+- "Why it re-registered" is in the log, but the cause (a blip or a restart)
+  cannot be known
+
+**New constraints introduced**
+
+- **Registration handling must remain idempotent.** Adding a side effect here
+  collapses the whole design
+- Re-registration events alone **cannot distinguish a board reset from a process
+  restart.** That is `boot_id`'s job
+  ([ADR-016](016-boot-id-run-invalidation.md))
+
+## What would overturn this
+
+- **With tens of nodes**, simultaneous re-registration could pile onto the
+  scheduler. Add jitter at that point
+- **If registration becomes expensive** (sending a model list at registration,
+  for instance), a reason to distinguish appears. The registration message is
+  currently light
