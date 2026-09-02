@@ -1,10 +1,18 @@
-# NPUDure technical discussion
+# NPUDure Technical Discussion Log
 
 *[한국어 원문](discuss.ko.md)*
 
-This document records the discussion at points where design judgements diverge.
-Attribution (whose opinion it is) is stated so that the grounds for a decision
-can be traced later.
+This document records technical discussions that influenced experiment design
+and interpretation.
+
+All hardware experiments, measurements, implementation changes, and final
+technical decisions were carried out and owned by the project maintainer.
+
+Claude and ChatGPT were used as discussion and review tools. Their names are
+retained only to preserve which assistant proposed or challenged a particular
+interpretation.
+
+**Experiment owner and maintainer: Seongkyoun Yoo**
 
 Raw measurements are in `benchmarks/`, settled facts in `environment-matrix.md`,
 work history in `board-worklog.md`.
@@ -21,19 +29,19 @@ measurement.
 The discussion is arranged chronologically. New opinions are appended at the
 end.
 
-| # | Section | Written (KST) | Author | Gist |
+| # | Section | Written (KST) | Discussion source | Gist |
 |---|---|---|---|---|
-| 1 | The NPU occupancy experiment | 08-10 (time unknown) | Claude | the first measurement and interpretation |
-| 2 | ChatGPT's response | 08-10 (time unknown) | ChatGPT | softening the claims and demanding re-verification |
-| 3 | Claude's re-examination | 08-10 (time unknown) | Claude | accepting the points and re-measuring |
-| 4 | The core_mask distribution experiment | **08-10 17:03** | Claude | control group added, `worker_count=8` settled |
-| 5 | The want_float experiment | **08-10 17:15** | Claude | output conversion removed, +5.4% |
-| 6 | Syscall decomposition | **08-10 17:26** | Claude | bottleneck settled: driver ioctl serialization |
-| 7 | The zero-copy experiment | **08-10 17:44** | Claude | the hypothesis refuted |
-| 8 | INT8 measured | **08-11 16:45** | Claude | **1.85×**. Refines the conclusions of §6 and §7 |
-| 9 | The shared context experiment | **08-11 16:45** | Claude | "0 errors" is not a correct answer |
-| 10 | Bench tool design | **08-11 17:15** | Claude | building the mistakes into the tool |
-| 11 | The CPU governor effect | **08-12 10:16** | Claude | **+7%**. Every existing figure was on `ondemand` — **a currently valid conclusion** |
+| 1 | The NPU occupancy experiment | 08-10 (time unknown) | Claude review | the first measurement and interpretation |
+| 2 | ChatGPT's response | 08-10 (time unknown) | ChatGPT review | softening the claims and demanding re-verification |
+| 3 | Claude's re-examination | 08-10 (time unknown) | Claude review | accepting the points and re-measuring |
+| 4 | The core_mask distribution experiment | **08-10 17:03** | Claude review | control group added, `worker_count=8` settled |
+| 5 | The want_float experiment | **08-10 17:15** | Claude review | output conversion removed, +5.4% |
+| 6 | Syscall decomposition | **08-10 17:26** | Claude review | bottleneck settled: driver ioctl serialization |
+| 7 | The zero-copy experiment | **08-10 17:44** | Claude review | the hypothesis refuted |
+| 8 | INT8 measured | **08-11 16:45** | Claude review | **1.85×**. Refines the conclusions of §6 and §7 |
+| 9 | The shared context experiment | **08-11 16:45** | Claude review | "0 errors" is not a correct answer |
+| 10 | Bench tool design | **08-11 17:15** | Claude review | building the mistakes into the tool |
+| 11 | The CPU governor effect | **08-12 10:16** | Claude review | **+7%**. Every existing figure was on `ondemand` — **a currently valid conclusion** |
 
 Sections 1–3 went into the first commit (`eda93a3`, 08-10 16:29) together and
 their per-section times cannot be recovered. From §4 on, the commit time is the
@@ -45,7 +53,7 @@ writing time.
 
 ---
 
-# The NPU occupancy experiment — Claude's results and opinion
+# The NPU occupancy experiment — Claude's interpretation
 
 > ⚠️ **This section's NPU load figure (30%) and some of its conclusions were
 > corrected by later re-measurement.** Read "Claude's re-examination" further
@@ -222,7 +230,7 @@ to judge NPU occupancy.**
 
 - Written: 2026-08-10 (included in the first commit `eda93a3` at 16:29; the
   per-section time is unknown)
-- Subject: `The NPU occupancy experiment — Claude's results and opinion`
+- Subject: `The NPU occupancy experiment — Claude's interpretation`
 
 ## Overall
 
@@ -523,7 +531,7 @@ undocumented, so verify them with a no-load baseline and extreme values.
 
 ---
 
-# The core_mask distribution experiment — Claude's results and opinion
+# The core_mask distribution experiment — Claude's interpretation
 
 - Written: **2026-08-10 17:03 KST** (commit `0e6e264`)
 - Node measured: `queen`
@@ -652,7 +660,7 @@ latency. If it does not, that is information too.
 
 ---
 
-# The want_float experiment — Claude's results and opinion
+# The want_float experiment — Claude's interpretation
 
 - Written: **2026-08-10 17:15 KST** (commit `e0025b4`)
 - Node measured: `queen`
@@ -1117,7 +1125,7 @@ node is the reference value.
 
 ---
 
-# INT8 measured — Claude's results and opinion
+# INT8 measured — Claude's interpretation
 
 - Written: **2026-08-11 16:45 KST** (commit `547333c`)
 - Node measured: `king`
@@ -1612,7 +1620,7 @@ same family as the remote execution pitfalls in board-worklog.md §2.21.
 
 ---
 
-# The want_float=0 switch and CPU throttling — Claude's results and opinion
+# The want_float=0 switch and CPU throttling — Claude's interpretation
 
 - Written: **2026-08-12 17:40 KST**
 - Node measured: `king`
