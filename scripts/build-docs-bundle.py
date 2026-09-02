@@ -27,13 +27,15 @@ DATE = sys.argv[1] if len(sys.argv) > 1 else "미상"
 
 # 읽는 순서 — 무엇을 만들려 했나 → 어떻게 만드나 → 무엇이 나왔나 → 어쩌다 이렇게 됐나
 def g(pattern, exclude=()):
-    return [p for p in sorted(DOCS.glob(pattern)) if p.name not in exclude]
+    return [p for p in sorted(DOCS.glob(pattern))
+            if p.name not in exclude and not p.name.endswith(".ko.md")]
 
 ORDER = [
     DOCS / "00-PRD.md",
     DOCS / "01-TECHSPEC.md",
     DOCS / "02-HARDWARE-SETUP.md",
     DOCS / "03-DEVELOPMENT-REQUIREMENTS.md",
+    DOCS / "FAQ.md",
     DOCS / "GLOSSARY.md",
     DOCS / "infrastructure.md",
     DOCS / "environment-matrix.md",
@@ -58,6 +60,8 @@ for p in sorted(DOCS.rglob("*.md")):
         continue
     if p.name.startswith("handoff-") or p.parent.name == "public":
         continue                                   # 의도적 비공개
+    if p.name.endswith(".ko.md"):
+        continue                                   # 한글 보조본. 영문 정본이 묶음에 들어간다
     print(f"  ⚠️ 묶음에 없음: {p.relative_to(ROOT)}")
 
 def slug(path):
