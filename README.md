@@ -7,9 +7,10 @@
 > got finished together. Cheap NPUs are pooled here for the same reason.
 >
 > **The project started out as NPUForge.** Only the name changed — same
-> project, same code, same measurements. The crate names, source identifiers
-> and recorded results still read `npuforge`, and are left that way on
-> purpose: the 421 measurements were taken under that name, and the record
+> project, same code, same measurements. Phase 1 implementation identifiers
+> (the `npuforge-*` crates, the proto package, the service unit and the
+> experiment scripts) are retained to preserve compatibility and experiment
+> provenance: the 421 measurements were taken under that name, and the record
 > should keep the name it was recorded under.
 
 **Do three 6 TOPS NPUs actually give you 18?**
@@ -351,9 +352,13 @@ visible.
 
 English is the primary language for documentation. Where a Korean original
 exists it is kept next to its English counterpart as `X.ko.md` — the English
-file is authoritative. The PRD and the internal working notes (discuss,
-board-worklog, TODO) are still Korean-only; they lead with tables and figures,
-which survive machine translation reasonably well.
+file is authoritative. Every document in the repository now has an English
+canonical version, the PRD and the internal working notes (discuss,
+board-worklog, TODO) included.
+
+AI assistants were used for hypothesis generation, adversarial review, and
+documentation. All reported measurements come from real hardware runs, and
+experiment decisions and publication responsibility remain with the maintainer.
 
 ---
 
