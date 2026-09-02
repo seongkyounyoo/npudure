@@ -321,6 +321,25 @@ you have. Full list in
 
 ## Documentation
 
+The documents were written in one direction and are best read in the other. That
+gap is the project: what got planned is not what got built, and the difference
+was decided by measurement.
+
+```text
+written   PRD ------> TECHSPEC ----> experiments ----> ADRs / RESULTS
+          "try this"  "build it so"  "what happened?"  "wrong / right / changed"
+
+read      README --> experiment ledger --> RESULTS + ADRs --> TECHSPEC --> PRD
+          what it is  what was asked and    why it is that    how it      what was
+                      what was ruled out    way               works       planned
+```
+
+The two at the end are worth their position rather than their order. TECHSPEC is
+where the io_uring refusal is recorded (§15) and what to read alongside the code.
+The PRD is a planning baseline kept unedited — several things in it were later
+rejected or deferred on measurement, and it is left that way so the change is
+visible.
+
 | | |
 |---|---|
 | **[`docs/experiments/README.md`](docs/experiments/README.md)** | **Experiment ledger — start here.** Questions, exclusions, raw-data map, methodology |
