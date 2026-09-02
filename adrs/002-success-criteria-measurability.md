@@ -1,114 +1,126 @@
-# ADR-002. 성공 기준을 "수치가 나왔는가" 가 아니라 "측정하고 설명할 수 있는가" 로 둔다
+# ADR-002. Define success as "can it be measured and explained", not "did the number come out"
+
+*[한국어 원문](002-success-criteria-measurability.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-05 (최초), 2026-08-19 (ADR 로 정리) |
-| **관련** | [ADR-001](001-data-parallel-only.md), [ADR-015](015-preflight-hard-fail.md), [ADR-028](028-bench-run-validity.md), `docs/00-PRD.md` §3 |
+| **Status** | accepted |
+| **Date** | 2026-08-05 (original), 2026-08-19 (written up as an ADR) |
+| **Related** | [ADR-001](001-data-parallel-only.md), [ADR-015](015-preflight-hard-fail.md), [ADR-028](028-bench-run-validity.md), `docs/00-PRD.md` §3 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> "3노드에서 2.5배 이상" 같은 **결과값을 성공 조건으로 걸지 않는다.**
-> 확장 효율이 낮게 나와도, io_uring 이 효과가 없어도, 그 원인을 정량적으로
-> 설명할 수 있으면 성공이다.
+> **No result value is set as a success condition**, such as "2.5× or better at
+> three nodes". Even if scaling efficiency comes out low, even if io_uring has
+> no effect, it is a success as long as the cause can be explained
+> quantitatively.
 
-## 배경
+## Context
 
-측정 프로젝트에서 성공 기준을 목표 수치로 걸면 무슨 일이 벌어지나.
+What happens when a measurement project sets a target number as its success
+criterion.
 
 ```text
-목표: "3노드 확장 효율 80% 이상"
+goal: "3-node scaling efficiency of 80% or better"
 
-측정 결과 65%  →  실패로 기록해야 한다
-                →  실패하고 싶은 사람은 없다
-                →  유리한 조건을 찾게 된다
-                   짧게 재기 · 입력을 작게 · 예열 충분히 · 잘 나온 run 만 채택
+measured 65%  ->  has to be recorded as a failure
+              ->  nobody wants to fail
+              ->  favourable conditions start getting found
+                 measure briefly . smaller input . preheat well . keep only the good runs
 ```
 
-**이건 부정직한 사람만 하는 일이 아니다.** 조건을 고르는 자유도가 있고
-목표가 걸려 있으면 무의식적으로 유리한 쪽을 고르게 된다. 그리고 그 선택
-하나하나에는 다 그럴듯한 이유를 붙일 수 있다.
+**This is not something only dishonest people do.** Given freedom in choosing
+conditions and a target hanging over you, the favourable option gets picked
+unconsciously. And each of those choices can be given a plausible reason.
 
-이 프로젝트는 조건 선택의 자유도가 특히 크다. governor, 스레드 수, 지속
-시간, 냉각, 입력 크기, 모델 — 전부 수치를 바꾼다. 실제로 같은 보드에서
-governor 하나로 7%, 지속 시간 하나로 27% 가 움직였다.
+This project has unusually large freedom in choosing conditions. Governor,
+thread count, duration, cooling, input size, model — all of them move the
+numbers. On the same board, the governor alone moved 7% and duration alone
+moved 27%.
 
-## 결정
+## Decision
 
-**성공 기준을 다음으로 정의한다.**
+**Success is defined as the following.**
 
-1. 측정했는가
-2. 측정 조건을 함께 기록했는가
-3. 결과의 원인을 설명할 수 있는가
-4. 재현 가능한가
+1. Was it measured
+2. Were the measurement conditions recorded with it
+3. Can the cause of the result be explained
+4. Is it reproducible
 
-**다음 결과도 유효한 성과로 간주한다고 명시한다.**
+**The following results are explicitly counted as valid outcomes.**
 
-- io_uring 이 유의미한 성능 개선을 만들지 못함
-- Zero-Copy 적용 범위가 제한적임
-- 네트워크보다 NPU 또는 전처리가 주요 병목으로 확인됨
-- 3노드 확장 효율이 예상보다 낮음
-- 단일 고성능 장치가 비용 면에서 더 유리함
+- io_uring producing no meaningful performance improvement
+- Zero-copy applying to only a limited scope
+- The NPU or preprocessing, rather than the network, being confirmed as the
+  primary bottleneck
+- Three-node scaling efficiency being lower than expected
+- A single high-performance device being more favourable on cost
 
-## 근거
+## Rationale
 
-### 실제로 도움이 됐다
+### It actually helped
 
-이 기준이 없었으면 버렸을 결과들이 오히려 핵심 산출물이 됐다.
+Results that would have been discarded without this criterion became the central
+output instead.
 
-| 결과 | 목표 기준이었다면 | 실제로는 |
+| Result | Under a target criterion | What actually happened |
 |---|---|---|
-| 애플리케이션 최적화 3종이 +0.1 / +5.4 / -1.8% | 실패. 덮고 다른 걸 시도 | **"노드 내부에서 짜낼 것이 없다"는 근거**가 됐다 |
-| zero-copy 가 -1.8% | 실패 | 가설 반증. ioctl 76회가 추론 제출에 내재한다는 발견으로 이어졌다 |
-| 팬리스 지속 부하에서 -27% | 나쁜 수치 | **Peak vs Sustained 격차** — 벤더 스펙시트에 없는 값. 발표의 중심 서사가 됐다 |
+| Three application-level optimizations at +0.1 / +5.4 / −1.8% | Failure. Bury it and try something else | Became **the basis for "there is nothing left to squeeze inside the node"** |
+| Zero-copy at −1.8% | Failure | Hypothesis refuted. Led to the discovery that 76 ioctls are intrinsic to inference submission |
+| −27% under fanless sustained load | A bad number | **The peak vs sustained gap** — a value absent from vendor spec sheets. Became the central narrative of the talk |
 
-특히 세 번째가 결정적이다. 목표가 "높은 처리량" 이었다면 팬을 달고
-120초만 재서 84.3 inf/s 를 보고했을 것이다. 그 수치는 **현장에서 재현되지
-않는다.**
+The third is decisive. Had the goal been "high throughput", we would have
+attached a fan, measured for 120 seconds and reported 84.3 inf/s. That figure
+**does not reproduce in the field.**
 
-### 뒤집힌 결론을 발표할 수 있게 된다
+### It becomes possible to publish inverted conclusions
 
-이 프로젝트는 측정으로 결론이 다섯 번 뒤집혔다. 목표 수치가 걸려 있었다면
-뒤집는 것 자체가 손해다 — 이미 보고한 숫자가 무효가 되니까.
+Measurement inverted this project's conclusions five times. With a target number
+hanging over it, inverting is itself a loss — the already-reported number
+becomes void.
 
-기준이 "설명할 수 있는가" 이면 **뒤집는 것이 오히려 성과**다.
-`docs/RESULTS.md` §4 「뒤집힌 결론」과 §6 「측정 실패 목록」이 그래서 존재할
-수 있다.
+With "can it be explained" as the criterion, **inverting becomes an outcome
+instead.** That is why `docs/RESULTS.md` §4 "Inverted conclusions" and §6 "List
+of measurement failures" can exist.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 목표 수치를 건다 (예: 확장 효율 80%) | 조건 선택 편향이 생긴다. 측정 프로젝트에서 가장 위험한 것 |
-| 목표 수치 + "미달 시 사유 기술" | 사유 기술이 변명 절이 된다. 미달을 실패로 규정한 순간 같은 문제가 남는다 |
-| 기준을 안 정한다 | 언제 끝난 건지 알 수 없다. 무한정 측정하게 된다 |
+| Set a target number (e.g. 80% scaling efficiency) | Creates condition-selection bias. The most dangerous thing in a measurement project |
+| Target number + "state the reason if missed" | The reason section becomes a paragraph of excuses. The same problem remains the moment a miss is defined as failure |
+| Set no criterion at all | There is no way to know when it is finished. Measurement goes on indefinitely |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 불리한 결과를 그대로 낼 수 있다
-- 실패 사례가 산출물이 된다 — 재사용 가치가 수치보다 높다
-- 측정 조건을 숨길 이유가 사라진다
+- Unfavourable results can be published as they are
+- Failure cases become output — with more reuse value than the numbers
+- There is no longer any reason to hide measurement conditions
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **"그래서 몇 배인데?" 라는 질문에 한 줄로 답하기 어렵다.** 발표에서
-  불리하다. 조건을 함께 말해야 하므로 문장이 길어진다
-- 성공/실패 판정이 주관적으로 보일 수 있다. 그래서 위 4개 조건을 명시했다
+- **"So how many times faster is it?" is hard to answer in one line.** A
+  disadvantage in a talk. The conditions have to be said alongside, so the
+  sentence gets longer
+- The success/failure verdict can look subjective. Hence the four explicit
+  conditions above
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **모든 수치에 측정 조건을 붙여야 한다.** 조건 없는 숫자는 이 기준 아래
-  에서 무효다. 노드·스레드·시간·governor·모델을 항상 함께 적는다
-- 무효한 run 을 유효한 것처럼 쓰면 안 된다 → 도구가 강제한다
+- **Every number has to carry its measurement conditions.** A number without
+  conditions is void under this criterion. Nodes, threads, duration, governor
+  and model are always written alongside
+- Invalid runs must not be used as though valid → enforced by tooling
   ([ADR-028](028-bench-run-validity.md))
 
-## 뒤집힌다면
+## What would overturn this
 
-이 프로젝트가 **실험 도구가 아니라 제품**이 되면 기준이 달라진다.
-제품에는 "이 정도는 나와야 쓸 수 있다" 는 선이 필요하다.
+If this project becomes **a product rather than an experimental tool**, the
+criterion changes. A product needs a line of "it has to reach at least this to
+be usable".
 
-v0.1 은 측정이 목적이므로 이 기준을 유지한다.
+v0.1's purpose is measurement, so this criterion stands.

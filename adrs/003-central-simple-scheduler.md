@@ -1,132 +1,143 @@
-# ADR-003. 스케줄러를 하나만 두고, 고가용성을 구현하지 않는다
+# ADR-003. One scheduler, and no high availability
+
+*[한국어 원문](003-central-simple-scheduler.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 (최초), 2026-08-19 (ADR 로 정리) |
-| **관련** | [ADR-001](001-data-parallel-only.md), [ADR-014](014-10g-aggregation-separate-scheduler.md), `docs/01-TECHSPEC.md` §2.3 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 (original), 2026-08-19 (written up as an ADR) |
+| **Related** | [ADR-001](001-data-parallel-only.md), [ADR-014](014-10g-aggregation-separate-scheduler.md), `docs/01-TECHSPEC.md` §2.3 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 요청을 어느 노드로 보낼지는 **중앙 스케줄러 한 대**가 정한다.
-> 분산 합의도, 리더 선출도, 스케줄러 이중화도 만들지 않는다.
-> 대신 **스케줄러가 죽었다 살아나는 비용을 싸게** 만들어 두었다.
+> **A single central scheduler** decides which node a request goes to. No
+> distributed consensus, no leader election, no scheduler redundancy is built.
+> Instead, **the cost of the scheduler dying and coming back is made cheap.**
 
-## 배경
+## Context
 
-요청을 여러 노드에 나누는 구조는 크게 넷이다.
+There are broadly four structures for spreading requests across nodes.
 
-| 방식 | 누가 정하나 |
+| Approach | Who decides |
 |---|---|
-| **중앙 스케줄러** | 가운데 있는 한 대가 전부 정한다 |
-| 클라이언트 측 분배 | 클라이언트가 직접 노드를 고른다 (스케줄러 없음) |
-| P2P / gossip | 노드끼리 상태를 주고받으며 자기들끼리 정한다 |
-| 범용 오케스트레이터 | Kubernetes 같은 기성 시스템에 맡긴다 |
+| **Central scheduler** | one machine in the middle decides everything |
+| Client-side distribution | the client picks the node itself (no scheduler) |
+| P2P / gossip | nodes exchange state and decide among themselves |
+| A general-purpose orchestrator | hand it to an off-the-shelf system like Kubernetes |
 
-뒤로 갈수록 단일 장애점이 사라지고 규모가 커져도 버틴다. 대신 구현과
-운영이 무거워진다.
+Further down the list, the single point of failure disappears and things hold up
+at larger scale. In exchange, implementation and operation get heavier.
 
-## 결정
+## Decision
 
-**중앙 스케줄러 한 대를 쓴다.** 그리고 v0.1 에서 다음을 **구현하지 않는다.**
+**Use a single central scheduler.** And in v0.1, **do not implement** any of the
+following.
 
-- 분산 합의 (Raft 등)
-- 리더 선출
-- 다중 스케줄러 고가용성
-- Kubernetes 수준의 범용 오케스트레이션
+- Distributed consensus (Raft and the like)
+- Leader election
+- Multi-scheduler high availability
+- Kubernetes-level general-purpose orchestration
 
-**스케줄러는 단일 장애점이다.** 이것을 결함이 아니라 **알고 받아들인 제약**
-으로 문서에 적는다.
+**The scheduler is a single point of failure.** This is written into the
+documents not as a defect but as **a constraint accepted knowingly.**
 
-## 근거
+## Rationale
 
-### 1. 측정 대상이 스케줄링 정책 자체다
+### 1. What is being measured is the scheduling policy itself
 
-이 프로젝트는 Round Robin / Least Queue / ECT **세 정책을 갈아 끼우며
-비교**하는 실험(S3)을 한다. 그러려면 **결정이 내려지는 지점이 한 곳**이어야
-한다.
+This project runs an experiment (S3) that **swaps between three policies** —
+Round Robin / Least Queue / ECT — and compares them. For that, **the point where
+the decision is made has to be one place.**
 
-분배가 클라이언트나 노드로 흩어지면 "이번 run 의 분배 정책"이라는 개념
-자체가 흐려진다. 정책 비교 실험이 정책이 아니라 구현 위치의 차이를 재게 된다.
+If distribution scatters to clients or nodes, the very notion of "this run's
+distribution policy" gets blurred. A policy comparison would end up measuring
+differences in implementation location rather than policy.
 
-### 2. ECT 는 전역 상태를 봐야 계산된다
+### 2. ECT can only be computed with global state
 
-기본 정책인 ECT 는 이런 식으로 후보를 고른다.
+The default policy, ECT, picks a candidate like this.
 
 ```text
-ECT = ((queue_depth + in_flight + 1) × EWMA_inference
+ECT = ((queue_depth + in_flight + 1) x EWMA_inference
        + EWMA_network + thermal_penalty + error_penalty) / load_factor
 ```
 
-여기 들어가는 값 — 각 노드의 큐 깊이, 진행 중 건수, 추론 시간 이동평균,
-온도 — 은 **모든 노드를 한눈에 보고 있어야** 비교가 된다. 노드가 자기
-상태만 알고 결정하면 이 식이 성립하지 않는다.
+The values that go in — each node's queue depth, in-flight count, moving average
+of inference time, temperature — only compare if **all nodes are visible at
+once**. A node deciding from its own state alone cannot satisfy this formula.
 
-### 3. 노드가 세 대다
+### 3. There are three nodes
 
-합의 프로토콜이나 gossip 이 값을 하는 규모는 노드가 수십~수백 대일 때다.
-세 대에서는 얻는 것보다 구현·디버깅 비용이 크다.
+The scale at which a consensus protocol or gossip earns its keep is tens to
+hundreds of nodes. At three, implementation and debugging cost more than they
+return.
 
-### 4. 시간 예산
+### 4. The time budget
 
-발표까지 정해진 기간 안에 **측정을 끝내는 것**이 목표다. 합의 구현에
-시간을 쓰면 정작 재야 할 것을 못 잰다. 만들지 않기로 한 것이 만들기로 한
-것만큼 중요하다.
+The goal is **finishing the measurements** within the period leading up to the
+talk. Time spent implementing consensus is time not spent measuring what
+actually needs measuring. What is decided against matters as much as what is
+decided for.
 
-## 단일 장애점을 어떻게 다루나
+## How the single point of failure is handled
 
-없애는 대신 **복구를 싸게** 만들었다.
+Instead of eliminating it, **recovery is made cheap.**
 
-- 노드는 하트비트가 실패하면 **곧바로 재등록으로 전환**한다
-- 등록은 **멱등**이다. 여러 번 해도 문제가 없다
-- 그래서 스케줄러를 죽였다 다시 띄우면 **세 노드가 약 1.3초 안에 스스로
-  돌아온다** (실제 프로세스 4개로 확인)
+- When a heartbeat fails, the node **switches immediately to re-registration**
+- Registration is **idempotent**. Doing it repeatedly causes no problem
+- So killing the scheduler and bringing it back has **all three nodes return by
+  themselves within about 1.3 seconds** (verified with four real processes)
 
-일시적 네트워크 오류와 스케줄러 재시작은 노드 입장에서 구분할 수 없다.
-그래서 **더 비싼 쪽(재등록)을 무조건 택한다.** 등록이 멱등이라 헛수고가
-손해로 이어지지 않기 때문에 가능한 선택이다. (→ ADR-025)
+From the node's perspective, a transient network error and a scheduler restart
+are indistinguishable. So it **unconditionally takes the more expensive option
+(re-registration)**. That choice is available because registration is idempotent,
+so wasted effort does not translate into loss. (→ ADR-025)
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 클라이언트 측 분배 | 정책 비교 실험이 성립하지 않는다. 클라이언트가 전역 상태를 볼 방법도 없다 |
-| P2P / gossip | 노드 3대에서 이득이 없다. 노드 간 통신이 생겨 [ADR-001](001-data-parallel-only.md) 의 "노드는 서로를 모른다" 전제가 깨진다 |
-| Kubernetes | 명시적 비목표. 컨테이너 오케스트레이션은 이 프로젝트가 답하려는 질문과 무관하고, 측정에 잡음만 더한다 |
-| 스케줄러 2대 + 리더 선출 | 구현·검증 비용이 크다. 그 시간에 측정을 못 한다. 노드 3대 규모에서 얻는 가용성이 그 값을 못 한다 |
+| Client-side distribution | The policy comparison experiment does not hold. There is also no way for a client to see global state |
+| P2P / gossip | No benefit at three nodes. It introduces inter-node communication, breaking [ADR-001](001-data-parallel-only.md)'s premise that nodes do not know each other |
+| Kubernetes | An explicit non-goal. Container orchestration is unrelated to the question this project asks and only adds noise to measurement |
+| Two schedulers + leader election | Large implementation and verification cost. That time is time not spent measuring. The availability gained at three-node scale does not justify it |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 정책 3종을 같은 자리에서 갈아 끼울 수 있다 → S3 실험이 가능해졌다
-- 재시도·상태머신·헬스체크가 전부 한 프로세스 안에 있어 추적이 쉽다
-- 스케줄러 재시작 복구가 1.3초
+- The three policies can be swapped in the same place → the S3 experiment became
+  possible
+- Retries, state machines and health checks are all in one process, making them
+  easy to trace
+- Scheduler restart recovery in 1.3 seconds
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **스케줄러가 죽으면 클러스터 전체가 멈춘다.** 노드는 살아 있어도 요청을
-  받을 경로가 없다
-- 처리량 상한에 스케줄러 자신이 포함된다. 노드를 아무리 늘려도 스케줄러가
-  못 버티면 거기서 막힌다
+- **If the scheduler dies the whole cluster stops.** The nodes are alive but
+  there is no path for requests to reach them
+- The scheduler itself is part of the throughput ceiling. However many nodes are
+  added, if the scheduler cannot keep up it stops there
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **스케줄러 호스트가 측정 조건의 일부가 되었다.** 어디서 돌리느냐가 수치를
-  바꾼다. 그래서 공식 벤치마크에서는 보드가 아닌 별도 호스트에서 돌린다
+- **The scheduler host became part of the measurement conditions.** Where it
+  runs changes the numbers. That is why official benchmarks run it on a separate
+  host rather than a board
   (→ [ADR-014](014-10g-aggregation-separate-scheduler.md))
-- 스케줄러 호스트의 자원이 실험 제약이 된다. 현재 `dealer` 는 RAM 3GB 라
-  페이로드 1.17 MiB × 동시 처리 수가 쌓이면 부족할 수 있다. **아직 관찰하지
-  않았다**
+- The scheduler host's resources become an experimental constraint. `dealer`
+  currently has 3 GB of RAM, which could fall short once a 1.17 MiB payload ×
+  concurrent count piles up. **Not yet observed**
 
-## 뒤집힌다면
+## What would overturn this
 
-- **노드가 수십 대 규모가 될 때.** 이 결정은 3대를 전제로 한다
-- **스케줄러가 실제로 병목으로 측정될 때.** 판정 근거는 이미 준비되어 있다 —
-  `TimingBreakdown` 의 `scheduler_queue_us` / `scheduler_route_us` 가
-  `end_to_end_us` 에서 유의미한 비중을 차지하는지 보면 된다. **추측하지 말고
-  이 칸을 본다**
-- **가용성이 요구사항이 될 때.** 지금은 실험 장비고, 스케줄러가 죽으면 사람이
-  다시 띄우면 된다. 운영 시스템이 되면 전제가 다르다
+- **When there are tens of nodes.** This decision presumes three
+- **When the scheduler is actually measured as the bottleneck.** The basis for
+  that judgement is already prepared — check whether `TimingBreakdown`'s
+  `scheduler_queue_us` / `scheduler_route_us` occupy a meaningful share of
+  `end_to_end_us`. **Do not guess; read that field**
+- **When availability becomes a requirement.** This is experimental equipment
+  today, and if the scheduler dies a person restarts it. Becoming an operational
+  system changes the premise

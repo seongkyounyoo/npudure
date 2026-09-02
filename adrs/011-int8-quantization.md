@@ -1,175 +1,188 @@
-# ADR-011. 기준 모델을 INT8 로 한다
+# ADR-011. The reference model is INT8
+
+*[한국어 원문](011-int8-quantization.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-012](012-want-float-zero-blob-v2.md), [ADR-014](014-10g-aggregation-separate-scheduler.md), [ADR-018](018-convert-model-once-deploy.md) (모델 배포), `docs/discuss.md` §8 |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-012](012-want-float-zero-blob-v2.md), [ADR-014](014-10g-aggregation-separate-scheduler.md), [ADR-018](018-convert-model-once-deploy.md) (model deployment), `docs/discuss.md` §8 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> INT8 양자화가 **1.86배**다. 지금까지 시도한 어떤 소프트웨어 최적화보다
-> 두 자릿수 크게 먹혔다. 대가는 최고 검출 점수 -5.5% 이고 **검출 집합과
-> 클래스는 동일**하다.
+> INT8 quantization is worth **1.86×**. It landed an order of magnitude harder
+> than any software optimization attempted so far. The cost is −5.5% on the top
+> detection score, and **the detection set and classes are identical**.
 
-## 배경
+## Context
 
-### 양자화가 무엇인가
+### What quantization is
 
-신경망은 원래 실수(FP32)로 계산한다. 이 실수들을 **정수 8비트로 줄여서**
-계산하는 것이 INT8 양자화다. 곱셈 하나가 싸지고 메모리도 덜 오간다. 대신
-값이 뭉개져 정확도를 조금 잃는다.
+A neural network normally computes in reals (FP32). **Shrinking those reals to
+8-bit integers** for computation is INT8 quantization. Each multiplication gets
+cheaper and less memory moves. In exchange, values get coarser and a little
+accuracy is lost.
 
-FP16 은 그 중간이다. 실수인데 비트 수만 절반이다.
+FP16 sits in between — still real, just half the bits.
 
-### 왜 이 선택이 중요했나
+### Why this choice mattered
 
-FP16 으로 시작해 노드 하나의 처리량을 끌어올리려고 세 가지를 시도했고,
-**전부 실패했다.**
+Starting from FP16, three things were tried to raise one node's throughput, and
+**all three failed.**
 
-| 시도 | 결과 |
+| Attempt | Result |
 |---|---:|
-| `core_mask` 로 NPU 코어 수동 배정 | +0.1% |
-| `want_float=0` (당시 1스레드 위주 측정) | +5.4% |
-| zero-copy 버퍼 재사용 | **-1.8%** |
+| Manual NPU core assignment via `core_mask` | +0.1% |
+| `want_float=0` (measured mostly single-threaded at the time) | +5.4% |
+| Zero-copy buffer reuse | **−1.8%** |
 
-이유도 찾았다. 추론 한 건마다 커널 `ioctl` 이 약 76회 발생하고 그것이
-**직렬화**된다. 애플리케이션이 줄일 수 있는 것이 아니었다. 그래서 당시
-결론은 **"노드 상한 78 inf/s 는 드라이버 특성이다"** 였다.
+The reason was found too. Each inference triggers about 76 kernel `ioctl` calls
+and those get **serialized**. Not something the application could reduce. So the
+conclusion at the time was **"the node ceiling of 78 inf/s is a driver
+characteristic."**
 
-INT8 은 그때까지 남아 있던 마지막 큰 변수였다.
+INT8 was the last big variable still outstanding.
 
-## 결정
+## Decision
 
-**1. 기준 모델을 YOLOv8n INT8 로 한다.**
+**1. The reference model is YOLOv8n INT8.**
 
-**2. FP16 을 지우지 않고 비교 조건으로 유지한다.** 두 모델을 나란히 제시하는
-것이 "양자화가 얼마나 먹히는가" 라는 결과 자체이기 때문이다.
+**2. FP16 is not deleted but kept as a comparison condition.** Presenting the
+two models side by side is itself the result of "how much does quantization
+buy".
 
-**3. 정확도 수락 기준을 원시 텐서 유사도가 아니라 검출 수준으로 정의한다.**
-(근거는 아래 함정 절)
+**3. Define the accuracy acceptance criterion at the detection level rather than
+raw tensor similarity.** (See the trap section below for why.)
 
-## 근거
+## Rationale
 
-### 1.86 배
+### 1.86×
 
 ```text
-측정 조건: king, sustained_load_test, 8스레드 고정, 120초,
-          governor=performance, 팬리스
+conditions: king, sustained_load_test, 8 threads fixed, 120 s,
+            governor=performance, fanless
 ```
 
-| 모델 | 처리량 | 평균 지연 | 모델 크기 |
+| Model | Throughput | Mean latency | Model size |
 |---|---:|---:|---:|
 | YOLOv8n FP16 | 84.3 inf/s | 94.5 ms | 9.65 MB |
 | **YOLOv8n INT8** | **157.2 inf/s** | **50.8 ms** | 6.46 MB |
-| 배율 | **1.86×** | -46% | -33% |
+| Ratio | **1.86×** | −46% | −33% |
 
-> `ondemand` governor 로 잰 초기값은 FP16 79.0 / INT8 146.2 였다.
-> **배율 1.85~1.86 은 governor 와 무관하게 유지된다.**
+> Initial values measured with the `ondemand` governor were FP16 79.0 / INT8
+> 146.2. **The 1.85–1.86× ratio holds regardless of governor.**
 
-### 이 측정이 이전 결론을 정정했다
+### This measurement corrected an earlier conclusion
 
-INT8 이 1.85배라면 "ioctl 76회가 상한을 정한다" 는 설명과 충돌한다.
-그래서 INT8 의 ioctl 도 세어 봤다.
+If INT8 is 1.85×, that conflicts with the explanation that "76 ioctls set the
+ceiling". So INT8's ioctls were counted too.
 
 ```text
-strace -c -f -e trace=ioctl, 1스레드 20초
+strace -c -f -e trace=ioctl, 1 thread, 20 s
 
-        추론    처리량       추론당 ioctl
-FP16    315    15.7 inf/s      76.4
-INT8    718    35.8 inf/s      76.2
+        inferences  throughput    ioctls per inference
+FP16    315         15.7 inf/s    76.4
+INT8    718         35.8 inf/s    76.2
 ```
 
-**호출 횟수는 똑같은데 처리량이 2.28배다.**
+**The call count is identical and throughput is 2.28×.**
 
-상한을 정하는 것은 ioctl **횟수**가 아니라 **직렬화 구간에서 한 건이 붙잡고
-있는 시간**이었다. 그래서 기존 결론의 범위를 좁혔다.
+What sets the ceiling is not the **number** of ioctls but **how long one
+inference holds the serialized section.** So the scope of the previous
+conclusion was narrowed.
 
-| 기존 | 정정 |
+| Previously | Corrected |
 |---|---|
-| "노드 상한 78 inf/s 는 드라이버 특성이다" | "**FP16 기준** 노드 상한이 약 78 inf/s 이고, 이 값은 애플리케이션 최적화로 못 넘는다" |
-| "애플리케이션 최적화로 넘을 수 없다" | 유지. 단 **양자화는 애플리케이션 최적화가 아니라 모델 변경**이다 |
+| "The node ceiling of 78 inf/s is a driver characteristic" | "**On FP16**, the node ceiling is about 78 inf/s, and that value cannot be exceeded by application optimization" |
+| "It cannot be exceeded by application optimization" | Stands. But **quantization is a model change, not an application optimization** |
 
-### 정확도 대가는 받아들일 만하다
+### The accuracy cost is acceptable
 
 ```text
-측정 조건: 실보드 king, COCO val2017 이미지,
-          전처리를 한 곳에서 수행해 양쪽이 같은 입력 바이트를 보게 함
+conditions: real board king, COCO val2017 images,
+            preprocessing done in one place so both see the same input bytes
 ```
 
-| 비교 | box cosine | 검출 셀 | 클래스 일치 |
+| Comparison | box cosine | Detection cells | Class agreement |
 |---|---|---|---|
 | FP16 vs ONNX | 0.99999 | 10/10 | 100% |
 | **INT8 vs FP16** | **0.997** | **10/10** | **100%** |
 
-최고 검출의 셀이 한 칸 이동하고 점수가 -5.5% 다. **검출 집합과 클래스는
-동일하다.** 1.86배를 이 대가로 사는 것이면 남는 장사다.
+The top detection's cell moves by one and its score is −5.5%. **The detection
+set and classes are identical.** Buying 1.86× at that price is a good trade.
 
-## ⚠️ 정확도 검증에서 걸린 함정
+## ⚠️ The trap hit during accuracy verification
 
-**원시 텐서 코사인 유사도를 수락 기준으로 쓰면 이 모델에서는 오판한다.**
+**Using raw-tensor cosine similarity as the acceptance criterion misjudges this
+model.**
 
-FP16 vs ONNX — 양자화가 아예 없는 비교 — 에서도 **일부 텐서의 코사인이
-0.16 까지 떨어진다.** 이 숫자만 보면 "FP16 변환이 모델을 망가뜨렸다" 는
-결론이 나온다. 틀린 결론이다.
+Even for FP16 vs ONNX — a comparison with no quantization at all — **the cosine
+of some tensors falls to 0.16.** Looking at that number alone leads to "the FP16
+conversion broke the model". A wrong conclusion.
 
-원인은 이렇다.
+The cause is this.
 
-- YOLOv8n 출력 9개 중 텐서 2/5/8 은 **클래스 점수 80개의 합**이다
-- RKNN 의 sigmoid 는 정확히 0 을 내지 않고 **하한 0.001831** 이 있다
-- 80배 증폭되면 **0.1465 오프셋**이 생긴다 (실측 하한과 정확히 일치)
-- 출력 셀 대부분이 배경이라 이 오프셋이 코사인을 지배한다
+- Of YOLOv8n's 9 outputs, tensors 2/5/8 are **the sum of 80 class scores**
+- RKNN's sigmoid does not output exactly 0 but has **a floor of 0.001831**
+- Amplified 80×, that produces **a 0.1465 offset** (matching the measured floor
+  exactly)
+- Most output cells are background, so this offset dominates the cosine
 
-**모든 셀에 같은 값이 더해지므로 순위는 바뀌지 않는다. 검출 결과는 그대로다.**
+**The same value is added to every cell, so the ranking does not change. The
+detections are unaffected.**
 
-→ 수락 기준을 **검출 수준**(검출 집합, 클래스, box cosine)으로 바꿨다.
-`tools/model-converter/compare_detections.py` 가 그 기준으로 비교한다.
+→ The acceptance criterion was changed to the **detection level** (detection
+set, classes, box cosine). `tools/model-converter/compare_detections.py`
+compares against that criterion.
 
-이것도 이 프로젝트의 단골 실패 유형이다. **지표 이름을 보고 의미를 짐작했다.**
-"코사인 유사도가 낮다 = 결과가 다르다" 는 일반적으로는 맞지만, 이 출력
-구조에서는 아니었다.
+This too is one of this project's recurring failure types. **A metric's name was
+read and its meaning assumed.** "Low cosine similarity = different results" is
+generally true, but not for this output structure.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| FP16 유지 | 1.86배를 버린다. 그리고 소프트웨어로는 그만큼을 만들 방법이 없다는 것이 이미 확인됐다 |
-| FP32 | 이 NPU 에서 의미 없다. 크고 느리다 |
-| INT8 + 정확도 손실 보정(QAT 등) | 재학습이 필요하다. 이 프로젝트는 추론 런타임을 만드는 것이지 모델을 학습하는 것이 아니다 |
-| 더 큰 모델(YOLOv8s 등)을 INT8 로 | 비교 기준선이 바뀐다. 모델 선택은 별도 결정이고, 지금은 변수를 하나만 움직인다 |
+| Stay on FP16 | Throws away 1.86×. And it has already been confirmed there is no way to produce that much in software |
+| FP32 | Meaningless on this NPU. Big and slow |
+| INT8 + accuracy-loss compensation (QAT and the like) | Requires retraining. This project builds an inference runtime, not trains models |
+| A larger model (YOLOv8s and the like) at INT8 | The comparison baseline changes. Model selection is a separate decision, and only one variable moves at a time here |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 노드당 157.2 inf/s. FP16 대비 1.86배
-- 평균 지연 94.5 → 50.8 ms
-- 모델 크기 -33%
+- 157.2 inf/s per node. 1.86× against FP16
+- Mean latency 94.5 → 50.8 ms
+- Model size −33%
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 최고 검출 점수 -5.5%, 최고 검출 셀 한 칸 이동
-- **calibration 데이터가 필요해졌다.** COCO val2017 200장을 결정적으로
-  선택해 쓴다(`fetch_calibration.py`, seed 고정). 이미지는 라이선스 때문에
-  저장소에 넣지 않고 manifest 만 남긴다
-- **INT8 변환은 바이트 재현성이 없다.** 같은 입력으로 3회 변환하니 해시가
-  매번 달랐다(크기는 같고 1.8% 바이트 상이). 다만 **추론 결과는 완전히
-  동일**하다(9개 텐서 전부 cosine 1.000000). 차이는 직렬화·레이아웃에 있고
-  계산에는 없다 → 모델은 한 번만 변환해 세 노드에 배포한다 (ADR-018)
+- Top detection score −5.5%, top detection cell moved by one
+- **Calibration data became necessary.** 200 COCO val2017 images are chosen
+  deterministically (`fetch_calibration.py`, fixed seed). The images are not put
+  in the repository for licensing reasons; only a manifest is kept
+- **INT8 conversion is not byte-reproducible.** Converting three times from the
+  same input gave a different hash each time (same size, 1.8% of bytes
+  differing). But **the inference results are completely identical** (all 9
+  tensors at cosine 1.000000). The difference is in serialization and layout,
+  not in computation → the model is converted once and deployed to all three
+  nodes (ADR-018)
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- **네트워크 부하가 오히려 늘었다.** 처리량이 1.86배가 되면 초당 오가는
-  바이트도 그만큼 늘어난다. 노드당 1.545 Gbps, 3노드 4.636 Gbps 다.
-  이 결정이 [ADR-014](014-10g-aggregation-separate-scheduler.md) 의
-  10G aggregation 을 필요하게 만든 직접 원인이다
-- 성능이 좋아지면 다른 곳이 막힌다는 사례로 남겨 둔다
+- **Network load went up instead.** With throughput at 1.86×, the bytes moving
+  per second rise by the same factor — 1.545 Gbps per node, 4.636 Gbps across
+  three. This decision is the direct cause of
+  [ADR-014](014-10g-aggregation-separate-scheduler.md)'s 10G aggregation
+- Kept as a case of something else filling up when performance improves
 
-## 뒤집힌다면
+## What would overturn this
 
-- **검출 집합이 달라지는 입력이나 모델이 나오면.** 현재 근거는 이미지 1장
-  기준이다. 표본이 적다는 것을 인정하고 쓴다
-- **재검증은 텐서 코사인이 아니라 검출 수준으로 한다.** 위 함정 절이 그
-  이유다. 이 기준을 잊고 코사인으로 판정하면 멀쩡한 모델을 버리게 된다
+- **If an input or model appears where the detection set differs.** The current
+  basis is a single image. That the sample is small is acknowledged in using it
+- **Re-verification is done at the detection level, not by tensor cosine.** The
+  trap section above is why. Forgetting this criterion and judging by cosine
+  would mean discarding a perfectly good model

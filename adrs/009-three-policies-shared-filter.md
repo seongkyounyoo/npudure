@@ -1,67 +1,71 @@
-# ADR-009. 정책은 세 개로 고정하고, 후보 필터는 셋이 공유한다
+# ADR-009. Fix the policies at three, and have all three share the candidate filter
+
+*[한국어 원문](009-three-policies-shared-filter.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-003](003-central-simple-scheduler.md), [ADR-010](010-ect-formula.md), `docs/01-TECHSPEC.md` §10.0, §10.4 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-003](003-central-simple-scheduler.md), [ADR-010](010-ect-formula.md), `docs/01-TECHSPEC.md` §10.0, §10.4 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> `round-robin` / `least-queue` / `ect` 세 개만 둔다. 그리고 **세 정책이
-> 완전히 같은 후보 필터를 거친다.** 필터가 다르면 정책 비교 실험이 정책이
-> 아니라 필터의 차이를 재게 된다.
+> There are only `round-robin` / `least-queue` / `ect`. And **all three pass
+> through exactly the same candidate filter.** If the filters differed, a policy
+> comparison would measure the filters rather than the policies.
 
-## 배경
+## Context
 
-스케줄링 정책 비교(시나리오 S3)가 이 프로젝트의 측정 항목 중 하나다.
-"부하를 보고 고르면 그냥 순서대로 도는 것보다 얼마나 나은가" 를 재려는 것이다.
+Comparing scheduling policies (scenario S3) is one of this project's
+measurement items. It aims to measure "how much better is choosing by load than
+simply going round in order".
 
-정책은 두 부분으로 이루어진다.
+A policy consists of two parts.
 
 ```text
-① 후보 필터    누가 후보 자격이 있나  (죽은 노드 제외, 모델 있는 노드만 ...)
-② 선택 규칙    후보 중 누구를 고르나  (순서대로 / 큐가 짧은 쪽 / 예상 완료시간)
+1. candidate filter   who is eligible  (exclude dead nodes, only nodes holding the model ...)
+2. selection rule     who among the candidates  (in order / shortest queue / estimated completion time)
 ```
 
-여기에 함정이 있다. **정책마다 ①을 다르게 만들면**, A 정책이 B 정책보다
-좋게 나왔을 때 그것이 선택 규칙 때문인지 필터 때문인지 알 수 없다.
+There is a trap here. **If part 1 is made different per policy**, then when
+policy A comes out ahead of policy B, there is no way to know whether that was
+the selection rule or the filter.
 
-예를 들어 ECT 만 "온도 85°C 넘는 노드 제외" 를 넣어 두면, ECT 가 이기는
-이유가 똑똑해서인지 뜨거운 노드를 피해서인지 분리되지 않는다.
+For instance, if only ECT carried "exclude nodes above 85 °C", whether ECT wins
+because it is smarter or because it avoids hot nodes cannot be separated.
 
-## 결정
+## Decision
 
-**1. 정책 식별자를 세 개로 고정한다.**
+**1. Fix the policy identifiers at three.**
 
-| 식별자 | 정책 | 용도 |
+| Identifier | Policy | Purpose |
 |---|---|---|
-| `round-robin` | Round Robin | 비교 기준 |
-| `least-queue` | Least Queue | 중간 비교군 |
-| `ect` | Estimated Completion Time | 권장 기본값 |
+| `round-robin` | Round Robin | comparison baseline |
+| `least-queue` | Least Queue | intermediate comparison |
+| `ect` | Estimated Completion Time | recommended default |
 
-**2. 세 정책이 동일한 후보 필터를 거친다.**
+**2. All three pass through an identical candidate filter.**
 
 ```text
-- is_schedulable() 상태일 것
-- 요청 모델을 Ready 상태로 보유할 것
-- 온도가 disable_temperature_c 미만일 것
+- must be in an is_schedulable() state
+- must hold the requested model in a Ready state
+- temperature must be below disable_temperature_c
 ```
 
-**3. 식별자 문자열을 한 곳에서만 파싱한다.**
+**3. Parse the identifier string in exactly one place.**
 
 ```rust
 #[serde(rename_all = "kebab-case")]
 pub enum SchedulingPolicyKind { RoundRobin, LeastQueue, Ect }
 ```
 
-설정 파일, CLI 인자, 메트릭 레이블, 로그, 대시보드가 **전부 같은 문자열**을
-쓴다. `queue-aware`, `estimated-completion-time`, `queue_aware` 같은 변형을
-쓰지 않는다.
+The configuration file, CLI arguments, metric labels, logs and dashboard all use
+**the same strings**. Variants such as `queue-aware`,
+`estimated-completion-time` or `queue_aware` are not used.
 
-**4. 인터페이스를 선택 규칙만으로 좁힌다.**
+**4. Narrow the interface to the selection rule alone.**
 
 ```rust
 pub trait SchedulingPolicy: Send + Sync {
@@ -70,67 +74,73 @@ pub trait SchedulingPolicy: Send + Sync {
 }
 ```
 
-`candidates` 는 **이미 필터를 통과한 목록**이다. 정책이 직접 노드 전체
-목록을 보지 않으므로, 정책 안에서 자기만의 필터를 추가할 여지가 구조적으로
-줄어든다.
+`candidates` is **a list that has already passed the filter**. Since the policy
+never sees the full node list, the room for a policy to add its own filter is
+structurally reduced.
 
-## 근거
+## Rationale
 
-### 정책 비교가 이 프로젝트의 측정 항목이다
+### Policy comparison is one of this project's measurement items
 
-S3 는 "정책의 차이" 를 재는 실험이다. 변수는 하나여야 한다. 필터가 공유되지
-않으면 실험 설계 자체가 무효다.
+S3 is an experiment measuring "the difference between policies". There must be
+one variable. Without a shared filter, the experimental design itself is void.
 
-### 식별자가 흔들리면 결과가 오염된다
+### A wobbling identifier contaminates the results
 
-벤치 도구 설계 중 실제로 나온 문제다. `--policy round-robin` 을 손으로 적게
-하면 오타가 나거나 실제 스케줄러 설정과 다른 값이 결과에 붙는다.
-**틀린 정책 이름이 붙은 결과는 S3 를 통째로 망친다.**
+This actually came up while designing the bench tool. Having `--policy
+round-robin` typed by hand invites a typo, or a value attached to the results
+that differs from the scheduler's actual configuration. **A result labelled with
+the wrong policy name ruins the whole of S3.**
 
-그래서 벤치 도구는 손으로 적은 값보다 **스케줄러가 보고한 값을 우선**한다.
-이 결정과 짝을 이룬다.
+So the bench tool **prefers the value the scheduler reports** over the one typed
+by hand. It pairs with this decision.
 
-### 세 개면 충분하다
+### Three is enough
 
-- `round-robin` 은 기준선이다. 없으면 나머지가 좋은지 알 수 없다
-- `least-queue` 는 "큐만 봐도 되는가" 에 답한다
-- `ect` 는 큐·속도·온도·오류를 다 본다
+- `round-robin` is the baseline. Without it there is no way to know whether the
+  rest are good
+- `least-queue` answers "is looking at the queue alone sufficient?"
+- `ect` looks at queue, speed, temperature and errors together
 
-넷째를 넣으면 실험 조합이 늘어나고, S3 의 run 수가 늘어난다. 총 146 run /
-약 23.4시간 예산 안에서 값을 못 한다.
+A fourth would multiply the experimental combinations and increase S3's run
+count. It would not be worth it within the budget of 146 runs and roughly 23.4
+hours.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 정책마다 필터를 다르게 | S3 가 필터 차이를 측정하게 된다. **가장 피해야 할 것** |
-| 정책을 플러그인으로 열어 둔다 | 비교 대상이 무한해진다. 측정 프로젝트에서는 고정이 낫다 |
-| 정책 하나(ECT)만 구현 | 기준선이 없어 "얼마나 나은지" 를 말할 수 없다 |
-| 식별자를 자유 문자열로 | 오타와 표기 흔들림이 결과 레이블을 오염시킨다 |
+| A different filter per policy | S3 would measure filter differences. **The thing most to be avoided** |
+| Open the policies up as plugins | The comparison set becomes unbounded. Fixed is better for a measurement project |
+| Implement only one policy (ECT) | Without a baseline there is no way to say "how much better" |
+| Free-form identifier strings | Typos and notation drift contaminate the result labels |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- S3 정책 비교가 성립한다 — 변수가 선택 규칙 하나다
-- 설정·로그·메트릭·대시보드의 정책 이름이 항상 같다
-- 정책 구현이 짧아진다. 필터를 각자 안 짜도 된다
+- The S3 policy comparison holds — the single variable is the selection rule
+- Policy names in configuration, logs, metrics and the dashboard are always the
+  same
+- Policy implementations get shorter. They do not each write a filter
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 정책별 특수 조건을 넣을 수 없다. 넣으려면 **공유 필터에 넣어 세 정책
-  모두에 적용**해야 한다
-- 새 정책을 추가하려면 enum 을 고쳐야 한다 (의도한 마찰)
+- Policy-specific candidate conditions cannot be added. Adding one means
+  **putting it in the shared filter and applying it to all three**
+- Adding a new policy means editing the enum (deliberate friction)
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- 필터를 바꾸면 **세 정책의 과거 측정값과 비교 불가**가 된다. 필터 변경은
-  실험 조건 변경으로 취급하고 기록해야 한다
+- Changing the filter makes results **incomparable with the three policies' past
+  measurements**. A filter change is treated as a change of experimental
+  conditions and has to be recorded
 
-## 뒤집힌다면
+## What would overturn this
 
-- **정책별로 반드시 달라야 하는 후보 조건이 발견되면.** 그때는 그 조건을
-  선택 규칙 안의 점수로 표현할 수 있는지 먼저 본다 — ECT 의 `load_factor`
-  가 그 방식이다 ([ADR-010](010-ect-formula.md))
-- **M7 최적화 실험에서 새 정책이 필요해지면** 넷째를 추가한다. 단 S3 의
-  기준선 비교는 세 정책으로 이미 끝난 뒤여야 한다
+- **If a candidate condition is found that genuinely must differ per policy.**
+  At that point, first check whether it can be expressed as a score inside the
+  selection rule — ECT's `load_factor` works that way
+  ([ADR-010](010-ect-formula.md))
+- **If the M7 optimization experiments need a new policy**, add a fourth. But
+  only after S3's baseline comparison has already finished with three

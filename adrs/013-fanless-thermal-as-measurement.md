@@ -1,152 +1,163 @@
-# ADR-013. 팬리스를 기본으로 두고, throttling 을 제거 대상이 아니라 측정 대상으로 삼는다
+# ADR-013. Make fanless the default, and treat throttling as something to measure rather than eliminate
+
+*[한국어 원문](013-fanless-thermal-as-measurement.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-10 |
-| **관련** | [ADR-002](002-success-criteria-measurability.md), [ADR-023](023-cpu-governor-performance-scoped.md), `docs/02-HARDWARE-SETUP.md` §9 |
+| **Status** | accepted |
+| **Date** | 2026-08-10 |
+| **Related** | [ADR-002](002-success-criteria-measurability.md), [ADR-023](023-cpu-governor-performance-scoped.md), `docs/02-HARDWARE-SETUP.md` §9 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 팬을 달면 수치가 좋아진다. 그런데 **엣지 디바이스는 현장에서 팬 없이
-> 놓인다.** 그래서 팬리스를 기본 조건으로 두고, 열 때문에 성능이 떨어지는
-> 것을 **없앨 문제가 아니라 잴 대상**으로 다룬다. 냉각 조건은 비교군으로
-> 따로 측정한다.
+> Attaching a fan improves the numbers. But **edge devices sit in the field
+> without one.** So fanless is the default condition, and performance falling
+> from heat is treated as **something to measure, not something to remove.**
+> Cooled conditions are measured separately as a comparison group.
 
-## 배경
+## Context
 
-RK3576 보드는 팬리스로 출고된다. 지속 부하를 걸면 뜨거워지고 성능이 떨어진다.
+RK3576 boards ship fanless. Put them under sustained load and they get hot and
+slow down.
 
-여기서 두 갈래가 있다.
-
-```text
-갈래 1. 팬을 단다
-  → 수치가 좋아진다
-  → 발표에 쓰기 좋다
-  → 그런데 그 수치는 현장에서 안 나온다
-
-갈래 2. 팬리스로 잰다
-  → 수치가 나빠진다
-  → 그 나빠지는 양 자체가 아무도 공개하지 않은 값이다
-```
-
-벤더가 공개하는 TOPS 는 **순간 성능**이다. 지속 부하에서 얼마나 유지되는지
-— **Peak FPS 대비 Sustained FPS 격차** — 는 공개 자료가 거의 없다.
-
-## 결정
-
-**1. 팬리스(조건 A)를 기본 측정 조건으로 한다.**
-
-**2. 능동 냉각(조건 B)을 비교군으로 함께 측정한다.** 동일 모델 팬 3개를
-같은 회전수로 고정한다. 회전수가 다르면 노드별 냉각 조건이 달라져 3노드
-대칭성이 깨진다.
-
-**3. 열 특성 측정(S0)을 다른 모든 시나리오보다 먼저 한다.** S0 가 나머지
-실험의 임계치와 cooldown 시간을 결정하기 때문이다.
-
-**4. 임시 냉각을 측정에 섞지 않는다.** 진단 중 책상 선풍기를 쓴 적이
-있는데, **진단에는 유효했으나 측정 조건으로는 쓸 수 없다.** 팬리스 측정
-전에 선풍기가 꺼져 있는지 확인하는 항목이 체크리스트에 있다.
-
-## 근거
-
-### 두 조건을 다 재야 답할 수 있는 질문이 있다
+There are two branches here.
 
 ```text
-팬리스만 측정  →  "냉각하면 얼마나 나아지는가" 를 모른다
-냉각만 측정    →  "실제 엣지 배치에서 얼마나 나오는가" 를 모른다
+branch 1. attach a fan
+  -> the numbers improve
+  -> good for a talk
+  -> but those numbers do not occur in the field
+
+branch 2. measure fanless
+  -> the numbers get worse
+  -> and the amount by which they get worse is a value nobody publishes
 ```
 
-**두 조건을 모두 재면 "냉각이 확장 효율에 미치는 영향" 자체가 결과가 된다.**
-이건 벤더 스펙시트에 없는 값이고, 측정으로 밝힌다는 이 프로젝트의 정체성과
-맞는다.
+The TOPS vendors publish is **instantaneous performance**. How much of it is
+sustained under load — **the gap between peak FPS and sustained FPS** — is
+barely covered in public material.
 
-### 실측 — 팬리스로 완주는 하지만 처리량은 유지되지 않는다
+## Decision
+
+**1. Fanless (condition A) is the default measurement condition.**
+
+**2. Active cooling (condition B) is measured alongside as a comparison group.**
+Three fans of the same model are fixed at the same speed. Different speeds would
+give the nodes different cooling conditions and break three-node symmetry.
+
+**3. Thermal characterisation (S0) comes before every other scenario**, because
+S0 determines the thresholds and cooldown times for the rest of the experiments.
+
+**4. Do not mix improvised cooling into a measurement.** A desk fan was used
+once during diagnosis; **it was valid for diagnosis but unusable as a
+measurement condition.** There is a checklist item to confirm the desk fan is
+off before a fanless measurement.
+
+## Rationale
+
+### Some questions can only be answered by measuring both conditions
 
 ```text
-측정 조건: 3보드 동시, 8스레드, 900초, 팬리스, 선풍기 없음
+fanless only  ->  you do not know "how much better does cooling make it"
+cooled only   ->  you do not know "how much do you get in a real edge deployment"
 ```
 
-| 보드 | NPU 평균 | NPU 최고 | 처리량 |
+**Measure both and "the effect of cooling on scaling efficiency" becomes a
+result in itself.** That is a value absent from vendor spec sheets, and it fits
+this project's identity of settling things by measurement.
+
+### Measured — it finishes fanless, but throughput is not sustained
+
+```text
+conditions: 3 boards concurrently, 8 threads, 900 s, fanless, no desk fan
+```
+
+| Board | NPU mean | NPU peak | Throughput |
 |---|---:|---:|---:|
-| king | 73.0°C | 75.8°C | 80.5 inf/s |
-| queen | 67.5°C | 70.2°C | 77.7 inf/s |
-| jack | 72.6°C | 74.8°C | 77.8 inf/s |
+| king | 73.0 °C | 75.8 °C | 80.5 inf/s |
+| queen | 67.5 °C | 70.2 °C | 77.7 inf/s |
+| jack | 72.6 °C | 74.8 °C | 77.8 inf/s |
 
-- 노드 간 편차 **5.6°C**
-- 오류 0건으로 완주
-- 90°C 초과 없음
+- Node-to-node spread **5.6 °C**
+- Completed with 0 errors
+- Never exceeded 90 °C
 
-**팬리스로 8스레드 지속 부하가 가능하다.** 그런데 처리량은 유지되지 않는다.
+**Sustained 8-thread load is possible fanless.** But throughput is not
+sustained.
 
 ```text
- +10s  81.6 inf/s   ← 시작
+ +10s  81.6 inf/s   <- start
 +120s  63.6
-+300s  59.7         ← 정상 상태.  시작 대비 -27%
++300s  59.7         <- steady state.  -27% against the start
 ```
 
-### ⚠️ 무너지는 쪽은 NPU 가 아니라 CPU 였다
+### ⚠️ What was collapsing was the CPU, not the NPU
 
-처음에는 "NPU throttling 없음" 으로 판정했다. 928 샘플 전부 950 MHz 였기
-때문이다. **NPU 클럭만 봤다.**
+The initial verdict was "no NPU throttling", because all 928 samples were at
+950 MHz. **Only the NPU clock had been looked at.**
 
-같은 로그의 CPU 클럭을 보니 이랬다.
+Looking at the CPU clocks in the same log:
 
 ```text
-        NPU온도   npu_clk   cpu4(A72)   cpu0(A53)
- +15s   86.8°C    950 MHz   2208 MHz    2016 MHz
- +30s   90.4°C    950 MHz   1416 MHz    1200 MHz
- +60s   87.8°C    950 MHz    816 MHz     600 MHz
-+120s   87.8°C    950 MHz    816 MHz     600 MHz
+        NPU temp   npu_clk   cpu4(A72)   cpu0(A53)
+ +15s   86.8 C     950 MHz   2208 MHz    2016 MHz
+ +30s   90.4 C     950 MHz   1416 MHz    1200 MHz
+ +60s   87.8 C     950 MHz    816 MHz     600 MHz
++120s   87.8 C     950 MHz    816 MHz     600 MHz
 ```
 
-**NPU 는 한 번도 안 떨어지고 CPU 가 63~70% 떨어진다.**
+**The NPU never drops and the CPU falls 63–70%.**
 
-추론 한 건은 `입력 설정(CPU) → NPU → 출력 취득(CPU)` 이라 CPU 구간이
-처리량에 직접 반영된다. 이걸 알고 있으면서도 throttling 판정은 NPU 만으로
-했다. 이 프로젝트에서 같은 유형의 **네 번째** 실수다.
+One inference is `set input (CPU) → NPU → get output (CPU)`, so the CPU sections
+feed directly into throughput. That was known, and the throttling verdict was
+still made on the NPU alone. It is the **fourth** mistake of this type in this
+project.
 
-> 이 발견이 오히려 결과를 좋게 만들었다. **"팬리스 엣지에서 먼저 무너지는
-> 것은 NPU 가 아니라 그 앞뒤를 처리하는 CPU 였다"** — 발표 서사로 훨씬 낫다.
+> The discovery actually improved the result. **"What collapses first on a
+> fanless edge device is not the NPU but the CPU handling either side of it"** —
+> a far better narrative for a talk.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 팬 달고 측정 | 현장에서 재현되지 않는 수치. 프로젝트의 문제의식과 반대 방향 |
-| 팬리스만 측정 | "냉각하면 얼마나 나아지나" 에 답할 수 없다 |
-| throttling 을 피하도록 부하를 낮춰 측정 | 지속 부하에서 무슨 일이 일어나는지가 측정 대상인데, 그걸 피하는 것 |
-| 임시 냉각(선풍기)으로 조건 통일 | 재현 불가능하고 노드별로 균일하지 않다 |
+| Measure with a fan attached | Numbers that do not reproduce in the field. The opposite direction to the project's premise |
+| Measure fanless only | Cannot answer "how much better does cooling make it" |
+| Lower the load to avoid throttling | What happens under sustained load is exactly what is being measured, and this avoids it |
+| Standardise conditions with improvised cooling (a desk fan) | Not reproducible and not uniform across nodes |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- Peak vs Sustained 격차가 프로젝트의 핵심 산출물이 됐다
-- 병목이 NPU 가 아니라 CPU 라는 발견
-- 냉각 효과를 정량화할 준비 (S0-A / S0-B)
+- The peak vs sustained gap became one of the project's central outputs
+- The discovery that the bottleneck is the CPU rather than the NPU
+- Readiness to quantify the cooling effect (S0-A / S0-B)
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 처리량 수치가 낮게 나온다. "84.3 inf/s" 대신 "시작 81.6, 300초에 59.7"
-  이라고 말해야 한다
-- 측정 시간이 늘어난다. cooldown 을 기다려야 하고, 팬리스라 느리다.
-  그래서 cooldown 에 **상한**을 두고 상한에 걸리면 실제 시작 온도를
-  결과에 기록한다
+- Throughput figures come out lower. Instead of "84.3 inf/s" it has to be
+  "81.6 at the start, 59.7 at 300 seconds"
+- Measurement takes longer. Cooldown has to be waited out, and fanless is slow.
+  So cooldown has **an upper bound**, and when that bound is hit the actual
+  starting temperature is recorded with the result
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **열 판정에 CPU 클럭을 반드시 포함한다.** NPU 클럭만 보는 판정은 틀렸다는
-  것이 확인됐다. `run-thermal-comparison.sh` 를 그렇게 고쳐야 한다
-- 부하 프로파일이 다른 두 측정의 온도를 비교하지 않는다. 스윕 부하와 고정
-  부하를 비교해 19°C 격차로 오해한 적이 있다
-- 온도 임계치(80 / 90°C)는 **초안**이다. 정식 S0 후 재설정한다
+- **Thermal verdicts must include the CPU clock.** Judging by NPU clock alone
+  was confirmed wrong. `run-thermal-comparison.sh` has to be fixed accordingly
+- Do not compare temperatures between two measurements with different load
+  profiles. A sweep load was once compared against a fixed load and a 19 °C gap
+  was misread
+- The temperature thresholds (80 / 90 °C) are **a draft**. They are reset after
+  the formal S0
 
-## 뒤집힌다면
+## What would overturn this
 
-- **케이스나 방열판이 기본 구성이 되면** 조건 A 의 정의가 바뀐다
-- **S0 에서 팬리스가 90°C 를 넘겨 노드가 스케줄링에서 빠지기 시작하면**
-  측정 자체가 불가능해진다. 그때는 조건 B 를 기본으로 올리고 조건 A 를
-  "한계 조건" 으로 재정의한다
+- **If a case or heatsink becomes the standard configuration**, condition A's
+  definition changes
+- **If fanless exceeds 90 °C in S0 and nodes start dropping out of scheduling**,
+  measurement itself becomes impossible. At that point condition B is promoted
+  to default and condition A is redefined as "the limit condition"

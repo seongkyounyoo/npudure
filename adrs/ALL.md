@@ -400,480 +400,512 @@ network_to_client_us end_to_end_us
 
 <a id="adr-001"></a>
 
-# ADR-001. 모델을 쪼개지 않고 요청을 나눈다 (데이터 병렬)
+# ADR-001. Split requests, not the model (data parallelism)
+
+*[한국어 원문](001-data-parallel-only.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 (최초), 2026-08-19 (ADR 로 정리) |
-| **관련** | [ADR-012](#adr-012), `docs/00-PRD.md` §4, `docs/01-TECHSPEC.md` §2.1 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 (original), 2026-08-19 (written up as an ADR) |
+| **Related** | [ADR-012](#adr-012), `docs/00-PRD.md` §4, `docs/01-TECHSPEC.md` §2.1 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드 세 대가 **같은 모델 전체**를 각자 갖고, **서로 다른 요청**을 처리한다.
-> 모델을 레이어 단위로 쪼개 나눠 갖는 방식은 v0.1 에서 하지 않는다.
+> Three nodes each hold **the entire same model** and handle **different
+> requests**. Splitting the model layer-wise across nodes is not done in v0.1.
 
-## 배경
+## Context
 
-NPU 여러 개를 한 번에 쓰는 방법은 크게 두 가지다.
+There are broadly two ways to use several NPUs at once.
 
-### 방법 A. 모델을 쪼갠다 (모델 병렬 / 레이어 분할)
-
-```text
-요청 1장 ──► [노드1: 레이어 1~10] ──중간 텐서──► [노드2: 레이어 11~20] ──► 결과
-```
-
-모델의 앞부분은 1번 노드가, 뒷부분은 2번 노드가 계산한다. 노드 사이로
-**중간 계산 결과(feature map)** 가 오간다. LLM 의 텐서 병렬·파이프라인
-병렬이 이 계열이다.
-
-- 장점: 요청 **한 장**의 처리 시간이 줄어들 수 있다. 노드 하나에 안 들어가는
-  큰 모델도 돌릴 수 있다
-- 단점: 노드 사이 통신이 **추론 경로 안에** 들어간다. 한 노드가 느리면 전체가
-  기다린다
-
-### 방법 B. 요청을 나눈다 (데이터 병렬)
+### Approach A. Split the model (model parallelism / layer partitioning)
 
 ```text
-요청 A ──► [노드1: 모델 전체] ──► 결과 A
-요청 B ──► [노드2: 모델 전체] ──► 결과 B
-요청 C ──► [노드3: 모델 전체] ──► 결과 C
+one request --> [node1: layers 1-10] --intermediate tensor--> [node2: layers 11-20] --> result
 ```
 
-노드마다 모델 전체를 갖고 각자 다른 요청을 끝까지 처리한다.
+Node 1 computes the model's front section and node 2 the back. **Intermediate
+results (feature maps)** travel between the nodes. LLM tensor parallelism and
+pipeline parallelism are of this family.
 
-- 장점: 노드끼리 통신이 **없다**. 한 대가 죽어도 나머지가 그대로 돈다
-- 단점: 요청 **한 장**은 절대 빨라지지 않는다
+- Advantage: the processing time of **a single** request can fall. A model too
+  large for one node can be run
+- Disadvantage: inter-node communication lands **inside the inference path**.
+  If one node is slow, everything waits
 
-어느 쪽을 고르느냐에 따라 시스템의 모든 것이 달라진다. 스케줄러의 역할,
-장애 처리 방식, 네트워크 요구량, 측정 항목까지 전부.
-
-## 결정
-
-**방법 B(데이터 병렬)만 구현한다.** 방법 A 는 v0.1 의 명시적 비목표다.
-
-이에 따라 다음도 함께 비목표가 된다.
-
-- 하나의 대규모 모델을 여러 노드에 레이어 단위로 분할
-- LLM 텐서 병렬 / 파이프라인 병렬
-- 여러 NPU 를 하나의 물리 NPU 처럼 보이게 하는 하드웨어 수준 통합
-- 단일 추론 요청의 지연시간을 노드 수에 비례해 단축
-
-## 근거
-
-### 1. 목표가 처리량이지 지연시간이 아니다
-
-이 프로젝트가 답하려는 질문은 **"6 TOPS 세 대는 정말 18 TOPS 가 되는가"**
-다. 요청이 몰릴 때 전체를 얼마나 처리하는지를 묻는 질문이지, 한 장을 얼마나
-빨리 끝내는지를 묻는 것이 아니다.
-
-상정한 사용 형태도 마찬가지다. 다중 카메라, 다중 요청 — **애초에 독립적인
-요청이 다발로 들어온다.** 이런 부하에서는 데이터 병렬이 자연스러운 형태고,
-모델을 쪼개면 오히려 손해다.
-
-### 2. 이 하드웨어에서 분할은 통신비를 감당할 수 없다
-
-입력 한 장이 이미 크다.
+### Approach B. Split the requests (data parallelism)
 
 ```text
-raw RGB 640 × 640 × 3 = 1,228,800 byte
+request A --> [node1: whole model] --> result A
+request B --> [node2: whole model] --> result B
+request C --> [node3: whole model] --> result C
 ```
 
-**입력만으로도** 3노드 포화 시 4.64 Gbps 다(INT8 157.2 inf/s 기준).
-그래서 aggregation 링크에 10G 가 필요하다는 결론이 이미 나와 있다.
+Each node holds the whole model and takes a different request end to end.
 
-레이어 분할은 여기에 **중간 텐서 왕복을 추론 경로 안에 얹는다.** 분할 지점
-하나마다 노드 간 전송이 한 번씩 추가되는데, 2.5GbE 에서 1 MB 급 텐서 한 번이
-계산상 4 ms 근처다. INT8 추론 **전체**가 50.8 ms 인 것을 생각하면 분할 지점
-몇 개만으로 이득이 사라진다.
+- Advantage: there is **no** inter-node communication. If one dies, the rest
+  keep running
+- Disadvantage: **a single** request never gets faster
 
-> 이 4 ms 는 링크 속도로 나눈 계산값이지 실측이 아니다. 다만 실측을 해서
-> 확인할 가치가 있는 수준의 차이가 아니라고 판단했다 — 분할로 얻는 이득
-> 자체가 애초에 목표가 아니기 때문이다.
+Everything about the system follows from this choice — the scheduler's role,
+failure handling, network requirements, and even what gets measured.
 
-### 3. 이 모델은 쪼갤 이유가 없다
+## Decision
 
-분할이 **강제되는** 상황은 모델이 노드 하나에 안 들어갈 때다.
+**Implement approach B (data parallelism) only.** Approach A is an explicit
+non-goal for v0.1.
+
+The following become non-goals along with it.
+
+- Splitting one large model layer-wise across several nodes
+- LLM tensor parallelism / pipeline parallelism
+- Hardware-level integration making several NPUs appear as one physical NPU
+- Reducing a single inference request's latency in proportion to node count
+
+## Rationale
+
+### 1. The goal is throughput, not latency
+
+The question this project sets out to answer is **"do three 6 TOPS units really
+make 18 TOPS?"** That asks how much gets processed in total when requests pile
+up, not how quickly one is finished.
+
+The assumed usage is the same. Multiple cameras, multiple requests —
+**independent requests arrive in bunches to begin with.** Data parallelism is
+the natural shape for that load, and splitting the model would be a net loss.
+
+### 2. On this hardware, partitioning cannot afford the communication
+
+One input is already large.
 
 ```text
-노드 RAM              4 GB
-YOLOv8n INT8 모델     6.46 MB
-YOLOv8n FP16 모델     9.65 MB
+raw RGB 640 x 640 x 3 = 1,228,800 byte
 ```
 
-세 자릿수 차이가 난다. 쪼갤 필요가 전혀 없다.
+**The input alone** comes to 4.64 Gbps at three-node saturation (at INT8's
+157.2 inf/s). That is already why the aggregation link needs 10G.
 
-### 4. 측정 결과를 해석할 수 있어야 한다
+Layer partitioning **adds intermediate-tensor round trips inside the inference
+path** on top of that. Each partition point adds one inter-node transfer, and on
+2.5GbE a 1 MB-class tensor computes to somewhere near 4 ms. Against a **total**
+INT8 inference of 50.8 ms, a few partition points erase the benefit.
 
-이 프로젝트의 산출물은 **"어디에서 새는가"** 다. 노드가 서로 독립이면
-확장 효율이 안 나올 때 원인을 스케줄링·네트워크·노드 내부로 깨끗하게
-나눠 볼 수 있다.
+> That 4 ms is a figure divided by link speed, not a measurement. But it was
+> judged not to be a difference worth measuring to confirm — the benefit
+> partitioning would bring is not a goal in the first place.
 
-레이어 분할을 넣으면 노드 간 의존이 생겨서, 3노드가 2.4배밖에 안 나왔을 때
-그것이 분할 지점 통신 때문인지 스케줄링 때문인지 NPU 때문인지 분리하기
-어려워진다. **측정을 목적으로 하는 프로젝트에서 원인 분해가 안 되는 구조를
-고르면 안 된다.**
+### 3. This model has no reason to be split
 
-## 대안과 버린 이유
+Partitioning is **forced** when the model does not fit on one node.
 
-| 대안 | 버린 이유 |
+```text
+node RAM              4 GB
+YOLOv8n INT8 model    6.46 MB
+YOLOv8n FP16 model    9.65 MB
+```
+
+Three orders of magnitude apart. There is no need to split anything.
+
+### 4. The measurements have to be interpretable
+
+This project's output is **"where does it leak?"** With nodes independent of
+one another, when scaling efficiency comes up short the cause can be cleanly
+divided into scheduling, network and node-internal.
+
+Adding layer partitioning creates inter-node dependency, so when three nodes
+yield only 2.4×, separating whether that is partition-point communication,
+scheduling or the NPU becomes hard. **A project whose purpose is measurement
+must not choose a structure in which causes cannot be decomposed.**
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
 |---|---|
-| 레이어 단위 분할 | 통신비가 추론 경로에 들어간다. 이 모델은 4GB 에 여유롭게 들어가 분할할 이유가 없다 |
-| LLM 텐서 병렬 | 대상 모델이 CNN 검출기다. 적용 대상 자체가 없다 |
-| 하드웨어 수준 NPU 통합 | RKNN Runtime 위에서 할 수 있는 일이 아니다. 드라이버·SoC 레벨 작업 |
-| 데이터 병렬 + 분할 **둘 다** 지원 | v0.1 기간에 둘 다 제대로 측정할 수 없다. 어설프게 둘 다 하면 어느 쪽 수치도 못 쓴다 |
+| Layer-wise partitioning | Communication cost enters the inference path. This model fits comfortably in 4 GB, so there is no reason to split |
+| LLM tensor parallelism | The target model is a CNN detector. There is nothing to apply it to |
+| Hardware-level NPU integration | Not something achievable on top of the RKNN Runtime. Driver and SoC-level work |
+| Supporting **both** data parallelism and partitioning | Neither could be measured properly within v0.1. Doing both halfway makes both sets of figures unusable |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 노드 사이에 통신이 없다. 노드는 서로의 존재를 모른다
-- 장애 처리가 단순해진다 — 죽은 노드를 후보에서 빼면 끝이다. 진행 중이던
-  다른 노드의 작업에 영향이 없다
-- 노드 하나의 성능 상한을 재면 클러스터 상한을 예측할 수 있다.
-  **단일 노드 측정에 이렇게 공을 들인 이유가 이것이다**
-- 스케줄러가 "요청 하나 → 노드 하나" 만 결정하면 된다
+- No communication between nodes. The nodes do not know the others exist
+- Failure handling becomes simple — drop the dead node from the candidates and
+  that is it. Work in progress on other nodes is unaffected
+- Measuring one node's performance ceiling predicts the cluster's ceiling.
+  **This is why so much effort went into single-node measurement**
+- The scheduler only has to decide "one request → one node"
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **단일 요청 지연시간은 노드를 늘려도 절대 줄지 않는다.** INT8 한 장
-  50.8 ms 는 3노드에서도 50.8 ms 다. 이건 버그가 아니라 설계다
-- 노드 하나에 안 들어가는 모델은 못 돌린다
-- 노드마다 모델 사본이 필요하다 (이 규모에서는 문제가 안 된다)
+- **Single-request latency never falls with more nodes.** 50.8 ms for one INT8
+  inference is 50.8 ms on three nodes too. That is design, not a bug
+- A model that does not fit on one node cannot be run
+- Each node needs its own copy of the model (not a problem at this scale)
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- 발표와 문서에서 **"3배 빨라진다"고 말하면 안 된다.** "3배 많이 처리한다"
-  가 맞다. 이 둘을 섞어 쓰면 청중이 지연시간 단축을 기대하게 된다
-- 벤치마크 시나리오는 반드시 **동시 요청** 부하여야 한다. 한 장씩 순차로
-  던지는 측정은 이 구조에서 의미가 없다
+- Talks and documents **must not say "3× faster".** "Processes 3× as much" is
+  correct. Mixing the two makes an audience expect a latency reduction
+- Benchmark scenarios must use **concurrent request** load. Measuring by
+  throwing one request at a time is meaningless in this structure
 
-## 뒤집힌다면
+## What would overturn this
 
-다음 중 하나라도 성립하면 다시 본다.
+Revisit if any of the following holds.
 
-- **대상 모델이 노드 메모리에 안 들어갈 때.** 4GB 를 넘는 모델을 돌려야 하면
-  분할이 선택이 아니라 강제가 된다
-- **단일 요청 지연이 요구사항이 될 때.** 지금은 아니지만, 예를 들어 프레임
-  단위 실시간 제어가 목표가 되면 전제가 바뀐다
-- **노드 간 링크가 추론 내부 통신을 감당할 만큼 빨라질 때.** 다만 이건
-  2.5GbE 급 엣지 보드라는 이 프로젝트의 전제 자체를 바꾸는 이야기다
+- **When the target model does not fit in node memory.** If a model above 4 GB
+  has to run, partitioning stops being a choice and becomes forced
+- **When single-request latency becomes a requirement.** Not now, but if, say,
+  frame-level real-time control became the goal, the premise changes
+- **When the inter-node link becomes fast enough to carry inference-internal
+  communication.** Though that changes this project's own premise of 2.5GbE-class
+  edge boards
 
-셋 다 v0.1 범위 밖이다. 재검토하더라도 **v0.1 의 데이터 병렬 측정이 끝난
-뒤**여야 한다 — 비교 기준선이 없으면 분할이 이득인지 판단할 수 없다.
+All three are outside v0.1's scope. Even a re-examination should come **after
+v0.1's data-parallel measurements are finished** — without a comparison
+baseline there is no way to judge whether partitioning is a gain.
 
 ---
 
 <a id="adr-002"></a>
 
-# ADR-002. 성공 기준을 "수치가 나왔는가" 가 아니라 "측정하고 설명할 수 있는가" 로 둔다
+# ADR-002. Define success as "can it be measured and explained", not "did the number come out"
+
+*[한국어 원문](002-success-criteria-measurability.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-05 (최초), 2026-08-19 (ADR 로 정리) |
-| **관련** | [ADR-001](#adr-001), [ADR-015](#adr-015), [ADR-028](#adr-028), `docs/00-PRD.md` §3 |
+| **Status** | accepted |
+| **Date** | 2026-08-05 (original), 2026-08-19 (written up as an ADR) |
+| **Related** | [ADR-001](#adr-001), [ADR-015](#adr-015), [ADR-028](#adr-028), `docs/00-PRD.md` §3 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> "3노드에서 2.5배 이상" 같은 **결과값을 성공 조건으로 걸지 않는다.**
-> 확장 효율이 낮게 나와도, io_uring 이 효과가 없어도, 그 원인을 정량적으로
-> 설명할 수 있으면 성공이다.
+> **No result value is set as a success condition**, such as "2.5× or better at
+> three nodes". Even if scaling efficiency comes out low, even if io_uring has
+> no effect, it is a success as long as the cause can be explained
+> quantitatively.
 
-## 배경
+## Context
 
-측정 프로젝트에서 성공 기준을 목표 수치로 걸면 무슨 일이 벌어지나.
+What happens when a measurement project sets a target number as its success
+criterion.
 
 ```text
-목표: "3노드 확장 효율 80% 이상"
+goal: "3-node scaling efficiency of 80% or better"
 
-측정 결과 65%  →  실패로 기록해야 한다
-                →  실패하고 싶은 사람은 없다
-                →  유리한 조건을 찾게 된다
-                   짧게 재기 · 입력을 작게 · 예열 충분히 · 잘 나온 run 만 채택
+measured 65%  ->  has to be recorded as a failure
+              ->  nobody wants to fail
+              ->  favourable conditions start getting found
+                 measure briefly . smaller input . preheat well . keep only the good runs
 ```
 
-**이건 부정직한 사람만 하는 일이 아니다.** 조건을 고르는 자유도가 있고
-목표가 걸려 있으면 무의식적으로 유리한 쪽을 고르게 된다. 그리고 그 선택
-하나하나에는 다 그럴듯한 이유를 붙일 수 있다.
+**This is not something only dishonest people do.** Given freedom in choosing
+conditions and a target hanging over you, the favourable option gets picked
+unconsciously. And each of those choices can be given a plausible reason.
 
-이 프로젝트는 조건 선택의 자유도가 특히 크다. governor, 스레드 수, 지속
-시간, 냉각, 입력 크기, 모델 — 전부 수치를 바꾼다. 실제로 같은 보드에서
-governor 하나로 7%, 지속 시간 하나로 27% 가 움직였다.
+This project has unusually large freedom in choosing conditions. Governor,
+thread count, duration, cooling, input size, model — all of them move the
+numbers. On the same board, the governor alone moved 7% and duration alone
+moved 27%.
 
-## 결정
+## Decision
 
-**성공 기준을 다음으로 정의한다.**
+**Success is defined as the following.**
 
-1. 측정했는가
-2. 측정 조건을 함께 기록했는가
-3. 결과의 원인을 설명할 수 있는가
-4. 재현 가능한가
+1. Was it measured
+2. Were the measurement conditions recorded with it
+3. Can the cause of the result be explained
+4. Is it reproducible
 
-**다음 결과도 유효한 성과로 간주한다고 명시한다.**
+**The following results are explicitly counted as valid outcomes.**
 
-- io_uring 이 유의미한 성능 개선을 만들지 못함
-- Zero-Copy 적용 범위가 제한적임
-- 네트워크보다 NPU 또는 전처리가 주요 병목으로 확인됨
-- 3노드 확장 효율이 예상보다 낮음
-- 단일 고성능 장치가 비용 면에서 더 유리함
+- io_uring producing no meaningful performance improvement
+- Zero-copy applying to only a limited scope
+- The NPU or preprocessing, rather than the network, being confirmed as the
+  primary bottleneck
+- Three-node scaling efficiency being lower than expected
+- A single high-performance device being more favourable on cost
 
-## 근거
+## Rationale
 
-### 실제로 도움이 됐다
+### It actually helped
 
-이 기준이 없었으면 버렸을 결과들이 오히려 핵심 산출물이 됐다.
+Results that would have been discarded without this criterion became the central
+output instead.
 
-| 결과 | 목표 기준이었다면 | 실제로는 |
+| Result | Under a target criterion | What actually happened |
 |---|---|---|
-| 애플리케이션 최적화 3종이 +0.1 / +5.4 / -1.8% | 실패. 덮고 다른 걸 시도 | **"노드 내부에서 짜낼 것이 없다"는 근거**가 됐다 |
-| zero-copy 가 -1.8% | 실패 | 가설 반증. ioctl 76회가 추론 제출에 내재한다는 발견으로 이어졌다 |
-| 팬리스 지속 부하에서 -27% | 나쁜 수치 | **Peak vs Sustained 격차** — 벤더 스펙시트에 없는 값. 발표의 중심 서사가 됐다 |
+| Three application-level optimizations at +0.1 / +5.4 / −1.8% | Failure. Bury it and try something else | Became **the basis for "there is nothing left to squeeze inside the node"** |
+| Zero-copy at −1.8% | Failure | Hypothesis refuted. Led to the discovery that 76 ioctls are intrinsic to inference submission |
+| −27% under fanless sustained load | A bad number | **The peak vs sustained gap** — a value absent from vendor spec sheets. Became the central narrative of the talk |
 
-특히 세 번째가 결정적이다. 목표가 "높은 처리량" 이었다면 팬을 달고
-120초만 재서 84.3 inf/s 를 보고했을 것이다. 그 수치는 **현장에서 재현되지
-않는다.**
+The third is decisive. Had the goal been "high throughput", we would have
+attached a fan, measured for 120 seconds and reported 84.3 inf/s. That figure
+**does not reproduce in the field.**
 
-### 뒤집힌 결론을 발표할 수 있게 된다
+### It becomes possible to publish inverted conclusions
 
-이 프로젝트는 측정으로 결론이 다섯 번 뒤집혔다. 목표 수치가 걸려 있었다면
-뒤집는 것 자체가 손해다 — 이미 보고한 숫자가 무효가 되니까.
+Measurement inverted this project's conclusions five times. With a target number
+hanging over it, inverting is itself a loss — the already-reported number
+becomes void.
 
-기준이 "설명할 수 있는가" 이면 **뒤집는 것이 오히려 성과**다.
-`docs/RESULTS.md` §4 「뒤집힌 결론」과 §6 「측정 실패 목록」이 그래서 존재할
-수 있다.
+With "can it be explained" as the criterion, **inverting becomes an outcome
+instead.** That is why `docs/RESULTS.md` §4 "Inverted conclusions" and §6 "List
+of measurement failures" can exist.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 목표 수치를 건다 (예: 확장 효율 80%) | 조건 선택 편향이 생긴다. 측정 프로젝트에서 가장 위험한 것 |
-| 목표 수치 + "미달 시 사유 기술" | 사유 기술이 변명 절이 된다. 미달을 실패로 규정한 순간 같은 문제가 남는다 |
-| 기준을 안 정한다 | 언제 끝난 건지 알 수 없다. 무한정 측정하게 된다 |
+| Set a target number (e.g. 80% scaling efficiency) | Creates condition-selection bias. The most dangerous thing in a measurement project |
+| Target number + "state the reason if missed" | The reason section becomes a paragraph of excuses. The same problem remains the moment a miss is defined as failure |
+| Set no criterion at all | There is no way to know when it is finished. Measurement goes on indefinitely |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 불리한 결과를 그대로 낼 수 있다
-- 실패 사례가 산출물이 된다 — 재사용 가치가 수치보다 높다
-- 측정 조건을 숨길 이유가 사라진다
+- Unfavourable results can be published as they are
+- Failure cases become output — with more reuse value than the numbers
+- There is no longer any reason to hide measurement conditions
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **"그래서 몇 배인데?" 라는 질문에 한 줄로 답하기 어렵다.** 발표에서
-  불리하다. 조건을 함께 말해야 하므로 문장이 길어진다
-- 성공/실패 판정이 주관적으로 보일 수 있다. 그래서 위 4개 조건을 명시했다
+- **"So how many times faster is it?" is hard to answer in one line.** A
+  disadvantage in a talk. The conditions have to be said alongside, so the
+  sentence gets longer
+- The success/failure verdict can look subjective. Hence the four explicit
+  conditions above
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **모든 수치에 측정 조건을 붙여야 한다.** 조건 없는 숫자는 이 기준 아래
-  에서 무효다. 노드·스레드·시간·governor·모델을 항상 함께 적는다
-- 무효한 run 을 유효한 것처럼 쓰면 안 된다 → 도구가 강제한다
+- **Every number has to carry its measurement conditions.** A number without
+  conditions is void under this criterion. Nodes, threads, duration, governor
+  and model are always written alongside
+- Invalid runs must not be used as though valid → enforced by tooling
   ([ADR-028](#adr-028))
 
-## 뒤집힌다면
+## What would overturn this
 
-이 프로젝트가 **실험 도구가 아니라 제품**이 되면 기준이 달라진다.
-제품에는 "이 정도는 나와야 쓸 수 있다" 는 선이 필요하다.
+If this project becomes **a product rather than an experimental tool**, the
+criterion changes. A product needs a line of "it has to reach at least this to
+be usable".
 
-v0.1 은 측정이 목적이므로 이 기준을 유지한다.
+v0.1's purpose is measurement, so this criterion stands.
 
 ---
 
 <a id="adr-003"></a>
 
-# ADR-003. 스케줄러를 하나만 두고, 고가용성을 구현하지 않는다
+# ADR-003. One scheduler, and no high availability
+
+*[한국어 원문](003-central-simple-scheduler.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 (최초), 2026-08-19 (ADR 로 정리) |
-| **관련** | [ADR-001](#adr-001), [ADR-014](#adr-014), `docs/01-TECHSPEC.md` §2.3 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 (original), 2026-08-19 (written up as an ADR) |
+| **Related** | [ADR-001](#adr-001), [ADR-014](#adr-014), `docs/01-TECHSPEC.md` §2.3 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 요청을 어느 노드로 보낼지는 **중앙 스케줄러 한 대**가 정한다.
-> 분산 합의도, 리더 선출도, 스케줄러 이중화도 만들지 않는다.
-> 대신 **스케줄러가 죽었다 살아나는 비용을 싸게** 만들어 두었다.
+> **A single central scheduler** decides which node a request goes to. No
+> distributed consensus, no leader election, no scheduler redundancy is built.
+> Instead, **the cost of the scheduler dying and coming back is made cheap.**
 
-## 배경
+## Context
 
-요청을 여러 노드에 나누는 구조는 크게 넷이다.
+There are broadly four structures for spreading requests across nodes.
 
-| 방식 | 누가 정하나 |
+| Approach | Who decides |
 |---|---|
-| **중앙 스케줄러** | 가운데 있는 한 대가 전부 정한다 |
-| 클라이언트 측 분배 | 클라이언트가 직접 노드를 고른다 (스케줄러 없음) |
-| P2P / gossip | 노드끼리 상태를 주고받으며 자기들끼리 정한다 |
-| 범용 오케스트레이터 | Kubernetes 같은 기성 시스템에 맡긴다 |
+| **Central scheduler** | one machine in the middle decides everything |
+| Client-side distribution | the client picks the node itself (no scheduler) |
+| P2P / gossip | nodes exchange state and decide among themselves |
+| A general-purpose orchestrator | hand it to an off-the-shelf system like Kubernetes |
 
-뒤로 갈수록 단일 장애점이 사라지고 규모가 커져도 버틴다. 대신 구현과
-운영이 무거워진다.
+Further down the list, the single point of failure disappears and things hold up
+at larger scale. In exchange, implementation and operation get heavier.
 
-## 결정
+## Decision
 
-**중앙 스케줄러 한 대를 쓴다.** 그리고 v0.1 에서 다음을 **구현하지 않는다.**
+**Use a single central scheduler.** And in v0.1, **do not implement** any of the
+following.
 
-- 분산 합의 (Raft 등)
-- 리더 선출
-- 다중 스케줄러 고가용성
-- Kubernetes 수준의 범용 오케스트레이션
+- Distributed consensus (Raft and the like)
+- Leader election
+- Multi-scheduler high availability
+- Kubernetes-level general-purpose orchestration
 
-**스케줄러는 단일 장애점이다.** 이것을 결함이 아니라 **알고 받아들인 제약**
-으로 문서에 적는다.
+**The scheduler is a single point of failure.** This is written into the
+documents not as a defect but as **a constraint accepted knowingly.**
 
-## 근거
+## Rationale
 
-### 1. 측정 대상이 스케줄링 정책 자체다
+### 1. What is being measured is the scheduling policy itself
 
-이 프로젝트는 Round Robin / Least Queue / ECT **세 정책을 갈아 끼우며
-비교**하는 실험(S3)을 한다. 그러려면 **결정이 내려지는 지점이 한 곳**이어야
-한다.
+This project runs an experiment (S3) that **swaps between three policies** —
+Round Robin / Least Queue / ECT — and compares them. For that, **the point where
+the decision is made has to be one place.**
 
-분배가 클라이언트나 노드로 흩어지면 "이번 run 의 분배 정책"이라는 개념
-자체가 흐려진다. 정책 비교 실험이 정책이 아니라 구현 위치의 차이를 재게 된다.
+If distribution scatters to clients or nodes, the very notion of "this run's
+distribution policy" gets blurred. A policy comparison would end up measuring
+differences in implementation location rather than policy.
 
-### 2. ECT 는 전역 상태를 봐야 계산된다
+### 2. ECT can only be computed with global state
 
-기본 정책인 ECT 는 이런 식으로 후보를 고른다.
+The default policy, ECT, picks a candidate like this.
 
 ```text
-ECT = ((queue_depth + in_flight + 1) × EWMA_inference
+ECT = ((queue_depth + in_flight + 1) x EWMA_inference
        + EWMA_network + thermal_penalty + error_penalty) / load_factor
 ```
 
-여기 들어가는 값 — 각 노드의 큐 깊이, 진행 중 건수, 추론 시간 이동평균,
-온도 — 은 **모든 노드를 한눈에 보고 있어야** 비교가 된다. 노드가 자기
-상태만 알고 결정하면 이 식이 성립하지 않는다.
+The values that go in — each node's queue depth, in-flight count, moving average
+of inference time, temperature — only compare if **all nodes are visible at
+once**. A node deciding from its own state alone cannot satisfy this formula.
 
-### 3. 노드가 세 대다
+### 3. There are three nodes
 
-합의 프로토콜이나 gossip 이 값을 하는 규모는 노드가 수십~수백 대일 때다.
-세 대에서는 얻는 것보다 구현·디버깅 비용이 크다.
+The scale at which a consensus protocol or gossip earns its keep is tens to
+hundreds of nodes. At three, implementation and debugging cost more than they
+return.
 
-### 4. 시간 예산
+### 4. The time budget
 
-발표까지 정해진 기간 안에 **측정을 끝내는 것**이 목표다. 합의 구현에
-시간을 쓰면 정작 재야 할 것을 못 잰다. 만들지 않기로 한 것이 만들기로 한
-것만큼 중요하다.
+The goal is **finishing the measurements** within the period leading up to the
+talk. Time spent implementing consensus is time not spent measuring what
+actually needs measuring. What is decided against matters as much as what is
+decided for.
 
-## 단일 장애점을 어떻게 다루나
+## How the single point of failure is handled
 
-없애는 대신 **복구를 싸게** 만들었다.
+Instead of eliminating it, **recovery is made cheap.**
 
-- 노드는 하트비트가 실패하면 **곧바로 재등록으로 전환**한다
-- 등록은 **멱등**이다. 여러 번 해도 문제가 없다
-- 그래서 스케줄러를 죽였다 다시 띄우면 **세 노드가 약 1.3초 안에 스스로
-  돌아온다** (실제 프로세스 4개로 확인)
+- When a heartbeat fails, the node **switches immediately to re-registration**
+- Registration is **idempotent**. Doing it repeatedly causes no problem
+- So killing the scheduler and bringing it back has **all three nodes return by
+  themselves within about 1.3 seconds** (verified with four real processes)
 
-일시적 네트워크 오류와 스케줄러 재시작은 노드 입장에서 구분할 수 없다.
-그래서 **더 비싼 쪽(재등록)을 무조건 택한다.** 등록이 멱등이라 헛수고가
-손해로 이어지지 않기 때문에 가능한 선택이다. (→ ADR-025)
+From the node's perspective, a transient network error and a scheduler restart
+are indistinguishable. So it **unconditionally takes the more expensive option
+(re-registration)**. That choice is available because registration is idempotent,
+so wasted effort does not translate into loss. (→ ADR-025)
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 클라이언트 측 분배 | 정책 비교 실험이 성립하지 않는다. 클라이언트가 전역 상태를 볼 방법도 없다 |
-| P2P / gossip | 노드 3대에서 이득이 없다. 노드 간 통신이 생겨 [ADR-001](#adr-001) 의 "노드는 서로를 모른다" 전제가 깨진다 |
-| Kubernetes | 명시적 비목표. 컨테이너 오케스트레이션은 이 프로젝트가 답하려는 질문과 무관하고, 측정에 잡음만 더한다 |
-| 스케줄러 2대 + 리더 선출 | 구현·검증 비용이 크다. 그 시간에 측정을 못 한다. 노드 3대 규모에서 얻는 가용성이 그 값을 못 한다 |
+| Client-side distribution | The policy comparison experiment does not hold. There is also no way for a client to see global state |
+| P2P / gossip | No benefit at three nodes. It introduces inter-node communication, breaking [ADR-001](#adr-001)'s premise that nodes do not know each other |
+| Kubernetes | An explicit non-goal. Container orchestration is unrelated to the question this project asks and only adds noise to measurement |
+| Two schedulers + leader election | Large implementation and verification cost. That time is time not spent measuring. The availability gained at three-node scale does not justify it |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 정책 3종을 같은 자리에서 갈아 끼울 수 있다 → S3 실험이 가능해졌다
-- 재시도·상태머신·헬스체크가 전부 한 프로세스 안에 있어 추적이 쉽다
-- 스케줄러 재시작 복구가 1.3초
+- The three policies can be swapped in the same place → the S3 experiment became
+  possible
+- Retries, state machines and health checks are all in one process, making them
+  easy to trace
+- Scheduler restart recovery in 1.3 seconds
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **스케줄러가 죽으면 클러스터 전체가 멈춘다.** 노드는 살아 있어도 요청을
-  받을 경로가 없다
-- 처리량 상한에 스케줄러 자신이 포함된다. 노드를 아무리 늘려도 스케줄러가
-  못 버티면 거기서 막힌다
+- **If the scheduler dies the whole cluster stops.** The nodes are alive but
+  there is no path for requests to reach them
+- The scheduler itself is part of the throughput ceiling. However many nodes are
+  added, if the scheduler cannot keep up it stops there
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **스케줄러 호스트가 측정 조건의 일부가 되었다.** 어디서 돌리느냐가 수치를
-  바꾼다. 그래서 공식 벤치마크에서는 보드가 아닌 별도 호스트에서 돌린다
+- **The scheduler host became part of the measurement conditions.** Where it
+  runs changes the numbers. That is why official benchmarks run it on a separate
+  host rather than a board
   (→ [ADR-014](#adr-014))
-- 스케줄러 호스트의 자원이 실험 제약이 된다. 현재 `dealer` 는 RAM 3GB 라
-  페이로드 1.17 MiB × 동시 처리 수가 쌓이면 부족할 수 있다. **아직 관찰하지
-  않았다**
+- The scheduler host's resources become an experimental constraint. `dealer`
+  currently has 3 GB of RAM, which could fall short once a 1.17 MiB payload ×
+  concurrent count piles up. **Not yet observed**
 
-## 뒤집힌다면
+## What would overturn this
 
-- **노드가 수십 대 규모가 될 때.** 이 결정은 3대를 전제로 한다
-- **스케줄러가 실제로 병목으로 측정될 때.** 판정 근거는 이미 준비되어 있다 —
-  `TimingBreakdown` 의 `scheduler_queue_us` / `scheduler_route_us` 가
-  `end_to_end_us` 에서 유의미한 비중을 차지하는지 보면 된다. **추측하지 말고
-  이 칸을 본다**
-- **가용성이 요구사항이 될 때.** 지금은 실험 장비고, 스케줄러가 죽으면 사람이
-  다시 띄우면 된다. 운영 시스템이 되면 전제가 다르다
+- **When there are tens of nodes.** This decision presumes three
+- **When the scheduler is actually measured as the bottleneck.** The basis for
+  that judgement is already prepared — check whether `TimingBreakdown`'s
+  `scheduler_queue_us` / `scheduler_route_us` occupy a meaningful share of
+  `end_to_end_us`. **Do not guess; read that field**
+- **When availability becomes a requirement.** This is experimental equipment
+  today, and if the scheduler dies a person restarts it. Becoming an operational
+  system changes the premise
 
 ---
 
 <a id="adr-004"></a>
 
-# ADR-004. 백엔드를 인터페이스로 분리하고, Mock 을 1급 백엔드로 둔다
+# ADR-004. Separate the backend behind an interface, with Mock as a first-class backend
+
+*[한국어 원문](004-backend-abstraction-mock-first.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 (최초), 2026-08-19 (ADR 로 정리) |
-| **관련** | [ADR-005](#adr-005) (feature gate), [ADR-007](#adr-007), `docs/03-DEVELOPMENT-REQUIREMENTS.md` §4.1 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 (original), 2026-08-19 (written up as an ADR) |
+| **Related** | [ADR-005](#adr-005) (feature gate), [ADR-007](#adr-007), `docs/03-DEVELOPMENT-REQUIREMENTS.md` §4.1 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> NPU 호출을 `InferenceBackend` 인터페이스 뒤로 밀어 넣고, 그 자리에 끼울 수
-> 있는 **가짜 백엔드를 정식 구현으로** 만든다. RK3576 보드가 한 대도 없어도
-> 전체 시스템이 돌아간다. **편의 기능이 아니라 설계 원칙이다.**
+> Push NPU calls behind an `InferenceBackend` interface and make **a fake
+> backend that slots into that place a proper implementation**. The whole system
+> runs without a single RK3576 board. **This is a design principle, not a
+> convenience feature.**
 
-## 배경
+## Context
 
-이 프로젝트의 개발 환경은 이렇다.
+This project's development environment looks like this.
 
-- 보드 3대는 책상 위에 있고, 항상 켜져 있지 않다
-- 개발 PC 는 **Windows/x86** 이다. RKNN Runtime 은 ARM64 Linux 전용이다
-- CI 는 GitHub Actions 위에서 돈다. NPU 가 있을 리 없다
+- The three boards sit on a desk and are not always powered on
+- The development PC is **Windows/x86**. The RKNN Runtime is ARM64 Linux only
+- CI runs on GitHub Actions. There is obviously no NPU there
 
-여기서 아무 대책 없이 개발하면 이렇게 된다. **보드가 켜져 있어야만 코드를
-짤 수 있고, 보드가 켜져 있어야만 테스트가 돌고, CI 는 아무것도 검증하지
-못한다.**
+Developing with no provision for this leads to: **code can only be written when
+a board is on, tests only run when a board is on, and CI verifies nothing.**
 
-그런데 잘 보면 이 시스템에서 **NPU 가 실제로 필요한 부분은 아주 좁다.**
+But look closely and **the part of this system that actually needs an NPU is
+very narrow.**
 
 ```text
-스케줄링 정책 3종        NPU 무관
-노드 레지스트리·상태머신  NPU 무관
-재시도·타임아웃          NPU 무관
-큐·워커 풀              NPU 무관
-gRPC 배선               NPU 무관
-헬스체크·드레인          NPU 무관
-─────────────────────────────────
-실제 추론 한 번          ← 여기만 NPU
+three scheduling policies       NPU-independent
+node registry, state machine    NPU-independent
+retries, timeouts               NPU-independent
+queues, worker pool             NPU-independent
+gRPC wiring                     NPU-independent
+health checks, drain            NPU-independent
+────────────────────────────────────────────
+one actual inference            <- only here is the NPU
 ```
 
-## 결정
+## Decision
 
-**1. 추론을 인터페이스 뒤로 감춘다.**
+**1. Hide inference behind an interface.**
 
 ```rust
 #[async_trait]
 pub trait InferenceBackend: Send + Sync {
     async fn load_model(&self, spec: &ModelSpec) -> Result<Box<dyn LoadedModel>>;
-    fn backend_name(&self) -> &'static str;      // "rknn" 또는 "mock"
+    fn backend_name(&self) -> &'static str;      // "rknn" or "mock"
     fn runtime_version(&self) -> Result<String>;
 }
 
@@ -884,116 +916,126 @@ pub trait LoadedModel: Send + Sync {
 }
 ```
 
-스케줄러와 노드 에이전트는 이 인터페이스만 안다. `npuforge-rknn` 을
-직접 부르지 않는다.
+The scheduler and node agent know only this interface. They never call
+`npuforge-rknn` directly.
 
-**2. Mock 백엔드를 테스트 도우미가 아니라 정식 백엔드로 만든다.**
+**2. Make the Mock backend a proper backend, not a test helper.**
 
-설정 파일에서 고른다. 테스트 코드 안에 숨어 있는 스텁이 아니다.
+It is chosen in the configuration file. It is not a stub hidden inside test
+code.
 
 ```toml
 [backend]
-type = "mock"          # 또는 "rknn"
+type = "mock"          # or "rknn"
 base_latency_ms = 20
 jitter_ms = 5
 error_rate = 0.02
 ```
 
-**3. Mock 에 결함 주입을 넣는다.** 결정적 시드 위에서 지연, 지연 편차,
-오류율, 노드별 속도 편차를 만들 수 있다. `configs/mock/` 의 세 노드는
-**일부러 서로 다른 속도와 오류율**을 갖는다.
+**3. Put fault injection in the Mock.** On top of a deterministic seed it can
+produce latency, latency variance, error rates and per-node speed differences.
+The three nodes in `configs/mock/` **deliberately have different speeds and
+error rates**.
 
-**4. 검증 기준을 "하드웨어 없이 통과" 로 잡는다.** `cargo test --workspace`
-가 Windows/x86 에서 통과해야 한다.
+**4. Set the verification bar at "passes without hardware."**
+`cargo test --workspace` has to pass on Windows/x86.
 
-## 근거
+## Rationale
 
-### 1. 정책 비교가 Mock 에서 먼저 보여야 한다
+### 1. Policy comparison has to show up in Mock first
 
-Round Robin 과 ECT 의 차이를 실장비에서만 볼 수 있다면, 정책을 고칠 때마다
-보드를 켜고 배포하고 측정해야 한다. 반복 주기가 몇 분 단위가 된다.
+If the difference between Round Robin and ECT can only be seen on real
+hardware, every policy change means powering on boards, deploying and
+measuring. The iteration cycle becomes minutes.
 
-`configs/mock/` 의 세 노드가 서로 다른 속도를 갖는 이유가 이것이다.
-**속도가 같으면 Least Queue 와 Round Robin 이 같은 답을 낸다.** 정책 차이가
-로컬에서 드러나도록 조건을 일부러 비대칭으로 만들었다.
+This is why the three nodes in `configs/mock/` have different speeds. **If the
+speeds were equal, Least Queue and Round Robin would give the same answer.** The
+conditions were made deliberately asymmetric so that policy differences surface
+locally.
 
-### 2. 실장비에서 만들기 어려운 조건을 만들 수 있다
+### 2. It can produce conditions that are hard to create on real hardware
 
-"노드가 2%의 확률로 실패한다", "한 노드만 3배 느리다", "요청 도중에 노드가
-죽는다" — 실제 보드로 재현하려면 번거롭고, 재현성도 떨어진다. Mock 은
-시드를 고정해 **매번 같은 순서로** 만들어낸다.
+"A node fails 2% of the time", "one node is 3× slower", "a node dies mid-request"
+— reproducing these with real boards is cumbersome and poorly reproducible. With
+a fixed seed the Mock produces them **in the same order every time.**
 
-### 3. 전송 경로는 진짜다
+### 3. The transport path is real
 
-Mock 3노드 통합 테스트(`crates/npuforge-scheduler/tests/mock_cluster.rs`)는
-**실제 gRPC 를 탄다.** 프로세스만 하나일 뿐 배선은 실장비와 같다.
+The Mock 3-node integration test
+(`crates/npuforge-scheduler/tests/mock_cluster.rs`) **runs over real gRPC.** It
+is one process, but the wiring is the same as on real hardware.
 
-| 검증 항목 | 결과 |
+| Verified | Result |
 |---|---|
-| 요청이 3노드에 분산 | ✅ round-robin 이 세 노드를 모두 사용 |
-| 노드 1대 사망 시 우회 | ✅ 6/6 성공 |
-| 전 노드 사망 | ✅ `NPF-1302` + 시도한 노드 목록 |
-| 타이밍 분해 | ✅ 노드·스케줄러 구간 모두 채워짐 |
-| 느린 노드 회피 | ✅ least-queue 가 빠른 노드를 더 많이 사용 |
+| Requests spread across 3 nodes | ✅ round-robin uses all three |
+| Bypass when 1 node dies | ✅ 6/6 succeeded |
+| All nodes dead | ✅ `NPF-1302` plus the list of nodes attempted |
+| Timing breakdown | ✅ both node and scheduler sections populated |
+| Avoiding a slow node | ✅ least-queue uses the fast nodes more |
 
-### 4. CI 가 실제로 뭔가를 검증한다
+### 4. CI actually verifies something
 
-209개 테스트가 하드웨어 없이 돈다. 이게 없으면 CI 는 컴파일만 확인하는
-장식이 된다.
+209 tests run without hardware. Without this, CI is decoration that only checks
+that it compiles.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| `#[cfg(test)]` 스텁만 둔다 | 테스트 안에서만 살아 있다. 3노드 클러스터를 띄워 손으로 만져 보는 것이 불가능하다 |
-| 실장비 필수로 간다 | 보드가 꺼지면 개발이 멈춘다. CI 가 무의미해진다. 기여자가 보드를 사야 참여할 수 있다 |
-| RKNN 시뮬레이터 사용 | 빌드된 `.rknn` 을 추론하지 못한다 — `load_rknn` 후 `init_runtime` 이 거부한다. 실제로 시도했고 안 됐다 |
-| 인터페이스 없이 조건부 컴파일로 분기 | 호출부마다 `#[cfg]` 가 번지고, 두 경로가 조용히 갈라진다 |
+| Keep only a `#[cfg(test)]` stub | It lives only inside tests. Bringing up a 3-node cluster and poking at it by hand becomes impossible |
+| Require real hardware | Development stops when the boards are off. CI becomes meaningless. Contributors would have to buy a board to participate |
+| Use the RKNN simulator | It cannot infer with a built `.rknn` — after `load_rknn`, `init_runtime` refuses. This was actually attempted and did not work |
+| No interface, branch with conditional compilation | `#[cfg]` spreads through every call site and the two paths silently diverge |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 209 tests 가 Windows/x86 에서 통과한다
-- 3노드 클러스터를 로컬에서 띄워 실제로 조작해 볼 수 있다
-- `unsafe` 가 `npuforge-rknn` 한 곳에 갇힌다 (→ ADR-006)
-- 기여자가 보드 없이 참여할 수 있다 — 오픈소스로서 중요하다
+- 209 tests pass on Windows/x86
+- A 3-node cluster can be brought up locally and actually operated
+- `unsafe` is confined to one place, `npuforge-rknn` (→ ADR-006)
+- Contributors can participate without a board — important for an open-source
+  project
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 인터페이스를 유지하는 비용. 백엔드마다 같은 계약을 지켜야 한다
-- 두 구현이 갈라질 위험. `runtime_version` 같은 메타데이터가 Mock 에서는
-  의미가 없어 형식만 채우는 자리가 생긴다
+- The cost of maintaining the interface. Every backend has to honour the same
+  contract
+- The risk of the two implementations diverging. Metadata such as
+  `runtime_version` is meaningless in the Mock, creating places filled in for
+  form only
 
-**⚠️ 새로 생긴 제약 — Mock 은 만능이 아니다**
+**⚠️ New constraint introduced — the Mock is not omnipotent**
 
-이게 이 ADR 에서 가장 중요한 문장이다.
+This is the most important sentence in this ADR.
 
-**Mock 은 인터페이스를 통과하는 것만 흉내 낸다.** RKNN 고유의 결함은 절대
-잡지 못한다. 실제로 [ADR-007](#adr-007) 의 컨텍스트
-공유 문제 — 오류 0건에 결과 100% 불일치 — 는 Mock 에서 재현될 수가 없다.
-Mock 에는 컨텍스트라는 개념 자체가 없기 때문이다.
+**The Mock only imitates what passes through the interface.** It will never
+catch a defect specific to RKNN. In fact,
+[ADR-007](#adr-007)'s shared-context problem — 0 errors and
+100% result mismatch — cannot reproduce in the Mock at all, because the Mock has
+no concept of a context.
 
-그래서 **실장비 통합 테스트가 따로 있어야 한다.**
-`crates/npuforge-rknn/tests/real_device.rs` 6종이 그 자리다.
+That is why **real-hardware integration tests have to exist separately.** The
+six in `crates/npuforge-rknn/tests/real_device.rs` occupy that place.
 
 ```text
-Mock 이 지키는 것            실장비만 지킬 수 있는 것
-────────────────────        ────────────────────────
-정책·재시도·상태머신         RKNN 동시성 계약
-큐·타임아웃                  역양자화 정확도
-gRPC 배선                    실제 처리량·열 거동
-장애 우회 경로               출력 텐서 형태
+What the Mock guards           What only real hardware can guard
+────────────────────           ─────────────────────────────────
+policies, retries, state       RKNN concurrency contract
+queues, timeouts               dequantization accuracy
+gRPC wiring                    actual throughput and thermal behaviour
+failure bypass paths           output tensor shapes
 ```
 
-**"Mock 테스트가 통과했으니 됐다" 는 판단을 하면 안 된다.**
+**Never conclude "the Mock tests passed, so we are fine."**
 
-## 뒤집힌다면
+## What would overturn this
 
-- **Mock 과 실장비 동작이 갈라지는 사례가 쌓이면.** 그때는 Mock 의 충실도를
-  올릴지, 아니면 Mock 을 정책 검증 전용으로 좁힐지 정해야 한다
-- **백엔드가 셋 이상이 되면** 인터페이스를 다시 볼 필요가 있다. 현재 두 개는
-  최소 표본이라 추상화가 맞는지 확신하기 어렵다
+- **If cases of Mock and real hardware diverging accumulate.** At that point a
+  choice is needed between raising the Mock's fidelity and narrowing it to
+  policy verification only
+- **If there are three or more backends**, the interface needs re-examination.
+  Two is a minimal sample and it is hard to be confident the abstraction is right
 
 ---
 
@@ -1598,70 +1640,74 @@ directly.
 
 <a id="adr-009"></a>
 
-# ADR-009. 정책은 세 개로 고정하고, 후보 필터는 셋이 공유한다
+# ADR-009. Fix the policies at three, and have all three share the candidate filter
+
+*[한국어 원문](009-three-policies-shared-filter.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-003](#adr-003), [ADR-010](#adr-010), `docs/01-TECHSPEC.md` §10.0, §10.4 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-003](#adr-003), [ADR-010](#adr-010), `docs/01-TECHSPEC.md` §10.0, §10.4 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> `round-robin` / `least-queue` / `ect` 세 개만 둔다. 그리고 **세 정책이
-> 완전히 같은 후보 필터를 거친다.** 필터가 다르면 정책 비교 실험이 정책이
-> 아니라 필터의 차이를 재게 된다.
+> There are only `round-robin` / `least-queue` / `ect`. And **all three pass
+> through exactly the same candidate filter.** If the filters differed, a policy
+> comparison would measure the filters rather than the policies.
 
-## 배경
+## Context
 
-스케줄링 정책 비교(시나리오 S3)가 이 프로젝트의 측정 항목 중 하나다.
-"부하를 보고 고르면 그냥 순서대로 도는 것보다 얼마나 나은가" 를 재려는 것이다.
+Comparing scheduling policies (scenario S3) is one of this project's
+measurement items. It aims to measure "how much better is choosing by load than
+simply going round in order".
 
-정책은 두 부분으로 이루어진다.
+A policy consists of two parts.
 
 ```text
-① 후보 필터    누가 후보 자격이 있나  (죽은 노드 제외, 모델 있는 노드만 ...)
-② 선택 규칙    후보 중 누구를 고르나  (순서대로 / 큐가 짧은 쪽 / 예상 완료시간)
+1. candidate filter   who is eligible  (exclude dead nodes, only nodes holding the model ...)
+2. selection rule     who among the candidates  (in order / shortest queue / estimated completion time)
 ```
 
-여기에 함정이 있다. **정책마다 ①을 다르게 만들면**, A 정책이 B 정책보다
-좋게 나왔을 때 그것이 선택 규칙 때문인지 필터 때문인지 알 수 없다.
+There is a trap here. **If part 1 is made different per policy**, then when
+policy A comes out ahead of policy B, there is no way to know whether that was
+the selection rule or the filter.
 
-예를 들어 ECT 만 "온도 85°C 넘는 노드 제외" 를 넣어 두면, ECT 가 이기는
-이유가 똑똑해서인지 뜨거운 노드를 피해서인지 분리되지 않는다.
+For instance, if only ECT carried "exclude nodes above 85 °C", whether ECT wins
+because it is smarter or because it avoids hot nodes cannot be separated.
 
-## 결정
+## Decision
 
-**1. 정책 식별자를 세 개로 고정한다.**
+**1. Fix the policy identifiers at three.**
 
-| 식별자 | 정책 | 용도 |
+| Identifier | Policy | Purpose |
 |---|---|---|
-| `round-robin` | Round Robin | 비교 기준 |
-| `least-queue` | Least Queue | 중간 비교군 |
-| `ect` | Estimated Completion Time | 권장 기본값 |
+| `round-robin` | Round Robin | comparison baseline |
+| `least-queue` | Least Queue | intermediate comparison |
+| `ect` | Estimated Completion Time | recommended default |
 
-**2. 세 정책이 동일한 후보 필터를 거친다.**
+**2. All three pass through an identical candidate filter.**
 
 ```text
-- is_schedulable() 상태일 것
-- 요청 모델을 Ready 상태로 보유할 것
-- 온도가 disable_temperature_c 미만일 것
+- must be in an is_schedulable() state
+- must hold the requested model in a Ready state
+- temperature must be below disable_temperature_c
 ```
 
-**3. 식별자 문자열을 한 곳에서만 파싱한다.**
+**3. Parse the identifier string in exactly one place.**
 
 ```rust
 #[serde(rename_all = "kebab-case")]
 pub enum SchedulingPolicyKind { RoundRobin, LeastQueue, Ect }
 ```
 
-설정 파일, CLI 인자, 메트릭 레이블, 로그, 대시보드가 **전부 같은 문자열**을
-쓴다. `queue-aware`, `estimated-completion-time`, `queue_aware` 같은 변형을
-쓰지 않는다.
+The configuration file, CLI arguments, metric labels, logs and dashboard all use
+**the same strings**. Variants such as `queue-aware`,
+`estimated-completion-time` or `queue_aware` are not used.
 
-**4. 인터페이스를 선택 규칙만으로 좁힌다.**
+**4. Narrow the interface to the selection rule alone.**
 
 ```rust
 pub trait SchedulingPolicy: Send + Sync {
@@ -1670,70 +1716,76 @@ pub trait SchedulingPolicy: Send + Sync {
 }
 ```
 
-`candidates` 는 **이미 필터를 통과한 목록**이다. 정책이 직접 노드 전체
-목록을 보지 않으므로, 정책 안에서 자기만의 필터를 추가할 여지가 구조적으로
-줄어든다.
+`candidates` is **a list that has already passed the filter**. Since the policy
+never sees the full node list, the room for a policy to add its own filter is
+structurally reduced.
 
-## 근거
+## Rationale
 
-### 정책 비교가 이 프로젝트의 측정 항목이다
+### Policy comparison is one of this project's measurement items
 
-S3 는 "정책의 차이" 를 재는 실험이다. 변수는 하나여야 한다. 필터가 공유되지
-않으면 실험 설계 자체가 무효다.
+S3 is an experiment measuring "the difference between policies". There must be
+one variable. Without a shared filter, the experimental design itself is void.
 
-### 식별자가 흔들리면 결과가 오염된다
+### A wobbling identifier contaminates the results
 
-벤치 도구 설계 중 실제로 나온 문제다. `--policy round-robin` 을 손으로 적게
-하면 오타가 나거나 실제 스케줄러 설정과 다른 값이 결과에 붙는다.
-**틀린 정책 이름이 붙은 결과는 S3 를 통째로 망친다.**
+This actually came up while designing the bench tool. Having `--policy
+round-robin` typed by hand invites a typo, or a value attached to the results
+that differs from the scheduler's actual configuration. **A result labelled with
+the wrong policy name ruins the whole of S3.**
 
-그래서 벤치 도구는 손으로 적은 값보다 **스케줄러가 보고한 값을 우선**한다.
-이 결정과 짝을 이룬다.
+So the bench tool **prefers the value the scheduler reports** over the one typed
+by hand. It pairs with this decision.
 
-### 세 개면 충분하다
+### Three is enough
 
-- `round-robin` 은 기준선이다. 없으면 나머지가 좋은지 알 수 없다
-- `least-queue` 는 "큐만 봐도 되는가" 에 답한다
-- `ect` 는 큐·속도·온도·오류를 다 본다
+- `round-robin` is the baseline. Without it there is no way to know whether the
+  rest are good
+- `least-queue` answers "is looking at the queue alone sufficient?"
+- `ect` looks at queue, speed, temperature and errors together
 
-넷째를 넣으면 실험 조합이 늘어나고, S3 의 run 수가 늘어난다. 총 146 run /
-약 23.4시간 예산 안에서 값을 못 한다.
+A fourth would multiply the experimental combinations and increase S3's run
+count. It would not be worth it within the budget of 146 runs and roughly 23.4
+hours.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 정책마다 필터를 다르게 | S3 가 필터 차이를 측정하게 된다. **가장 피해야 할 것** |
-| 정책을 플러그인으로 열어 둔다 | 비교 대상이 무한해진다. 측정 프로젝트에서는 고정이 낫다 |
-| 정책 하나(ECT)만 구현 | 기준선이 없어 "얼마나 나은지" 를 말할 수 없다 |
-| 식별자를 자유 문자열로 | 오타와 표기 흔들림이 결과 레이블을 오염시킨다 |
+| A different filter per policy | S3 would measure filter differences. **The thing most to be avoided** |
+| Open the policies up as plugins | The comparison set becomes unbounded. Fixed is better for a measurement project |
+| Implement only one policy (ECT) | Without a baseline there is no way to say "how much better" |
+| Free-form identifier strings | Typos and notation drift contaminate the result labels |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- S3 정책 비교가 성립한다 — 변수가 선택 규칙 하나다
-- 설정·로그·메트릭·대시보드의 정책 이름이 항상 같다
-- 정책 구현이 짧아진다. 필터를 각자 안 짜도 된다
+- The S3 policy comparison holds — the single variable is the selection rule
+- Policy names in configuration, logs, metrics and the dashboard are always the
+  same
+- Policy implementations get shorter. They do not each write a filter
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 정책별 특수 조건을 넣을 수 없다. 넣으려면 **공유 필터에 넣어 세 정책
-  모두에 적용**해야 한다
-- 새 정책을 추가하려면 enum 을 고쳐야 한다 (의도한 마찰)
+- Policy-specific candidate conditions cannot be added. Adding one means
+  **putting it in the shared filter and applying it to all three**
+- Adding a new policy means editing the enum (deliberate friction)
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- 필터를 바꾸면 **세 정책의 과거 측정값과 비교 불가**가 된다. 필터 변경은
-  실험 조건 변경으로 취급하고 기록해야 한다
+- Changing the filter makes results **incomparable with the three policies' past
+  measurements**. A filter change is treated as a change of experimental
+  conditions and has to be recorded
 
-## 뒤집힌다면
+## What would overturn this
 
-- **정책별로 반드시 달라야 하는 후보 조건이 발견되면.** 그때는 그 조건을
-  선택 규칙 안의 점수로 표현할 수 있는지 먼저 본다 — ECT 의 `load_factor`
-  가 그 방식이다 ([ADR-010](#adr-010))
-- **M7 최적화 실험에서 새 정책이 필요해지면** 넷째를 추가한다. 단 S3 의
-  기준선 비교는 세 정책으로 이미 끝난 뒤여야 한다
+- **If a candidate condition is found that genuinely must differ per policy.**
+  At that point, first check whether it can be expressed as a score inside the
+  selection rule — ECT's `load_factor` works that way
+  ([ADR-010](#adr-010))
+- **If the M7 optimization experiments need a new policy**, add a fourth. But
+  only after S3's baseline comparison has already finished with three
 
 ---
 
@@ -1883,181 +1935,194 @@ PRD FR-07 은 "복구된 노드에는 제한된 요청만 할당" 을 요구한�
 
 <a id="adr-011"></a>
 
-# ADR-011. 기준 모델을 INT8 로 한다
+# ADR-011. The reference model is INT8
+
+*[한국어 원문](011-int8-quantization.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-012](#adr-012), [ADR-014](#adr-014), [ADR-018](#adr-018) (모델 배포), `docs/discuss.md` §8 |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-012](#adr-012), [ADR-014](#adr-014), [ADR-018](#adr-018) (model deployment), `docs/discuss.md` §8 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> INT8 양자화가 **1.86배**다. 지금까지 시도한 어떤 소프트웨어 최적화보다
-> 두 자릿수 크게 먹혔다. 대가는 최고 검출 점수 -5.5% 이고 **검출 집합과
-> 클래스는 동일**하다.
+> INT8 quantization is worth **1.86×**. It landed an order of magnitude harder
+> than any software optimization attempted so far. The cost is −5.5% on the top
+> detection score, and **the detection set and classes are identical**.
 
-## 배경
+## Context
 
-### 양자화가 무엇인가
+### What quantization is
 
-신경망은 원래 실수(FP32)로 계산한다. 이 실수들을 **정수 8비트로 줄여서**
-계산하는 것이 INT8 양자화다. 곱셈 하나가 싸지고 메모리도 덜 오간다. 대신
-값이 뭉개져 정확도를 조금 잃는다.
+A neural network normally computes in reals (FP32). **Shrinking those reals to
+8-bit integers** for computation is INT8 quantization. Each multiplication gets
+cheaper and less memory moves. In exchange, values get coarser and a little
+accuracy is lost.
 
-FP16 은 그 중간이다. 실수인데 비트 수만 절반이다.
+FP16 sits in between — still real, just half the bits.
 
-### 왜 이 선택이 중요했나
+### Why this choice mattered
 
-FP16 으로 시작해 노드 하나의 처리량을 끌어올리려고 세 가지를 시도했고,
-**전부 실패했다.**
+Starting from FP16, three things were tried to raise one node's throughput, and
+**all three failed.**
 
-| 시도 | 결과 |
+| Attempt | Result |
 |---|---:|
-| `core_mask` 로 NPU 코어 수동 배정 | +0.1% |
-| `want_float=0` (당시 1스레드 위주 측정) | +5.4% |
-| zero-copy 버퍼 재사용 | **-1.8%** |
+| Manual NPU core assignment via `core_mask` | +0.1% |
+| `want_float=0` (measured mostly single-threaded at the time) | +5.4% |
+| Zero-copy buffer reuse | **−1.8%** |
 
-이유도 찾았다. 추론 한 건마다 커널 `ioctl` 이 약 76회 발생하고 그것이
-**직렬화**된다. 애플리케이션이 줄일 수 있는 것이 아니었다. 그래서 당시
-결론은 **"노드 상한 78 inf/s 는 드라이버 특성이다"** 였다.
+The reason was found too. Each inference triggers about 76 kernel `ioctl` calls
+and those get **serialized**. Not something the application could reduce. So the
+conclusion at the time was **"the node ceiling of 78 inf/s is a driver
+characteristic."**
 
-INT8 은 그때까지 남아 있던 마지막 큰 변수였다.
+INT8 was the last big variable still outstanding.
 
-## 결정
+## Decision
 
-**1. 기준 모델을 YOLOv8n INT8 로 한다.**
+**1. The reference model is YOLOv8n INT8.**
 
-**2. FP16 을 지우지 않고 비교 조건으로 유지한다.** 두 모델을 나란히 제시하는
-것이 "양자화가 얼마나 먹히는가" 라는 결과 자체이기 때문이다.
+**2. FP16 is not deleted but kept as a comparison condition.** Presenting the
+two models side by side is itself the result of "how much does quantization
+buy".
 
-**3. 정확도 수락 기준을 원시 텐서 유사도가 아니라 검출 수준으로 정의한다.**
-(근거는 아래 함정 절)
+**3. Define the accuracy acceptance criterion at the detection level rather than
+raw tensor similarity.** (See the trap section below for why.)
 
-## 근거
+## Rationale
 
-### 1.86 배
+### 1.86×
 
 ```text
-측정 조건: king, sustained_load_test, 8스레드 고정, 120초,
-          governor=performance, 팬리스
+conditions: king, sustained_load_test, 8 threads fixed, 120 s,
+            governor=performance, fanless
 ```
 
-| 모델 | 처리량 | 평균 지연 | 모델 크기 |
+| Model | Throughput | Mean latency | Model size |
 |---|---:|---:|---:|
 | YOLOv8n FP16 | 84.3 inf/s | 94.5 ms | 9.65 MB |
 | **YOLOv8n INT8** | **157.2 inf/s** | **50.8 ms** | 6.46 MB |
-| 배율 | **1.86×** | -46% | -33% |
+| Ratio | **1.86×** | −46% | −33% |
 
-> `ondemand` governor 로 잰 초기값은 FP16 79.0 / INT8 146.2 였다.
-> **배율 1.85~1.86 은 governor 와 무관하게 유지된다.**
+> Initial values measured with the `ondemand` governor were FP16 79.0 / INT8
+> 146.2. **The 1.85–1.86× ratio holds regardless of governor.**
 
-### 이 측정이 이전 결론을 정정했다
+### This measurement corrected an earlier conclusion
 
-INT8 이 1.85배라면 "ioctl 76회가 상한을 정한다" 는 설명과 충돌한다.
-그래서 INT8 의 ioctl 도 세어 봤다.
+If INT8 is 1.85×, that conflicts with the explanation that "76 ioctls set the
+ceiling". So INT8's ioctls were counted too.
 
 ```text
-strace -c -f -e trace=ioctl, 1스레드 20초
+strace -c -f -e trace=ioctl, 1 thread, 20 s
 
-        추론    처리량       추론당 ioctl
-FP16    315    15.7 inf/s      76.4
-INT8    718    35.8 inf/s      76.2
+        inferences  throughput    ioctls per inference
+FP16    315         15.7 inf/s    76.4
+INT8    718         35.8 inf/s    76.2
 ```
 
-**호출 횟수는 똑같은데 처리량이 2.28배다.**
+**The call count is identical and throughput is 2.28×.**
 
-상한을 정하는 것은 ioctl **횟수**가 아니라 **직렬화 구간에서 한 건이 붙잡고
-있는 시간**이었다. 그래서 기존 결론의 범위를 좁혔다.
+What sets the ceiling is not the **number** of ioctls but **how long one
+inference holds the serialized section.** So the scope of the previous
+conclusion was narrowed.
 
-| 기존 | 정정 |
+| Previously | Corrected |
 |---|---|
-| "노드 상한 78 inf/s 는 드라이버 특성이다" | "**FP16 기준** 노드 상한이 약 78 inf/s 이고, 이 값은 애플리케이션 최적화로 못 넘는다" |
-| "애플리케이션 최적화로 넘을 수 없다" | 유지. 단 **양자화는 애플리케이션 최적화가 아니라 모델 변경**이다 |
+| "The node ceiling of 78 inf/s is a driver characteristic" | "**On FP16**, the node ceiling is about 78 inf/s, and that value cannot be exceeded by application optimization" |
+| "It cannot be exceeded by application optimization" | Stands. But **quantization is a model change, not an application optimization** |
 
-### 정확도 대가는 받아들일 만하다
+### The accuracy cost is acceptable
 
 ```text
-측정 조건: 실보드 king, COCO val2017 이미지,
-          전처리를 한 곳에서 수행해 양쪽이 같은 입력 바이트를 보게 함
+conditions: real board king, COCO val2017 images,
+            preprocessing done in one place so both see the same input bytes
 ```
 
-| 비교 | box cosine | 검출 셀 | 클래스 일치 |
+| Comparison | box cosine | Detection cells | Class agreement |
 |---|---|---|---|
 | FP16 vs ONNX | 0.99999 | 10/10 | 100% |
 | **INT8 vs FP16** | **0.997** | **10/10** | **100%** |
 
-최고 검출의 셀이 한 칸 이동하고 점수가 -5.5% 다. **검출 집합과 클래스는
-동일하다.** 1.86배를 이 대가로 사는 것이면 남는 장사다.
+The top detection's cell moves by one and its score is −5.5%. **The detection
+set and classes are identical.** Buying 1.86× at that price is a good trade.
 
-## ⚠️ 정확도 검증에서 걸린 함정
+## ⚠️ The trap hit during accuracy verification
 
-**원시 텐서 코사인 유사도를 수락 기준으로 쓰면 이 모델에서는 오판한다.**
+**Using raw-tensor cosine similarity as the acceptance criterion misjudges this
+model.**
 
-FP16 vs ONNX — 양자화가 아예 없는 비교 — 에서도 **일부 텐서의 코사인이
-0.16 까지 떨어진다.** 이 숫자만 보면 "FP16 변환이 모델을 망가뜨렸다" 는
-결론이 나온다. 틀린 결론이다.
+Even for FP16 vs ONNX — a comparison with no quantization at all — **the cosine
+of some tensors falls to 0.16.** Looking at that number alone leads to "the FP16
+conversion broke the model". A wrong conclusion.
 
-원인은 이렇다.
+The cause is this.
 
-- YOLOv8n 출력 9개 중 텐서 2/5/8 은 **클래스 점수 80개의 합**이다
-- RKNN 의 sigmoid 는 정확히 0 을 내지 않고 **하한 0.001831** 이 있다
-- 80배 증폭되면 **0.1465 오프셋**이 생긴다 (실측 하한과 정확히 일치)
-- 출력 셀 대부분이 배경이라 이 오프셋이 코사인을 지배한다
+- Of YOLOv8n's 9 outputs, tensors 2/5/8 are **the sum of 80 class scores**
+- RKNN's sigmoid does not output exactly 0 but has **a floor of 0.001831**
+- Amplified 80×, that produces **a 0.1465 offset** (matching the measured floor
+  exactly)
+- Most output cells are background, so this offset dominates the cosine
 
-**모든 셀에 같은 값이 더해지므로 순위는 바뀌지 않는다. 검출 결과는 그대로다.**
+**The same value is added to every cell, so the ranking does not change. The
+detections are unaffected.**
 
-→ 수락 기준을 **검출 수준**(검출 집합, 클래스, box cosine)으로 바꿨다.
-`tools/model-converter/compare_detections.py` 가 그 기준으로 비교한다.
+→ The acceptance criterion was changed to the **detection level** (detection
+set, classes, box cosine). `tools/model-converter/compare_detections.py`
+compares against that criterion.
 
-이것도 이 프로젝트의 단골 실패 유형이다. **지표 이름을 보고 의미를 짐작했다.**
-"코사인 유사도가 낮다 = 결과가 다르다" 는 일반적으로는 맞지만, 이 출력
-구조에서는 아니었다.
+This too is one of this project's recurring failure types. **A metric's name was
+read and its meaning assumed.** "Low cosine similarity = different results" is
+generally true, but not for this output structure.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| FP16 유지 | 1.86배를 버린다. 그리고 소프트웨어로는 그만큼을 만들 방법이 없다는 것이 이미 확인됐다 |
-| FP32 | 이 NPU 에서 의미 없다. 크고 느리다 |
-| INT8 + 정확도 손실 보정(QAT 등) | 재학습이 필요하다. 이 프로젝트는 추론 런타임을 만드는 것이지 모델을 학습하는 것이 아니다 |
-| 더 큰 모델(YOLOv8s 등)을 INT8 로 | 비교 기준선이 바뀐다. 모델 선택은 별도 결정이고, 지금은 변수를 하나만 움직인다 |
+| Stay on FP16 | Throws away 1.86×. And it has already been confirmed there is no way to produce that much in software |
+| FP32 | Meaningless on this NPU. Big and slow |
+| INT8 + accuracy-loss compensation (QAT and the like) | Requires retraining. This project builds an inference runtime, not trains models |
+| A larger model (YOLOv8s and the like) at INT8 | The comparison baseline changes. Model selection is a separate decision, and only one variable moves at a time here |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 노드당 157.2 inf/s. FP16 대비 1.86배
-- 평균 지연 94.5 → 50.8 ms
-- 모델 크기 -33%
+- 157.2 inf/s per node. 1.86× against FP16
+- Mean latency 94.5 → 50.8 ms
+- Model size −33%
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 최고 검출 점수 -5.5%, 최고 검출 셀 한 칸 이동
-- **calibration 데이터가 필요해졌다.** COCO val2017 200장을 결정적으로
-  선택해 쓴다(`fetch_calibration.py`, seed 고정). 이미지는 라이선스 때문에
-  저장소에 넣지 않고 manifest 만 남긴다
-- **INT8 변환은 바이트 재현성이 없다.** 같은 입력으로 3회 변환하니 해시가
-  매번 달랐다(크기는 같고 1.8% 바이트 상이). 다만 **추론 결과는 완전히
-  동일**하다(9개 텐서 전부 cosine 1.000000). 차이는 직렬화·레이아웃에 있고
-  계산에는 없다 → 모델은 한 번만 변환해 세 노드에 배포한다 (ADR-018)
+- Top detection score −5.5%, top detection cell moved by one
+- **Calibration data became necessary.** 200 COCO val2017 images are chosen
+  deterministically (`fetch_calibration.py`, fixed seed). The images are not put
+  in the repository for licensing reasons; only a manifest is kept
+- **INT8 conversion is not byte-reproducible.** Converting three times from the
+  same input gave a different hash each time (same size, 1.8% of bytes
+  differing). But **the inference results are completely identical** (all 9
+  tensors at cosine 1.000000). The difference is in serialization and layout,
+  not in computation → the model is converted once and deployed to all three
+  nodes (ADR-018)
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- **네트워크 부하가 오히려 늘었다.** 처리량이 1.86배가 되면 초당 오가는
-  바이트도 그만큼 늘어난다. 노드당 1.545 Gbps, 3노드 4.636 Gbps 다.
-  이 결정이 [ADR-014](#adr-014) 의
-  10G aggregation 을 필요하게 만든 직접 원인이다
-- 성능이 좋아지면 다른 곳이 막힌다는 사례로 남겨 둔다
+- **Network load went up instead.** With throughput at 1.86×, the bytes moving
+  per second rise by the same factor — 1.545 Gbps per node, 4.636 Gbps across
+  three. This decision is the direct cause of
+  [ADR-014](#adr-014)'s 10G aggregation
+- Kept as a case of something else filling up when performance improves
 
-## 뒤집힌다면
+## What would overturn this
 
-- **검출 집합이 달라지는 입력이나 모델이 나오면.** 현재 근거는 이미지 1장
-  기준이다. 표본이 적다는 것을 인정하고 쓴다
-- **재검증은 텐서 코사인이 아니라 검출 수준으로 한다.** 위 함정 절이 그
-  이유다. 이 기준을 잊고 코사인으로 판정하면 멀쩡한 모델을 버리게 된다
+- **If an input or model appears where the detection set differs.** The current
+  basis is a single image. That the sample is small is acknowledged in using it
+- **Re-verification is done at the detection level, not by tensor cosine.** The
+  trap section above is why. Forgetting this criterion and judging by cosine
+  would mean discarding a perfectly good model
 
 ---
 
@@ -2265,158 +2330,169 @@ public.**
 
 <a id="adr-013"></a>
 
-# ADR-013. 팬리스를 기본으로 두고, throttling 을 제거 대상이 아니라 측정 대상으로 삼는다
+# ADR-013. Make fanless the default, and treat throttling as something to measure rather than eliminate
+
+*[한국어 원문](013-fanless-thermal-as-measurement.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-10 |
-| **관련** | [ADR-002](#adr-002), [ADR-023](#adr-023), `docs/02-HARDWARE-SETUP.md` §9 |
+| **Status** | accepted |
+| **Date** | 2026-08-10 |
+| **Related** | [ADR-002](#adr-002), [ADR-023](#adr-023), `docs/02-HARDWARE-SETUP.md` §9 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 팬을 달면 수치가 좋아진다. 그런데 **엣지 디바이스는 현장에서 팬 없이
-> 놓인다.** 그래서 팬리스를 기본 조건으로 두고, 열 때문에 성능이 떨어지는
-> 것을 **없앨 문제가 아니라 잴 대상**으로 다룬다. 냉각 조건은 비교군으로
-> 따로 측정한다.
+> Attaching a fan improves the numbers. But **edge devices sit in the field
+> without one.** So fanless is the default condition, and performance falling
+> from heat is treated as **something to measure, not something to remove.**
+> Cooled conditions are measured separately as a comparison group.
 
-## 배경
+## Context
 
-RK3576 보드는 팬리스로 출고된다. 지속 부하를 걸면 뜨거워지고 성능이 떨어진다.
+RK3576 boards ship fanless. Put them under sustained load and they get hot and
+slow down.
 
-여기서 두 갈래가 있다.
-
-```text
-갈래 1. 팬을 단다
-  → 수치가 좋아진다
-  → 발표에 쓰기 좋다
-  → 그런데 그 수치는 현장에서 안 나온다
-
-갈래 2. 팬리스로 잰다
-  → 수치가 나빠진다
-  → 그 나빠지는 양 자체가 아무도 공개하지 않은 값이다
-```
-
-벤더가 공개하는 TOPS 는 **순간 성능**이다. 지속 부하에서 얼마나 유지되는지
-— **Peak FPS 대비 Sustained FPS 격차** — 는 공개 자료가 거의 없다.
-
-## 결정
-
-**1. 팬리스(조건 A)를 기본 측정 조건으로 한다.**
-
-**2. 능동 냉각(조건 B)을 비교군으로 함께 측정한다.** 동일 모델 팬 3개를
-같은 회전수로 고정한다. 회전수가 다르면 노드별 냉각 조건이 달라져 3노드
-대칭성이 깨진다.
-
-**3. 열 특성 측정(S0)을 다른 모든 시나리오보다 먼저 한다.** S0 가 나머지
-실험의 임계치와 cooldown 시간을 결정하기 때문이다.
-
-**4. 임시 냉각을 측정에 섞지 않는다.** 진단 중 책상 선풍기를 쓴 적이
-있는데, **진단에는 유효했으나 측정 조건으로는 쓸 수 없다.** 팬리스 측정
-전에 선풍기가 꺼져 있는지 확인하는 항목이 체크리스트에 있다.
-
-## 근거
-
-### 두 조건을 다 재야 답할 수 있는 질문이 있다
+There are two branches here.
 
 ```text
-팬리스만 측정  →  "냉각하면 얼마나 나아지는가" 를 모른다
-냉각만 측정    →  "실제 엣지 배치에서 얼마나 나오는가" 를 모른다
+branch 1. attach a fan
+  -> the numbers improve
+  -> good for a talk
+  -> but those numbers do not occur in the field
+
+branch 2. measure fanless
+  -> the numbers get worse
+  -> and the amount by which they get worse is a value nobody publishes
 ```
 
-**두 조건을 모두 재면 "냉각이 확장 효율에 미치는 영향" 자체가 결과가 된다.**
-이건 벤더 스펙시트에 없는 값이고, 측정으로 밝힌다는 이 프로젝트의 정체성과
-맞는다.
+The TOPS vendors publish is **instantaneous performance**. How much of it is
+sustained under load — **the gap between peak FPS and sustained FPS** — is
+barely covered in public material.
 
-### 실측 — 팬리스로 완주는 하지만 처리량은 유지되지 않는다
+## Decision
+
+**1. Fanless (condition A) is the default measurement condition.**
+
+**2. Active cooling (condition B) is measured alongside as a comparison group.**
+Three fans of the same model are fixed at the same speed. Different speeds would
+give the nodes different cooling conditions and break three-node symmetry.
+
+**3. Thermal characterisation (S0) comes before every other scenario**, because
+S0 determines the thresholds and cooldown times for the rest of the experiments.
+
+**4. Do not mix improvised cooling into a measurement.** A desk fan was used
+once during diagnosis; **it was valid for diagnosis but unusable as a
+measurement condition.** There is a checklist item to confirm the desk fan is
+off before a fanless measurement.
+
+## Rationale
+
+### Some questions can only be answered by measuring both conditions
 
 ```text
-측정 조건: 3보드 동시, 8스레드, 900초, 팬리스, 선풍기 없음
+fanless only  ->  you do not know "how much better does cooling make it"
+cooled only   ->  you do not know "how much do you get in a real edge deployment"
 ```
 
-| 보드 | NPU 평균 | NPU 최고 | 처리량 |
+**Measure both and "the effect of cooling on scaling efficiency" becomes a
+result in itself.** That is a value absent from vendor spec sheets, and it fits
+this project's identity of settling things by measurement.
+
+### Measured — it finishes fanless, but throughput is not sustained
+
+```text
+conditions: 3 boards concurrently, 8 threads, 900 s, fanless, no desk fan
+```
+
+| Board | NPU mean | NPU peak | Throughput |
 |---|---:|---:|---:|
-| king | 73.0°C | 75.8°C | 80.5 inf/s |
-| queen | 67.5°C | 70.2°C | 77.7 inf/s |
-| jack | 72.6°C | 74.8°C | 77.8 inf/s |
+| king | 73.0 °C | 75.8 °C | 80.5 inf/s |
+| queen | 67.5 °C | 70.2 °C | 77.7 inf/s |
+| jack | 72.6 °C | 74.8 °C | 77.8 inf/s |
 
-- 노드 간 편차 **5.6°C**
-- 오류 0건으로 완주
-- 90°C 초과 없음
+- Node-to-node spread **5.6 °C**
+- Completed with 0 errors
+- Never exceeded 90 °C
 
-**팬리스로 8스레드 지속 부하가 가능하다.** 그런데 처리량은 유지되지 않는다.
+**Sustained 8-thread load is possible fanless.** But throughput is not
+sustained.
 
 ```text
- +10s  81.6 inf/s   ← 시작
+ +10s  81.6 inf/s   <- start
 +120s  63.6
-+300s  59.7         ← 정상 상태.  시작 대비 -27%
++300s  59.7         <- steady state.  -27% against the start
 ```
 
-### ⚠️ 무너지는 쪽은 NPU 가 아니라 CPU 였다
+### ⚠️ What was collapsing was the CPU, not the NPU
 
-처음에는 "NPU throttling 없음" 으로 판정했다. 928 샘플 전부 950 MHz 였기
-때문이다. **NPU 클럭만 봤다.**
+The initial verdict was "no NPU throttling", because all 928 samples were at
+950 MHz. **Only the NPU clock had been looked at.**
 
-같은 로그의 CPU 클럭을 보니 이랬다.
+Looking at the CPU clocks in the same log:
 
 ```text
-        NPU온도   npu_clk   cpu4(A72)   cpu0(A53)
- +15s   86.8°C    950 MHz   2208 MHz    2016 MHz
- +30s   90.4°C    950 MHz   1416 MHz    1200 MHz
- +60s   87.8°C    950 MHz    816 MHz     600 MHz
-+120s   87.8°C    950 MHz    816 MHz     600 MHz
+        NPU temp   npu_clk   cpu4(A72)   cpu0(A53)
+ +15s   86.8 C     950 MHz   2208 MHz    2016 MHz
+ +30s   90.4 C     950 MHz   1416 MHz    1200 MHz
+ +60s   87.8 C     950 MHz    816 MHz     600 MHz
++120s   87.8 C     950 MHz    816 MHz     600 MHz
 ```
 
-**NPU 는 한 번도 안 떨어지고 CPU 가 63~70% 떨어진다.**
+**The NPU never drops and the CPU falls 63–70%.**
 
-추론 한 건은 `입력 설정(CPU) → NPU → 출력 취득(CPU)` 이라 CPU 구간이
-처리량에 직접 반영된다. 이걸 알고 있으면서도 throttling 판정은 NPU 만으로
-했다. 이 프로젝트에서 같은 유형의 **네 번째** 실수다.
+One inference is `set input (CPU) → NPU → get output (CPU)`, so the CPU sections
+feed directly into throughput. That was known, and the throttling verdict was
+still made on the NPU alone. It is the **fourth** mistake of this type in this
+project.
 
-> 이 발견이 오히려 결과를 좋게 만들었다. **"팬리스 엣지에서 먼저 무너지는
-> 것은 NPU 가 아니라 그 앞뒤를 처리하는 CPU 였다"** — 발표 서사로 훨씬 낫다.
+> The discovery actually improved the result. **"What collapses first on a
+> fanless edge device is not the NPU but the CPU handling either side of it"** —
+> a far better narrative for a talk.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 팬 달고 측정 | 현장에서 재현되지 않는 수치. 프로젝트의 문제의식과 반대 방향 |
-| 팬리스만 측정 | "냉각하면 얼마나 나아지나" 에 답할 수 없다 |
-| throttling 을 피하도록 부하를 낮춰 측정 | 지속 부하에서 무슨 일이 일어나는지가 측정 대상인데, 그걸 피하는 것 |
-| 임시 냉각(선풍기)으로 조건 통일 | 재현 불가능하고 노드별로 균일하지 않다 |
+| Measure with a fan attached | Numbers that do not reproduce in the field. The opposite direction to the project's premise |
+| Measure fanless only | Cannot answer "how much better does cooling make it" |
+| Lower the load to avoid throttling | What happens under sustained load is exactly what is being measured, and this avoids it |
+| Standardise conditions with improvised cooling (a desk fan) | Not reproducible and not uniform across nodes |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- Peak vs Sustained 격차가 프로젝트의 핵심 산출물이 됐다
-- 병목이 NPU 가 아니라 CPU 라는 발견
-- 냉각 효과를 정량화할 준비 (S0-A / S0-B)
+- The peak vs sustained gap became one of the project's central outputs
+- The discovery that the bottleneck is the CPU rather than the NPU
+- Readiness to quantify the cooling effect (S0-A / S0-B)
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 처리량 수치가 낮게 나온다. "84.3 inf/s" 대신 "시작 81.6, 300초에 59.7"
-  이라고 말해야 한다
-- 측정 시간이 늘어난다. cooldown 을 기다려야 하고, 팬리스라 느리다.
-  그래서 cooldown 에 **상한**을 두고 상한에 걸리면 실제 시작 온도를
-  결과에 기록한다
+- Throughput figures come out lower. Instead of "84.3 inf/s" it has to be
+  "81.6 at the start, 59.7 at 300 seconds"
+- Measurement takes longer. Cooldown has to be waited out, and fanless is slow.
+  So cooldown has **an upper bound**, and when that bound is hit the actual
+  starting temperature is recorded with the result
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **열 판정에 CPU 클럭을 반드시 포함한다.** NPU 클럭만 보는 판정은 틀렸다는
-  것이 확인됐다. `run-thermal-comparison.sh` 를 그렇게 고쳐야 한다
-- 부하 프로파일이 다른 두 측정의 온도를 비교하지 않는다. 스윕 부하와 고정
-  부하를 비교해 19°C 격차로 오해한 적이 있다
-- 온도 임계치(80 / 90°C)는 **초안**이다. 정식 S0 후 재설정한다
+- **Thermal verdicts must include the CPU clock.** Judging by NPU clock alone
+  was confirmed wrong. `run-thermal-comparison.sh` has to be fixed accordingly
+- Do not compare temperatures between two measurements with different load
+  profiles. A sweep load was once compared against a fixed load and a 19 °C gap
+  was misread
+- The temperature thresholds (80 / 90 °C) are **a draft**. They are reset after
+  the formal S0
 
-## 뒤집힌다면
+## What would overturn this
 
-- **케이스나 방열판이 기본 구성이 되면** 조건 A 의 정의가 바뀐다
-- **S0 에서 팬리스가 90°C 를 넘겨 노드가 스케줄링에서 빠지기 시작하면**
-  측정 자체가 불가능해진다. 그때는 조건 B 를 기본으로 올리고 조건 A 를
-  "한계 조건" 으로 재정의한다
+- **If a case or heatsink becomes the standard configuration**, condition A's
+  definition changes
+- **If fanless exceeds 90 °C in S0 and nodes start dropping out of scheduling**,
+  measurement itself becomes impossible. At that point condition B is promoted
+  to default and condition A is redefined as "the limit condition"
 
 ---
 
@@ -3426,128 +3502,137 @@ RK3576 의 NPU 는 코어가 2개다. RKNN 은 어느 코어를 쓸지 지정하
 
 <a id="adr-021"></a>
 
-# ADR-021. 노드는 후처리(NMS)를 하지 않고 원시 텐서를 반환한다
+# ADR-021. The node does no postprocessing (NMS) and returns raw tensors
+
+*[한국어 원문](021-no-node-side-postprocessing.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 잠정 |
-| **날짜** | 2026-08-12 |
-| **관련** | [ADR-012](#adr-012), [ADR-014](#adr-014), [ADR-013](#adr-013) |
+| **Status** | provisional |
+| **Date** | 2026-08-12 |
+| **Related** | [ADR-012](#adr-012), [ADR-014](#adr-014), [ADR-013](#adr-013) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드는 검출 결과가 아니라 **모델 출력 텐서 9개를 그대로** 돌려준다.
-> 응답이 커지는 대신 **노드의 CPU 부하가 측정 대상 밖으로 나간다.**
-> 최종적으로는 노드 후처리가 옳지만, 지금은 아니다.
+> The node returns **the model's 9 output tensors as they are**, not detections.
+> The response gets larger, and in exchange **the node's CPU load stays out of
+> what is being measured.** Node-side postprocessing is ultimately right, but not
+> now.
 
-## 배경
+## Context
 
-YOLOv8n 같은 검출 모델의 출력은 바로 쓸 수 있는 형태가 아니다.
+The output of a detection model like YOLOv8n is not directly usable.
 
 ```text
-NPU 출력   텐서 9개 (격자마다 박스 후보와 클래스 점수)
-                ↓  후처리 (NMS: 겹치는 박스 정리, 임계치 적용)
-최종 결과   "사람 1명, 자동차 2대" — 수 KB
+NPU output   9 tensors (box candidates and class scores per grid cell)
+                 |  postprocessing (NMS: resolve overlapping boxes, apply thresholds)
+final result "1 person, 2 cars" - a few KB
 ```
 
-이 후처리를 **어디서 할 것인가.**
+The question is **where that postprocessing happens.**
 
-| | 응답 크기 | 노드 CPU |
+| | Response size | Node CPU |
 |---|---|---|
-| 노드에서 후처리 | 수 KB | 늘어난다 |
-| 스케줄러/클라이언트에서 후처리 | 1.2 MB | 그대로 |
+| Postprocess on the node | a few KB | goes up |
+| Postprocess on scheduler/client | 1.2 MB | unchanged |
 
-## 결정
+## Decision
 
-**노드는 후처리를 하지 않는다.** 원시 텐서를 blob 하나로 묶어 반환한다
-([ADR-012](#adr-012)).
+**The node does no postprocessing.** It returns the raw tensors bundled into a
+single blob ([ADR-012](#adr-012)).
 
-**상태를 「잠정」으로 둔다.** 이건 최선이라서가 아니라 **지금 조건에서 맞는
-선택**이라서다.
+**The status is left as "provisional".** Not because it is best, but because it
+is **the right choice under current conditions.**
 
-## 근거
+## Rationale
 
-### 1. 노드 CPU 가 이미 병목이다
+### 1. Node CPU is already the bottleneck
 
-지속 부하 300초에서 처리량이 -27% 떨어지는데, 원인이 NPU 가 아니라
-**CPU thermal throttling** 이다. A72 가 2208 → 816 MHz 로 강등된다
-([ADR-013](#adr-013)).
+Throughput falls 27% over 300 seconds of sustained load, and the cause is not
+the NPU but **CPU thermal throttling**. The A72 is downgraded from 2208 to
+816 MHz ([ADR-013](#adr-013)).
 
-여기에 NMS 를 얹으면 CPU 부하가 더 늘어난다. 그러면 이 프로젝트가 재려는
-값 자체가 흔들린다.
+Adding NMS on top increases CPU load further. That would destabilise the very
+value this project is trying to measure.
 
 ```text
-지금:      NPU 확장 효율을 재는데 CPU 가 방해한다  ← 이미 문제
-후처리 넣으면: CPU 를 더 쓰게 만들고 같은 값을 잰다  ← 더 나쁘다
+now:              measuring NPU scaling efficiency while the CPU interferes  <- already a problem
+with postprocess: making it use more CPU and measuring the same value        <- worse
 ```
 
-### 2. 측정 조건이 하나 더 늘어난다
+### 2. It adds another measurement variable
 
-NMS 는 **입력에 따라 비용이 달라진다.** 검출 대상이 많은 이미지는 오래
-걸리고 적으면 빨리 끝난다. 노드에서 하면 노드별 처리 시간 편차가 입력
-내용에 따라 생긴다.
+**NMS cost varies with the input.** An image with many detections takes longer
+and one with few finishes quickly. Doing it on the node makes per-node
+processing time vary with input content.
 
-3노드 확장 효율을 재는 실험에서 이 변수는 잡음이다.
+In an experiment measuring three-node scaling efficiency, that variable is noise.
 
-### 3. 미구현이다
+### 3. It is not implemented
 
-가장 단순한 이유. NMS 구현체가 없고, 만들면 검증(정확도 비교)도 따라온다.
-장비 대기 중인 지금 우선순위가 아니다.
+The simplest reason. There is no NMS implementation, and building one brings
+verification (accuracy comparison) with it. Not a priority while waiting on
+equipment.
 
-### 4. 네트워크 문제는 다른 방법으로 풀렸다
+### 4. The network problem was solved another way
 
-원시 텐서 반환의 대가는 응답 크기다. `want_float=1` 이면 응답이 요청의
-3.96배라 10G 로도 부족했다.
+The cost of returning raw tensors is response size. With `want_float=1` the
+response was 3.96× the request and even 10G was insufficient.
 
-이건 **후처리가 아니라 `want_float=0` 으로 해결**했다. 응답이 1/4 이 되어
-3노드 RX 가 18.38 → 4.60 Gbps 다. 10G 안에 들어간다.
+That was **solved with `want_float=0` rather than postprocessing.** The response
+became a quarter of its size and 3-node RX went from 18.38 to 4.60 Gbps. It fits
+inside 10G.
 
-즉 **지금 당장 후처리를 해야 할 압력이 없다.**
+So **there is no immediate pressure to postprocess.**
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 노드에서 NMS 수행 | **최종적으로는 이쪽이 옳다.** 다만 CPU 병목을 악화시키고 측정 변수를 늘린다. 미구현 |
-| 스케줄러에서 NMS | 스케줄러가 단일 지점이라 3노드 몫의 후처리가 한 곳에 몰린다. 스케줄러가 병목이 된다 |
-| 응답을 압축 | 압축 CPU 가 추론 경로에 들어간다. CPU 가 이미 병목 |
-| 클라이언트가 후처리 | 지금 방식이다. 벤치 도구와 비교 스크립트가 blob 을 이해한다 |
+| Run NMS on the node | **This is ultimately the right answer.** But it worsens the CPU bottleneck and adds a measurement variable. Unimplemented |
+| NMS on the scheduler | The scheduler is a single point, so three nodes' worth of postprocessing piles up in one place. The scheduler becomes the bottleneck |
+| Compress the response | Compression CPU enters the inference path. CPU is already the bottleneck |
+| Client-side postprocessing | This is the current approach. The bench tool and comparison scripts understand the blob |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 노드가 하는 일이 **전처리 → NPU → 직렬화** 로 좁고 균일하다
-- 노드별 처리 시간이 입력 내용에 덜 좌우된다
-- 측정 대상이 깨끗하다
+- What the node does is narrow and uniform: **preprocess → NPU → serialize**
+- Per-node processing time depends less on input content
+- What is being measured stays clean
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 응답이 1.2 MB 다. 검출 결과만 보내면 수 KB 로 끝날 것을
-- **받는 쪽이 blob 을 이해해야 한다.** 형식을 바꾸면 세 곳을 같이 고쳐야
-  한다 (blob.rs / dump_output_test.c / compare_detections.py)
-- 실사용 API 로서는 불친절하다. "검출 결과를 주는" API 가 아니다
+- The response is 1.2 MB, where sending only the detections would end at a few KB
+- **The receiver has to understand the blob.** Changing the format means fixing
+  three places together (blob.rs / dump_output_test.c / compare_detections.py)
+- As a real-world API it is unfriendly. It is not an API that "gives you
+  detections"
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- 클라이언트가 역양자화와 NMS 를 모두 책임진다
-- 네트워크 예산이 응답 크기에 묶여 있다. 입력 크기를 키우는 실험(S6)에서는
-  응답도 함께 커진다
+- The client is responsible for both dequantization and NMS
+- The network budget is tied to response size. In experiments that increase
+  input size (S6), the response grows with it
 
-## 뒤집힌다면
+## What would overturn this
 
-**이 ADR 은 뒤집히는 것이 예정되어 있다.**
+**This ADR is scheduled to be overturned.**
 
-- **CPU 병목이 해소되면** (냉각 조건 B, 또는 전처리 최적화) 후처리를 노드로
-  옮길 여유가 생긴다
-- **실사용 API 가 요구사항이 되면** 원시 텐서 반환은 유지하기 어렵다
-- **입력 크기를 키우는 실험에서 네트워크가 다시 막히면** 후처리가 가장
-  효과적인 수단이 된다 — 응답이 수 KB 로 줄어 RX 가 사실상 사라진다
+- **If the CPU bottleneck is resolved** (cooling condition B, or preprocessing
+  optimization), there is room to move postprocessing to the node
+- **If a real-world API becomes a requirement**, returning raw tensors is hard to
+  sustain
+- **If the network fills up again in experiments that increase input size**,
+  postprocessing becomes the most effective means — the response shrinks to a
+  few KB and RX effectively disappears
 
-뒤집을 때 **반드시 함께 측정할 것**: 후처리를 노드에 넣기 전후의 지속
-처리량과 CPU 클럭 강등 시점. 응답 크기만 보고 판단하면 안 된다.
+**What must be measured alongside** when overturning it: sustained throughput
+and the timing of CPU clock downgrade, before and after putting postprocessing
+on the node. Do not judge from response size alone.
 
 ---
 
@@ -4358,173 +4443,185 @@ drain 이 없으면 둘이 똑같이 실패로 보인다.
 
 <a id="adr-028"></a>
 
-# ADR-028. 벤치 도구가 run 유효성을 스스로 판정하고, 경고를 숫자보다 먼저 출력한다
+# ADR-028. The bench tool judges run validity itself, and prints warnings above the numbers
+
+*[한국어 원문](028-bench-run-validity.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-002](#adr-002), [ADR-015](#adr-015), [ADR-016](#adr-016) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-002](#adr-002), [ADR-015](#adr-015), [ADR-016](#adr-016) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 과거의 측정 실수를 **주석이 아니라 도구에 박아 넣었다.** 예열 제외,
-> `boot_id` 로 재부팅 감지, 표본 부족 판정, 실패를 처리량에서 제외,
-> 백분위 보간 금지. 그리고 **무효 경고를 숫자보다 위에 출력한다.**
+> Past measurement mistakes are **built into the tool, not written in
+> comments.** Warmup excluded, reboot detected via `boot_id`, insufficient
+> samples flagged, failures excluded from throughput, percentile interpolation
+> forbidden. And **invalidity warnings print above the numbers.**
 
-## 배경
+## Context
 
-`npuforge-bench` 는 새로운 측정이 아니라 **도구**다. 그런데 이 도구 설계의
-근거가 전부 앞선 실패에서 나왔다.
+`npuforge-bench` is not a new measurement but **a tool**. Yet the rationale for
+its entire design comes from earlier failures.
 
-지금까지의 측정 실수를 모으면 성격이 셋이다.
+Collecting the measurement mistakes so far, they fall into three kinds.
 
 ```text
-A. 지표가 무엇을 세는지 확인하지 않았다
-B. 조건이 달라진 것을 모르고 값을 비교했다
-C. 무효한 데이터를 유효한 것으로 취급할 뻔했다
+A. did not check what a metric counts
+B. compared values without noticing a condition had changed
+C. nearly treated invalid data as valid
 ```
 
-**주석으로 "조심하자" 고 적어 두는 것은 통하지 않았다.** 세 번 다 알고
-있으면서 당했다. 그래서 도구가 강제하게 했다.
+**Writing "let's be careful" in a comment did not work.** All three happened
+while knowing better. So the tool enforces it.
 
-## 결정
+## Decision
 
-**1. 과거 실수를 규칙으로 박는다.**
+**1. Past mistakes are pinned as rules.**
 
-| 과거 실수 | 도구가 하는 일 |
+| Past mistake | What the tool does |
 |---|---|
-| 첫 추론 지연이 튄다 | 예열 요청을 집계에서 제외 |
-| 리셋된 보드를 "성능 저하" 로 읽음 | `boot_id` 변화 → run 무효 |
-| 표본 20건으로 p99 를 냈다 | 성공 100건 미만이면 무효 |
-| — | 실패를 처리량·노드 몫에서 제외 |
-| — | 조건(동시성·시드·정책·노드 수)을 결과에 동봉 |
-| — | 백분위는 nearest-rank, 보간 금지 |
+| The first inference's latency spikes | Warmup requests excluded from aggregation |
+| A reset board read as "degraded performance" | A change in `boot_id` → run invalid |
+| p99 computed from 20 samples | Fewer than 100 successes → invalid |
+| — | Failures excluded from throughput and per-node shares |
+| — | Conditions (concurrency, seed, policy, node count) carried with the result |
+| — | Percentiles are nearest-rank; interpolation forbidden |
 
-**2. 무효 경고를 숫자보다 먼저 출력한다.**
-
-```text
-!!!!!! 이 run 은 무효다 !!!!!!
-  - 오류율 100.00% 가 허용치 1.00% 를 넘었다
-  - 성공 표본 0건은 최소 100건에 못 미친다
-아래 수치를 인용하지 말 것.
-
-요청 : 200 (성공 0 / 실패 200, ...)
-```
-
-**3. 무효 run 을 삭제하지 않는다.** 사유와 함께 남긴다.
-
-**4. 정책 이름은 스케줄러가 보고한 값을 우선한다.**
-
-**5. 도구가 보장하지 않는 것을 결과 파일에 적는다.**
-
-## 근거
-
-### 실패를 처리량에 넣으면 안 되는 이유
-
-넣으면 **노드가 전부 죽었을 때 처리량이 가장 높아진다.** 실패는 즉시
-반환되므로 초당 건수가 폭증한다.
+**2. Invalidity warnings print before the numbers.**
 
 ```text
-S4 장애 대응 실험에서 이 지표를 그대로 보면
-  →  "장애 시 성능 향상"  이라는 결과가 나온다
+!!!!!! THIS RUN IS INVALID !!!!!!
+  - error rate 100.00% exceeds the 1.00% allowance
+  - 0 successful samples is below the minimum of 100
+Do not quote the figures below.
+
+requests : 200 (0 succeeded / 200 failed, ...)
 ```
 
-노드 몫도 같다. 실패 요청의 `node_id` 는 비어 있는데, 그것을 세면 **죽은
-노드가 "많이 처리한" 것**으로 잡힌다.
+**3. Invalid runs are not deleted.** They are kept with the reason.
 
-### 백분위를 보간하지 않는 이유
+**4. The policy name prefers the value the scheduler reports.**
 
-선형 보간은 표본이 적을 때 **실제로 관측되지 않은 값**을 만든다.
+**5. What the tool does not guarantee is written into the result file.**
+
+## Rationale
+
+### Why failures must not go into throughput
+
+Include them and **throughput is highest when every node is dead.** Failures
+return immediately, so requests per second explode.
 
 ```text
-관측값 1~10 에서 p95 를 보간하면  →  9.55
-그런 지연을 겪은 요청은 없다
+read this metric as-is in the S4 failure-handling experiment
+  ->  the result reads "performance improves during an outage"
 ```
 
-발표 자료에 "p95 = 9.55 ms" 라고 적으면 그건 측정값이 아니라 계산물이다.
-nearest-rank 로 고정하고 정의를 모듈 문서에 박았다.
+Per-node shares are the same. A failed request's `node_id` is empty, and
+counting that makes **a dead node look like it "processed a lot"**.
 
-### 경고를 위에 두는 이유
+### Why percentiles are not interpolated
 
-**숫자를 먼저 보여주면 사람은 그것부터 믿는다.** 경고를 아래에 두면 스크롤
-없이 보이는 첫 화면이 숫자가 되고, 그 숫자가 표에 옮겨 적힌다.
+Linear interpolation invents **values never actually observed** when samples are
+few.
 
-### 무효 run 을 지우지 않는 이유
+```text
+interpolating p95 over observations 1-10  ->  9.55
+no request experienced that latency
+```
 
-사유와 함께 남아야 원인을 추적할 수 있다. 그리고 **재부팅이 반복되면 그
-자체가 발견이다** — 실제로 전원 어댑터 문제를 그렇게 찾았다.
+Writing "p95 = 9.55 ms" in a presentation makes it a computation, not a
+measurement. It is fixed to nearest-rank and the definition is pinned in the
+module documentation.
 
-### 정책 이름을 스케줄러에서 가져오는 이유
+### Why the warning goes on top
 
-`--policy round-robin` 을 손으로 적으면 틀린다. **틀린 정책 이름이 붙은
-결과는 S3 정책 비교 실험을 통째로 망친다.**
+**Show the numbers first and people believe them first.** Put the warning below
+and the first screenful without scrolling is the numbers, and those numbers get
+copied into a table.
 
-### 구현 중에 잡은 문제 하나
+### Why invalid runs are not deleted
 
-처음에는 노드 상태를 하트비트 RPC 로 조회하려 했다. 스케줄러에 노드 목록
-API 가 없었기 때문이다.
+They have to remain with their reason for the cause to be traceable. And
+**repeated reboots are themselves a finding** — that is in fact how the power
+adapter problem was found.
 
-**그런데 그것이 스케줄러의 노드 상태를 덮어쓴다.** 하트비트는 관측값을
-기록하는 호출이라, 벤치가 빈 `health` 를 보내면 스케줄러가 그것을 실제
-관측으로 받아들여 온도·큐 깊이를 0 으로 만든다. **측정 직전에 측정 대상의
-상태를 오염시키는** 셈이다.
+### Why the policy name comes from the scheduler
 
-읽기 전용 `ListNodes` RPC 를 따로 만들었다. 이것도 A 유형(부작용을 확인하지
-않고 API 를 씀)의 변종이다.
+Typing `--policy round-robin` by hand goes wrong. **A result labelled with the
+wrong policy name ruins the whole S3 policy comparison.**
 
-## ⚠️ 도구가 보장하지 않는 것
+### One problem caught during implementation
 
-**닫힌 모델(closed loop) 부하다.** 동시성 N 을 고정하고 응답을 받은 뒤 다음
-요청을 보낸다.
+The first approach queried node state via the heartbeat RPC, because the
+scheduler had no node listing API.
 
-이 방식은 **coordinated omission** 에 취약하다. 시스템이 느려지면 클라이언트도
-덩달아 천천히 보내므로 **지연 분포가 낙관적으로 나온다.** 느린 요청이 뒤이을
-요청의 발사 시각을 미루는데, 그 미뤄진 시간은 어느 요청의 지연에도 계상되지
-않는다.
+**But that overwrites the scheduler's node state.** A heartbeat is a call that
+records observations, so a bench sending an empty `health` has the scheduler
+accept it as a real observation and zero out temperature and queue depth. It
+**contaminates the state of the thing being measured, immediately before
+measuring it.**
 
-→ **절대 지연을 SLA 처럼 인용하지 않는다. 구성 간 비교에만 쓴다.**
-이 문장을 결과 파일의 `caveats` 에 넣어 결과만 떼어 봐도 알 수 있게 했다.
+A read-only `ListNodes` RPC was added separately. This too is a variant of type
+A (using an API without checking its side effects).
 
-열린 모델(목표 RPS 고정)을 쓰지 않은 이유는 노드 큐가 유한하기 때문이다.
-RPS 를 올리면 금방 `NPF-1303` 거절로 끝나 지연 분포를 볼 수 없다. 둘 다
-필요하면 M7 에서 추가한다.
+## ⚠️ What the tool does not guarantee
 
-## 대안과 버린 이유
+**The load is a closed loop.** Concurrency N is fixed and the next request is
+sent after the response arrives.
 
-| 대안 | 버린 이유 |
+That approach is vulnerable to **coordinated omission**. When the system slows
+down the client slows down with it, so **the latency distribution comes out
+optimistic.** A slow request delays the launch time of subsequent requests, and
+that delay is not charged to any request's latency.
+
+→ **Never quote absolute latency as an SLA. Use it only for comparison between
+configurations.** That sentence goes into the result file's `caveats` so it is
+visible even when the results are read in isolation.
+
+An open model (fixed target RPS) was not used because the node queue is finite.
+Raising RPS quickly ends in `NPF-1303` rejections and the latency distribution
+cannot be seen. If both are needed, that is added in M7.
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
 |---|---|
-| 사람이 결과를 보고 판단 | 146 run / 23.4시간 무인 야간 실행에서는 불가능 |
-| 규칙을 문서로 남긴다 | 통하지 않는다는 것이 이미 확인됨 |
-| 무효 run 자동 삭제 | 원인 추적 불가. 반복 패턴 자체가 정보다 |
-| 백분위 선형 보간 (일반적 관행) | 관측되지 않은 값을 만든다. 표본이 적을 때 특히 위험 |
-| 열린 모델 부하 | 노드 큐가 유한해 거절로 끝난다 |
+| Have a human look at the results and judge | Impossible across 146 runs / 23.4 hours of unattended overnight execution |
+| Keep the rules in a document | Already confirmed not to work |
+| Delete invalid runs automatically | Cause tracing becomes impossible. The pattern of repetition is itself information |
+| Linear percentile interpolation (the common practice) | Invents unobserved values. Especially dangerous with few samples |
+| Open-model load | The node queue is finite and it ends in rejections |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 무효 데이터가 결과 표로 넘어가지 않는다
-- 무인 실행에서도 유효성이 자동 판정된다
-- 도구의 한계가 결과 파일 안에 적혀 있다
+- Invalid data does not make it into the result tables
+- Validity is judged automatically even in unattended runs
+- The tool's limitations are written inside the result file
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 유효 판정 기준(성공 100건, 오류율 1%)이 임의값이다. 근거를 더 다듬을 여지
-- closed loop 의 낙관적 지연을 안고 간다
+- The validity thresholds (100 successes, 1% error rate) are arbitrary values.
+  There is room to sharpen the rationale
+- The closed loop's optimistic latency is carried along
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **절대 지연을 SLA 로 인용하면 안 된다.** 구성 간 비교 전용
-- 새 실수를 겪으면 여기에 규칙이 추가된다
+- **Absolute latency must not be quoted as an SLA.** For comparison between
+  configurations only
+- Each new mistake encountered adds a rule here
 
-## 뒤집힌다면
+## What would overturn this
 
-- **M7 에서 열린 모델을 추가하면** 지연 분포 해석이 달라진다. 두 모델의
-  결과를 섞지 않는다
-- 유효 판정 임계값은 S0 이후 실제 분포를 보고 조정할 수 있다
+- **Adding an open model in M7** changes how the latency distribution is
+  interpreted. The two models' results are not mixed
+- The validity thresholds can be adjusted after S0, based on the actual
+  distribution
 
 ---
 

@@ -1,122 +1,131 @@
-# ADR-021. 노드는 후처리(NMS)를 하지 않고 원시 텐서를 반환한다
+# ADR-021. The node does no postprocessing (NMS) and returns raw tensors
+
+*[한국어 원문](021-no-node-side-postprocessing.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 잠정 |
-| **날짜** | 2026-08-12 |
-| **관련** | [ADR-012](012-want-float-zero-blob-v2.md), [ADR-014](014-10g-aggregation-separate-scheduler.md), [ADR-013](013-fanless-thermal-as-measurement.md) |
+| **Status** | provisional |
+| **Date** | 2026-08-12 |
+| **Related** | [ADR-012](012-want-float-zero-blob-v2.md), [ADR-014](014-10g-aggregation-separate-scheduler.md), [ADR-013](013-fanless-thermal-as-measurement.md) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드는 검출 결과가 아니라 **모델 출력 텐서 9개를 그대로** 돌려준다.
-> 응답이 커지는 대신 **노드의 CPU 부하가 측정 대상 밖으로 나간다.**
-> 최종적으로는 노드 후처리가 옳지만, 지금은 아니다.
+> The node returns **the model's 9 output tensors as they are**, not detections.
+> The response gets larger, and in exchange **the node's CPU load stays out of
+> what is being measured.** Node-side postprocessing is ultimately right, but not
+> now.
 
-## 배경
+## Context
 
-YOLOv8n 같은 검출 모델의 출력은 바로 쓸 수 있는 형태가 아니다.
+The output of a detection model like YOLOv8n is not directly usable.
 
 ```text
-NPU 출력   텐서 9개 (격자마다 박스 후보와 클래스 점수)
-                ↓  후처리 (NMS: 겹치는 박스 정리, 임계치 적용)
-최종 결과   "사람 1명, 자동차 2대" — 수 KB
+NPU output   9 tensors (box candidates and class scores per grid cell)
+                 |  postprocessing (NMS: resolve overlapping boxes, apply thresholds)
+final result "1 person, 2 cars" - a few KB
 ```
 
-이 후처리를 **어디서 할 것인가.**
+The question is **where that postprocessing happens.**
 
-| | 응답 크기 | 노드 CPU |
+| | Response size | Node CPU |
 |---|---|---|
-| 노드에서 후처리 | 수 KB | 늘어난다 |
-| 스케줄러/클라이언트에서 후처리 | 1.2 MB | 그대로 |
+| Postprocess on the node | a few KB | goes up |
+| Postprocess on scheduler/client | 1.2 MB | unchanged |
 
-## 결정
+## Decision
 
-**노드는 후처리를 하지 않는다.** 원시 텐서를 blob 하나로 묶어 반환한다
-([ADR-012](012-want-float-zero-blob-v2.md)).
+**The node does no postprocessing.** It returns the raw tensors bundled into a
+single blob ([ADR-012](012-want-float-zero-blob-v2.md)).
 
-**상태를 「잠정」으로 둔다.** 이건 최선이라서가 아니라 **지금 조건에서 맞는
-선택**이라서다.
+**The status is left as "provisional".** Not because it is best, but because it
+is **the right choice under current conditions.**
 
-## 근거
+## Rationale
 
-### 1. 노드 CPU 가 이미 병목이다
+### 1. Node CPU is already the bottleneck
 
-지속 부하 300초에서 처리량이 -27% 떨어지는데, 원인이 NPU 가 아니라
-**CPU thermal throttling** 이다. A72 가 2208 → 816 MHz 로 강등된다
-([ADR-013](013-fanless-thermal-as-measurement.md)).
+Throughput falls 27% over 300 seconds of sustained load, and the cause is not
+the NPU but **CPU thermal throttling**. The A72 is downgraded from 2208 to
+816 MHz ([ADR-013](013-fanless-thermal-as-measurement.md)).
 
-여기에 NMS 를 얹으면 CPU 부하가 더 늘어난다. 그러면 이 프로젝트가 재려는
-값 자체가 흔들린다.
+Adding NMS on top increases CPU load further. That would destabilise the very
+value this project is trying to measure.
 
 ```text
-지금:      NPU 확장 효율을 재는데 CPU 가 방해한다  ← 이미 문제
-후처리 넣으면: CPU 를 더 쓰게 만들고 같은 값을 잰다  ← 더 나쁘다
+now:              measuring NPU scaling efficiency while the CPU interferes  <- already a problem
+with postprocess: making it use more CPU and measuring the same value        <- worse
 ```
 
-### 2. 측정 조건이 하나 더 늘어난다
+### 2. It adds another measurement variable
 
-NMS 는 **입력에 따라 비용이 달라진다.** 검출 대상이 많은 이미지는 오래
-걸리고 적으면 빨리 끝난다. 노드에서 하면 노드별 처리 시간 편차가 입력
-내용에 따라 생긴다.
+**NMS cost varies with the input.** An image with many detections takes longer
+and one with few finishes quickly. Doing it on the node makes per-node
+processing time vary with input content.
 
-3노드 확장 효율을 재는 실험에서 이 변수는 잡음이다.
+In an experiment measuring three-node scaling efficiency, that variable is noise.
 
-### 3. 미구현이다
+### 3. It is not implemented
 
-가장 단순한 이유. NMS 구현체가 없고, 만들면 검증(정확도 비교)도 따라온다.
-장비 대기 중인 지금 우선순위가 아니다.
+The simplest reason. There is no NMS implementation, and building one brings
+verification (accuracy comparison) with it. Not a priority while waiting on
+equipment.
 
-### 4. 네트워크 문제는 다른 방법으로 풀렸다
+### 4. The network problem was solved another way
 
-원시 텐서 반환의 대가는 응답 크기다. `want_float=1` 이면 응답이 요청의
-3.96배라 10G 로도 부족했다.
+The cost of returning raw tensors is response size. With `want_float=1` the
+response was 3.96× the request and even 10G was insufficient.
 
-이건 **후처리가 아니라 `want_float=0` 으로 해결**했다. 응답이 1/4 이 되어
-3노드 RX 가 18.38 → 4.60 Gbps 다. 10G 안에 들어간다.
+That was **solved with `want_float=0` rather than postprocessing.** The response
+became a quarter of its size and 3-node RX went from 18.38 to 4.60 Gbps. It fits
+inside 10G.
 
-즉 **지금 당장 후처리를 해야 할 압력이 없다.**
+So **there is no immediate pressure to postprocess.**
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 노드에서 NMS 수행 | **최종적으로는 이쪽이 옳다.** 다만 CPU 병목을 악화시키고 측정 변수를 늘린다. 미구현 |
-| 스케줄러에서 NMS | 스케줄러가 단일 지점이라 3노드 몫의 후처리가 한 곳에 몰린다. 스케줄러가 병목이 된다 |
-| 응답을 압축 | 압축 CPU 가 추론 경로에 들어간다. CPU 가 이미 병목 |
-| 클라이언트가 후처리 | 지금 방식이다. 벤치 도구와 비교 스크립트가 blob 을 이해한다 |
+| Run NMS on the node | **This is ultimately the right answer.** But it worsens the CPU bottleneck and adds a measurement variable. Unimplemented |
+| NMS on the scheduler | The scheduler is a single point, so three nodes' worth of postprocessing piles up in one place. The scheduler becomes the bottleneck |
+| Compress the response | Compression CPU enters the inference path. CPU is already the bottleneck |
+| Client-side postprocessing | This is the current approach. The bench tool and comparison scripts understand the blob |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 노드가 하는 일이 **전처리 → NPU → 직렬화** 로 좁고 균일하다
-- 노드별 처리 시간이 입력 내용에 덜 좌우된다
-- 측정 대상이 깨끗하다
+- What the node does is narrow and uniform: **preprocess → NPU → serialize**
+- Per-node processing time depends less on input content
+- What is being measured stays clean
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 응답이 1.2 MB 다. 검출 결과만 보내면 수 KB 로 끝날 것을
-- **받는 쪽이 blob 을 이해해야 한다.** 형식을 바꾸면 세 곳을 같이 고쳐야
-  한다 (blob.rs / dump_output_test.c / compare_detections.py)
-- 실사용 API 로서는 불친절하다. "검출 결과를 주는" API 가 아니다
+- The response is 1.2 MB, where sending only the detections would end at a few KB
+- **The receiver has to understand the blob.** Changing the format means fixing
+  three places together (blob.rs / dump_output_test.c / compare_detections.py)
+- As a real-world API it is unfriendly. It is not an API that "gives you
+  detections"
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- 클라이언트가 역양자화와 NMS 를 모두 책임진다
-- 네트워크 예산이 응답 크기에 묶여 있다. 입력 크기를 키우는 실험(S6)에서는
-  응답도 함께 커진다
+- The client is responsible for both dequantization and NMS
+- The network budget is tied to response size. In experiments that increase
+  input size (S6), the response grows with it
 
-## 뒤집힌다면
+## What would overturn this
 
-**이 ADR 은 뒤집히는 것이 예정되어 있다.**
+**This ADR is scheduled to be overturned.**
 
-- **CPU 병목이 해소되면** (냉각 조건 B, 또는 전처리 최적화) 후처리를 노드로
-  옮길 여유가 생긴다
-- **실사용 API 가 요구사항이 되면** 원시 텐서 반환은 유지하기 어렵다
-- **입력 크기를 키우는 실험에서 네트워크가 다시 막히면** 후처리가 가장
-  효과적인 수단이 된다 — 응답이 수 KB 로 줄어 RX 가 사실상 사라진다
+- **If the CPU bottleneck is resolved** (cooling condition B, or preprocessing
+  optimization), there is room to move postprocessing to the node
+- **If a real-world API becomes a requirement**, returning raw tensors is hard to
+  sustain
+- **If the network fills up again in experiments that increase input size**,
+  postprocessing becomes the most effective means — the response shrinks to a
+  few KB and RX effectively disappears
 
-뒤집을 때 **반드시 함께 측정할 것**: 후처리를 노드에 넣기 전후의 지속
-처리량과 CPU 클럭 강등 시점. 응답 크기만 보고 판단하면 안 된다.
+**What must be measured alongside** when overturning it: sustained throughput
+and the timing of CPU clock downgrade, before and after putting postprocessing
+on the node. Do not judge from response size alone.

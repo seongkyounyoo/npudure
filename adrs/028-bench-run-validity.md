@@ -1,167 +1,179 @@
-# ADR-028. 벤치 도구가 run 유효성을 스스로 판정하고, 경고를 숫자보다 먼저 출력한다
+# ADR-028. The bench tool judges run validity itself, and prints warnings above the numbers
+
+*[한국어 원문](028-bench-run-validity.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-002](002-success-criteria-measurability.md), [ADR-015](015-preflight-hard-fail.md), [ADR-016](016-boot-id-run-invalidation.md) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-002](002-success-criteria-measurability.md), [ADR-015](015-preflight-hard-fail.md), [ADR-016](016-boot-id-run-invalidation.md) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 과거의 측정 실수를 **주석이 아니라 도구에 박아 넣었다.** 예열 제외,
-> `boot_id` 로 재부팅 감지, 표본 부족 판정, 실패를 처리량에서 제외,
-> 백분위 보간 금지. 그리고 **무효 경고를 숫자보다 위에 출력한다.**
+> Past measurement mistakes are **built into the tool, not written in
+> comments.** Warmup excluded, reboot detected via `boot_id`, insufficient
+> samples flagged, failures excluded from throughput, percentile interpolation
+> forbidden. And **invalidity warnings print above the numbers.**
 
-## 배경
+## Context
 
-`npuforge-bench` 는 새로운 측정이 아니라 **도구**다. 그런데 이 도구 설계의
-근거가 전부 앞선 실패에서 나왔다.
+`npuforge-bench` is not a new measurement but **a tool**. Yet the rationale for
+its entire design comes from earlier failures.
 
-지금까지의 측정 실수를 모으면 성격이 셋이다.
+Collecting the measurement mistakes so far, they fall into three kinds.
 
 ```text
-A. 지표가 무엇을 세는지 확인하지 않았다
-B. 조건이 달라진 것을 모르고 값을 비교했다
-C. 무효한 데이터를 유효한 것으로 취급할 뻔했다
+A. did not check what a metric counts
+B. compared values without noticing a condition had changed
+C. nearly treated invalid data as valid
 ```
 
-**주석으로 "조심하자" 고 적어 두는 것은 통하지 않았다.** 세 번 다 알고
-있으면서 당했다. 그래서 도구가 강제하게 했다.
+**Writing "let's be careful" in a comment did not work.** All three happened
+while knowing better. So the tool enforces it.
 
-## 결정
+## Decision
 
-**1. 과거 실수를 규칙으로 박는다.**
+**1. Past mistakes are pinned as rules.**
 
-| 과거 실수 | 도구가 하는 일 |
+| Past mistake | What the tool does |
 |---|---|
-| 첫 추론 지연이 튄다 | 예열 요청을 집계에서 제외 |
-| 리셋된 보드를 "성능 저하" 로 읽음 | `boot_id` 변화 → run 무효 |
-| 표본 20건으로 p99 를 냈다 | 성공 100건 미만이면 무효 |
-| — | 실패를 처리량·노드 몫에서 제외 |
-| — | 조건(동시성·시드·정책·노드 수)을 결과에 동봉 |
-| — | 백분위는 nearest-rank, 보간 금지 |
+| The first inference's latency spikes | Warmup requests excluded from aggregation |
+| A reset board read as "degraded performance" | A change in `boot_id` → run invalid |
+| p99 computed from 20 samples | Fewer than 100 successes → invalid |
+| — | Failures excluded from throughput and per-node shares |
+| — | Conditions (concurrency, seed, policy, node count) carried with the result |
+| — | Percentiles are nearest-rank; interpolation forbidden |
 
-**2. 무효 경고를 숫자보다 먼저 출력한다.**
-
-```text
-!!!!!! 이 run 은 무효다 !!!!!!
-  - 오류율 100.00% 가 허용치 1.00% 를 넘었다
-  - 성공 표본 0건은 최소 100건에 못 미친다
-아래 수치를 인용하지 말 것.
-
-요청 : 200 (성공 0 / 실패 200, ...)
-```
-
-**3. 무효 run 을 삭제하지 않는다.** 사유와 함께 남긴다.
-
-**4. 정책 이름은 스케줄러가 보고한 값을 우선한다.**
-
-**5. 도구가 보장하지 않는 것을 결과 파일에 적는다.**
-
-## 근거
-
-### 실패를 처리량에 넣으면 안 되는 이유
-
-넣으면 **노드가 전부 죽었을 때 처리량이 가장 높아진다.** 실패는 즉시
-반환되므로 초당 건수가 폭증한다.
+**2. Invalidity warnings print before the numbers.**
 
 ```text
-S4 장애 대응 실험에서 이 지표를 그대로 보면
-  →  "장애 시 성능 향상"  이라는 결과가 나온다
+!!!!!! THIS RUN IS INVALID !!!!!!
+  - error rate 100.00% exceeds the 1.00% allowance
+  - 0 successful samples is below the minimum of 100
+Do not quote the figures below.
+
+requests : 200 (0 succeeded / 200 failed, ...)
 ```
 
-노드 몫도 같다. 실패 요청의 `node_id` 는 비어 있는데, 그것을 세면 **죽은
-노드가 "많이 처리한" 것**으로 잡힌다.
+**3. Invalid runs are not deleted.** They are kept with the reason.
 
-### 백분위를 보간하지 않는 이유
+**4. The policy name prefers the value the scheduler reports.**
 
-선형 보간은 표본이 적을 때 **실제로 관측되지 않은 값**을 만든다.
+**5. What the tool does not guarantee is written into the result file.**
+
+## Rationale
+
+### Why failures must not go into throughput
+
+Include them and **throughput is highest when every node is dead.** Failures
+return immediately, so requests per second explode.
 
 ```text
-관측값 1~10 에서 p95 를 보간하면  →  9.55
-그런 지연을 겪은 요청은 없다
+read this metric as-is in the S4 failure-handling experiment
+  ->  the result reads "performance improves during an outage"
 ```
 
-발표 자료에 "p95 = 9.55 ms" 라고 적으면 그건 측정값이 아니라 계산물이다.
-nearest-rank 로 고정하고 정의를 모듈 문서에 박았다.
+Per-node shares are the same. A failed request's `node_id` is empty, and
+counting that makes **a dead node look like it "processed a lot"**.
 
-### 경고를 위에 두는 이유
+### Why percentiles are not interpolated
 
-**숫자를 먼저 보여주면 사람은 그것부터 믿는다.** 경고를 아래에 두면 스크롤
-없이 보이는 첫 화면이 숫자가 되고, 그 숫자가 표에 옮겨 적힌다.
+Linear interpolation invents **values never actually observed** when samples are
+few.
 
-### 무효 run 을 지우지 않는 이유
+```text
+interpolating p95 over observations 1-10  ->  9.55
+no request experienced that latency
+```
 
-사유와 함께 남아야 원인을 추적할 수 있다. 그리고 **재부팅이 반복되면 그
-자체가 발견이다** — 실제로 전원 어댑터 문제를 그렇게 찾았다.
+Writing "p95 = 9.55 ms" in a presentation makes it a computation, not a
+measurement. It is fixed to nearest-rank and the definition is pinned in the
+module documentation.
 
-### 정책 이름을 스케줄러에서 가져오는 이유
+### Why the warning goes on top
 
-`--policy round-robin` 을 손으로 적으면 틀린다. **틀린 정책 이름이 붙은
-결과는 S3 정책 비교 실험을 통째로 망친다.**
+**Show the numbers first and people believe them first.** Put the warning below
+and the first screenful without scrolling is the numbers, and those numbers get
+copied into a table.
 
-### 구현 중에 잡은 문제 하나
+### Why invalid runs are not deleted
 
-처음에는 노드 상태를 하트비트 RPC 로 조회하려 했다. 스케줄러에 노드 목록
-API 가 없었기 때문이다.
+They have to remain with their reason for the cause to be traceable. And
+**repeated reboots are themselves a finding** — that is in fact how the power
+adapter problem was found.
 
-**그런데 그것이 스케줄러의 노드 상태를 덮어쓴다.** 하트비트는 관측값을
-기록하는 호출이라, 벤치가 빈 `health` 를 보내면 스케줄러가 그것을 실제
-관측으로 받아들여 온도·큐 깊이를 0 으로 만든다. **측정 직전에 측정 대상의
-상태를 오염시키는** 셈이다.
+### Why the policy name comes from the scheduler
 
-읽기 전용 `ListNodes` RPC 를 따로 만들었다. 이것도 A 유형(부작용을 확인하지
-않고 API 를 씀)의 변종이다.
+Typing `--policy round-robin` by hand goes wrong. **A result labelled with the
+wrong policy name ruins the whole S3 policy comparison.**
 
-## ⚠️ 도구가 보장하지 않는 것
+### One problem caught during implementation
 
-**닫힌 모델(closed loop) 부하다.** 동시성 N 을 고정하고 응답을 받은 뒤 다음
-요청을 보낸다.
+The first approach queried node state via the heartbeat RPC, because the
+scheduler had no node listing API.
 
-이 방식은 **coordinated omission** 에 취약하다. 시스템이 느려지면 클라이언트도
-덩달아 천천히 보내므로 **지연 분포가 낙관적으로 나온다.** 느린 요청이 뒤이을
-요청의 발사 시각을 미루는데, 그 미뤄진 시간은 어느 요청의 지연에도 계상되지
-않는다.
+**But that overwrites the scheduler's node state.** A heartbeat is a call that
+records observations, so a bench sending an empty `health` has the scheduler
+accept it as a real observation and zero out temperature and queue depth. It
+**contaminates the state of the thing being measured, immediately before
+measuring it.**
 
-→ **절대 지연을 SLA 처럼 인용하지 않는다. 구성 간 비교에만 쓴다.**
-이 문장을 결과 파일의 `caveats` 에 넣어 결과만 떼어 봐도 알 수 있게 했다.
+A read-only `ListNodes` RPC was added separately. This too is a variant of type
+A (using an API without checking its side effects).
 
-열린 모델(목표 RPS 고정)을 쓰지 않은 이유는 노드 큐가 유한하기 때문이다.
-RPS 를 올리면 금방 `NPF-1303` 거절로 끝나 지연 분포를 볼 수 없다. 둘 다
-필요하면 M7 에서 추가한다.
+## ⚠️ What the tool does not guarantee
 
-## 대안과 버린 이유
+**The load is a closed loop.** Concurrency N is fixed and the next request is
+sent after the response arrives.
 
-| 대안 | 버린 이유 |
+That approach is vulnerable to **coordinated omission**. When the system slows
+down the client slows down with it, so **the latency distribution comes out
+optimistic.** A slow request delays the launch time of subsequent requests, and
+that delay is not charged to any request's latency.
+
+→ **Never quote absolute latency as an SLA. Use it only for comparison between
+configurations.** That sentence goes into the result file's `caveats` so it is
+visible even when the results are read in isolation.
+
+An open model (fixed target RPS) was not used because the node queue is finite.
+Raising RPS quickly ends in `NPF-1303` rejections and the latency distribution
+cannot be seen. If both are needed, that is added in M7.
+
+## Alternatives and why they were rejected
+
+| Alternative | Why rejected |
 |---|---|
-| 사람이 결과를 보고 판단 | 146 run / 23.4시간 무인 야간 실행에서는 불가능 |
-| 규칙을 문서로 남긴다 | 통하지 않는다는 것이 이미 확인됨 |
-| 무효 run 자동 삭제 | 원인 추적 불가. 반복 패턴 자체가 정보다 |
-| 백분위 선형 보간 (일반적 관행) | 관측되지 않은 값을 만든다. 표본이 적을 때 특히 위험 |
-| 열린 모델 부하 | 노드 큐가 유한해 거절로 끝난다 |
+| Have a human look at the results and judge | Impossible across 146 runs / 23.4 hours of unattended overnight execution |
+| Keep the rules in a document | Already confirmed not to work |
+| Delete invalid runs automatically | Cause tracing becomes impossible. The pattern of repetition is itself information |
+| Linear percentile interpolation (the common practice) | Invents unobserved values. Especially dangerous with few samples |
+| Open-model load | The node queue is finite and it ends in rejections |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 무효 데이터가 결과 표로 넘어가지 않는다
-- 무인 실행에서도 유효성이 자동 판정된다
-- 도구의 한계가 결과 파일 안에 적혀 있다
+- Invalid data does not make it into the result tables
+- Validity is judged automatically even in unattended runs
+- The tool's limitations are written inside the result file
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 유효 판정 기준(성공 100건, 오류율 1%)이 임의값이다. 근거를 더 다듬을 여지
-- closed loop 의 낙관적 지연을 안고 간다
+- The validity thresholds (100 successes, 1% error rate) are arbitrary values.
+  There is room to sharpen the rationale
+- The closed loop's optimistic latency is carried along
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- **절대 지연을 SLA 로 인용하면 안 된다.** 구성 간 비교 전용
-- 새 실수를 겪으면 여기에 규칙이 추가된다
+- **Absolute latency must not be quoted as an SLA.** For comparison between
+  configurations only
+- Each new mistake encountered adds a rule here
 
-## 뒤집힌다면
+## What would overturn this
 
-- **M7 에서 열린 모델을 추가하면** 지연 분포 해석이 달라진다. 두 모델의
-  결과를 섞지 않는다
-- 유효 판정 임계값은 S0 이후 실제 분포를 보고 조정할 수 있다
+- **Adding an open model in M7** changes how the latency distribution is
+  interpreted. The two models' results are not mixed
+- The validity thresholds can be adjusted after S0, based on the actual
+  distribution
