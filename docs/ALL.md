@@ -33,8 +33,8 @@
 - [호스트 인벤토리 — Dell PowerEdge R620 (구 스케줄러 서버)](#hosts-server-xeon-e5-2630l-20260826)  ·  `docs/hosts/server-xeon-e5-2630l-20260826.md`
 - [Experiment Ledger](#experiments-readme)  ·  `docs/experiments/README.md`
 - [S0-C — Scheduling Policy A/B (팬리스)](#experiments-s0-c-policy-ab)  ·  `docs/experiments/S0_C_POLICY_AB.md`
-- [S0-D — Capacity Heterogeneity (결정론적 이질)](#experiments-s0-d-capacity-hetero)  ·  `docs/experiments/S0_D_CAPACITY_HETERO.md`
-- [S0 — Sustained Load (조건 A 팬리스 / 조건 B 능동 냉각)](#experiments-s0-sustained-load)  ·  `docs/experiments/S0_SUSTAINED_LOAD.md`
+- [S0-D — Capacity Heterogeneity (deterministic)](#experiments-s0-d-capacity-hetero)  ·  `docs/experiments/S0_D_CAPACITY_HETERO.md`
+- [S0 — Sustained Load (condition A fanless / condition B active cooling)](#experiments-s0-sustained-load)  ·  `docs/experiments/S0_SUSTAINED_LOAD.md`
 - [S2 — gRPC Multi-node Scaling Baseline](#experiments-s2-grpc-baseline)  ·  `docs/experiments/S2_GRPC_BASELINE.md`
 - [S3.5 — Transport Cost Profiling](#experiments-s3-5-transport-profile)  ·  `docs/experiments/S3_5_TRANSPORT_PROFILE.md`
 - [S3.6 — HTTP/2 Window × Connections-per-Node A/B](#experiments-s3-6-h2-channel-ab)  ·  `docs/experiments/S3_6_H2_CHANNEL_AB.md`
@@ -8572,285 +8572,315 @@ capacity heterogeneity 로 따로 적는다. 열 유래 이질에서 정책이 �
 
 <a id="experiments-s0-d-capacity-hetero"></a>
 
-# S0-D — Capacity Heterogeneity (결정론적 이질)
+# S0-D — Capacity Heterogeneity (deterministic)
 
-- 실험 ID: **S0-D**
-- 착수일: 2026-08-21
-- 상태: **1단계 교정 완료** (12 run, 오류 0). 2단계 정책 A/B 남음
-- 선행: [`S0_C_POLICY_AB.md`](#experiments-s0-c-policy-ab) §18~19 · [`S0_SUSTAINED_LOAD.md`](#experiments-s0-sustained-load)
+*[한국어 원문](experiments/S0_D_CAPACITY_HETERO.ko.md)*
+
+- Experiment ID: **S0-D**
+- Started: 2026-08-21
+- Status: **stage 1 calibration complete** (12 runs, 0 errors). Stage 2 policy A/B outstanding
+- Predecessors: [`S0_C_POLICY_AB.md`](#experiments-s0-c-policy-ab) §18–19 · [`S0_SUSTAINED_LOAD.md`](#experiments-s0-sustained-load)
 
 ---
 
 ## 1. Research Question
 
-> **노드간 capacity 편차가 커질수록 ECT 가 LQ 보다 유리해지는가?**
+> **Does ECT gain over LQ as the capacity spread between nodes widens?**
 
-S0-C 는 "편차가 있을 때 adaptive 가 RR 보다 낫다" 까지 닫았다(§11).
-남은 것은 **LQ 와 ECT 중 무엇을 기본값으로 둘 것인가** 이고, 두
-정책은 두 조건(이질 1.33× / 동질)에서 어느 쪽도 지배하지 못했다.
+S0-C closed the question as far as "adaptive beats RR when there is a spread"
+(§11). What remains is **which of LQ and ECT should be the default**, and across
+two conditions (heterogeneous 1.33× / homogeneous) neither dominated.
 
-ECT 를 기본값으로 둔 설계 근거는 **서비스 속도를 점수에 반영한다** 는
-것이다. 그렇다면 **편차가 커질수록 ECT 가 유리해져야 한다.** 이 실험은
-그 가설을 직접 시험한다. "2.4배에서 어느 쪽이 나은가" 보다 강한 질문이다.
+The design rationale for making ECT the default is that **it reflects service
+rate in its score**. If so, **ECT should gain as the spread widens.** This
+experiment tests that hypothesis directly. It is a stronger question than "which
+is better at 2.4×".
 
-## 2. 왜 열이 아니라 클럭을 조작하는가
+## 2. Why manipulate the clock rather than heat
 
-S0-C 4차에서 팬리스 연속 가열로 강한 이질을 재현하려다 실패했다(§18).
+The S0-C 4th attempt tried to reproduce strong heterogeneity through continuous
+fanless heating and failed (§18).
 
 ```text
-세 실험 모두 soc 86.8 / 85.9 / 86.8°C — 열 조건은 동일
-갈린 것은 CPU 강등의 보드간 편차뿐
+all three experiments: soc 86.8 / 85.9 / 86.8 C - thermal conditions identical
+what differed was only the board-to-board spread in CPU downgrade
 
-  클럭 편차  1.14x -> 1.50x -> 1.79x
-  지연 편차  1.10x -> 1.33x -> 2.40x     (S0-C 4차 / S0-C 2차 / S0-A)
+  clock spread    1.14x -> 1.50x -> 1.79x
+  latency spread  1.10x -> 1.33x -> 2.40x     (S0-C 4th / S0-C 2nd / S0-A)
 ```
 
-**열 조건은 이질의 필요조건이지 충분조건이 아니다.** 충분조건은 강등이
-보드마다 갈리는 것인데, 열 제어는 온도를 목표로 하지 편차를 목표로
-하지 않는다. 세 보드가 같은 온도에서 같이 내려가면 이질은 생기지 않고,
-그 갈림은 실리콘·기류·위치의 산물이라 **냉각으로 불러낼 수 없다.**
+**Thermal conditions are necessary for heterogeneity but not sufficient.** The
+sufficient condition is the downgrade differing per board, and thermal control
+targets temperature, not the spread. If all three boards come down together at
+the same temperature no heterogeneity appears, and that divergence is a product
+of silicon, airflow and position — **it cannot be summoned by cooling.**
 
-그래서 **열 제어가 쓰는 손잡이를 직접 잡는다.** 강등은
-`scaling_max_freq` 를 내리는 방식으로 구현돼 있다(측정 중 king 이
-`1008000` 으로 관측됐다). 같은 파일을 우리가 쓴다.
+So we take hold of **the handle thermal control itself uses.** The downgrade is
+implemented by lowering `scaling_max_freq` (king was observed at `1008000`
+during measurement). We use the same file.
 
-| | 열 유래 (S0-A/C) | **클럭 캡 (S0-D)** |
+| | Thermally induced (S0-A/C) | **Clock cap (S0-D)** |
 |---|---|---|
-| 재현성 | 실리콘 운에 의존 | **결정론적** |
-| 열 교란 | 정책 비교에 섞인다 | **팬 ON — 변수에서 뺀다** |
-| 편차 지정 | 불가 | **1.3× / 1.8× / 2.4× 로 지정** |
+| Reproducibility | depends on silicon luck | **deterministic** |
+| Thermal disturbance | mixes into the policy comparison | **fan ON — removed as a variable** |
+| Specifying the spread | not possible | **set to 1.3× / 1.8× / 2.4×** |
 
-대가: 열 유래가 아니므로 **thermal heterogeneity 라고 부를 수 없다.**
-capacity heterogeneity 다. 열 유래 이질에서 정책이 작동한다는 인과는
-S0-C 2차에서 이미 닫혔고, 지금 질문은 **편차 크기에 대한 정책의 반응**
-이므로 이 치환이 타당하다.
+The cost: since it is not thermally induced, **it cannot be called thermal
+heterogeneity.** It is capacity heterogeneity. The causal claim that the policies
+work under thermally induced heterogeneity was already closed in S0-C's 2nd
+round, and the present question is **how the policies respond to the size of the
+spread**, so the substitution is legitimate.
 
-## 3. Method — 1단계 교정
+## 3. Method — stage 1 calibration
 
 `scripts/run-capacity-calibration.sh`
 
-- **팬 ON**, 보드 유휴 42~47°C. 열 제어가 캡보다 낮게 내릴 이유가 없다.
-- 정책 **round-robin 고정** — 적응하지 않으므로 균등 부하 아래 raw
-  capacity 편차가 그대로 드러난다. S0-A 의 2.4× 도 같은 정의다.
-- king 의 CPU 캡을 사다리로: **2208 / 1608 / 1200 / 1008 / 816 / 600 MHz**
-  (`policy0`·`policy4` 양쪽, 각 그룹 상한으로 clamp)
-- 캡마다 c36 · 60초 × 2회. 3노드 · 커넥션 2/node — 운영점 그대로.
-- run 마다 `scaling_cur_freq` 를 되읽어 **캡이 부하 중에도 유지되는지**
-  확인한다. EXIT 트랩으로 중단돼도 king 을 강등된 채 남기지 않는다.
+- **Fan ON**, boards idle at 42–47 °C. Thermal control has no reason to go below
+  the cap.
+- Policy **fixed at round-robin** — it does not adapt, so raw capacity spread
+  shows through directly under an even load. S0-A's 2.4× uses the same
+  definition.
+- king's CPU cap on a ladder: **2208 / 1608 / 1200 / 1008 / 816 / 600 MHz**
+  (on both `policy0` and `policy4`, each clamped to its group ceiling)
+- Per cap: c36 · 60 s × 2. Three nodes, 2 connections/node — the operating point
+  as-is.
+- Each run reads `scaling_cur_freq` back to confirm **the cap holds under load**.
+  An EXIT trap makes sure an interruption does not leave king downgraded.
 
-**S0-A 의 클럭을 그대로 복제하지 않는 이유**: 열 로거가 `cpu4` 만
-기록해 리틀 코어 값을 모른다. 클럭을 맞추는 대신 **관측량(노드 p50
-편차)에 직접 맞추는** 편이 정직하다. 교정이 캡 → 편차 대응표를 준다.
+**Why S0-A's clocks are not simply replicated**: the thermal logger records only
+`cpu4`, so the little-core values are unknown. Rather than matching clocks, it
+is more honest to **match the observed quantity (per-node p50 spread)
+directly**. Calibration gives the cap → spread mapping.
 
-## 4. 사고 기록 — 첫 시도는 하네스 충돌로 폐기 (2026-08-21)
+## 4. Incident record — the first attempt was discarded to a harness collision (2026-08-21)
 
-첫 교정 시도의 **무캡 기준선이 197.4 inf/s** 로 나왔다(정상 391.2).
-노드 편차 2.73×, 다음 run 은 **오류율 82.4%**. "king·jack 만 느리다" 로
-보여 **클러스터 고장으로 오진하기 직전이었다.**
+The first calibration attempt produced an **uncapped baseline of 197.4 inf/s**
+(391.2 is normal). Node spread 2.73×, and the next run had an **82.4% error
+rate**. It looked like "only king and jack are slow" and **we were one step from
+misdiagnosing a cluster failure.**
 
-원인은 고장이 아니었다. **정책 A/B 하네스가 죽지 않고 살아 있었다.**
+The cause was not a failure. **The policy A/B harness had not died.**
 
 ```text
-믿은 것   TaskStop 으로 정책 A/B 하네스를 중단했다
-실제      래퍼 셸만 죽고 자식 bash 는 계속 돌았다
-결과      두 하네스가 같은 3노드를 각각 c36 으로 때렸다 (합 72)
+believed   the policy A/B harness was stopped via TaskStop
+actually   only the wrapper shell died; the child bash kept running
+result     two harnesses hitting the same 3 nodes at c36 each (72 combined)
 ```
 
-살아남은 하네스는 자기 설정(`scheduler-s0c.toml`)으로 **스케줄러를 계속
-재기동했다.** 그래서 내가 "기본 설정으로 복구" 한 것이 몇 초 뒤 덮여
-있었고, 그 사실이 보이지 않았다.
+The surviving harness kept **restarting the scheduler with its own
+configuration** (`scheduler-s0c.toml`). So the "restore to default settings"
+step was being overwritten seconds later, invisibly.
 
-**관측이 거짓말을 했다.** git-bash 에서 `ps -ef` 에 안 보였고 `pkill -f`
-도 못 잡았다. PowerShell `Get-CimInstance Win32_Process` 로만 보였다.
+**Observation lied.** In git-bash it did not appear in `ps -ef` and `pkill -f`
+could not catch it. Only PowerShell's `Get-CimInstance Win32_Process` showed it.
 
 ```powershell
 Get-CimInstance Win32_Process -Filter "Name='bash.exe'" |
   ? { $_.CommandLine -match 'scripts/run-' } | select ProcessId,CommandLine
 ```
 
-정리 후 재측정: **391.2 inf/s · p50 86.2 · 오류 0 · 편차 1.02×.**
-클러스터는 처음부터 멀쩡했다.
+After cleanup and re-measurement: **391.2 inf/s · p50 86.2 · 0 errors · spread
+1.02×.** The cluster had been fine all along.
 
-### 4.1 재발 방지
+### 4.1 Preventing recurrence
 
-`npuforge_assert_cluster_free`(`scripts/lib/remote.sh`)를 추가하고 정책
-A/B·capacity 교정 하네스 시작점에 배선했다. **서버에 `npuforge-bench`
-가 돌고 있으면 시작하지 않고 큰 소리로 멈춘다.**
+`npuforge_assert_cluster_free` (`scripts/lib/remote.sh`) was added and wired into
+the start of the policy A/B and capacity calibration harnesses. **If
+`npuforge-bench` is running on the server, it does not start — it stops loudly.**
 
-로컬 프로세스 확인이 아니라 **공유 자원 쪽에서 확인**하는 것이 핵심이다
-— 로컬 관측은 플랫폼에 따라 거짓말을 하지만, 서버에서 도는 벤치는
-거짓말을 하지 않는다.
+The point is verifying **at the shared resource** rather than checking local
+processes — local observation lies depending on the platform, but a bench
+running on the server does not.
 
-### 4.2 오염된 데이터
+### 4.2 Contaminated data
 
-- **첫 교정 시도 — 폐기.** 같은 조건에서 재측정했다(§5).
-- **4차 정책 A/B 진행분 — `results/policy-ab-20260821-contaminated/` 로
-  이름을 바꿔 보존한다.** 삭제하지 않는 이유는 이 사고 자체가 방법론
-  기록이기 때문이다(README §4.11). 해당 디렉터리 `README.md` 에 유효·무효
-  구간을 명시했다 — **유효한 것은 r1 round-robin 과 1초 열 로그뿐**이고,
-  S0-C §18 의 게이트 판정은 그 둘에만 근거하므로 영향받지 않는다.
+- **First calibration attempt — discarded.** Re-measured under the same
+  conditions (§5).
+- **The 4th policy A/B in progress — renamed to
+  `results/policy-ab-20260821-contaminated/` and kept.** It is not deleted
+  because the incident itself is a methodology record (README §4.11). That
+  directory's `README.md` states which parts are valid and which are not —
+  **only the r1 round-robin run and the 1-second thermal log are valid** — and
+  S0-C §18's gate verdict rests on just those two, so it is unaffected.
 
-> ⚠️ 4차 하네스가 **같은 날짜 경로를 재사용해 S0-C 1차 데이터(15 run)를
-> 덮어썼다.** `git checkout` 으로 복원했다. 하네스의 출력 경로가
-> `results/policy-ab-<날짜>` 라 하루에 두 번 돌리면 덮어쓴다 —
-> `NPUFORGE_SUFFIX` 를 쓰거나 기존 디렉터리가 있으면 멈춰야 한다.
+> ⚠️ The 4th harness **reused the same dated path and overwrote S0-C's 1st-round
+> data (15 runs).** It was restored with `git checkout`. The harness output path
+> is `results/policy-ab-<date>`, so running twice in a day overwrites — it must
+> use `NPUFORGE_SUFFIX` or stop when the directory already exists.
 
-## 5. Results — 교정 (12 run, 오류율 0)
+## 5. Results — calibration (12 runs, error rate 0)
 
-- 원본: [`../../results/capacity-calib-20260821/`](../results/capacity-calib-20260821)
-- 팬 ON, 보드 48~55°C. **열 제어는 전 구간 개입하지 않았다** — run 마다
-  되읽은 `scaling_cur_freq` 가 지정한 캡과 항상 일치했다.
+- Raw data: [`../../results/capacity-calib-20260821/`](../results/capacity-calib-20260821)
+- Fan ON, boards at 48–55 °C. **Thermal control never intervened** — the
+  `scaling_cur_freq` read back each run always matched the specified cap.
 
-| king 캡 (MHz) | throughput | king p50 | jack p50 | queen p50 | **편차** |
+| king cap (MHz) | throughput | king p50 | jack p50 | queen p50 | **spread** |
 |---:|---:|---:|---:|---:|---:|
-| 2208 (무캡) | 388.1 | 83.8 | 86.6 | 89.4 | **1.12×** |
+| 2208 (uncapped) | 388.1 | 83.8 | 86.6 | 89.4 | **1.12×** |
 | 1608 | 382.9 | 96.3 | 83.3 | 81.6 | **1.18×** |
 | 1200 | 379.6 | 103.6 | 83.3 | 77.7 | **1.33×** |
 | 1008 | 369.0 | 127.7 | 72.4 | 72.7 | **1.79×** |
 | **816** | **359.6** | **149.8** | **67.9** | **66.3** | **2.26×** |
 | 600 | 318.4 | 213.5 | 54.4 | 54.5 | **3.93×** |
 
-편차 재현성은 캡마다 2 run 이 ±0.05 이내로 붙었다(예: 816 → 2.30 / 2.22).
+Spread reproducibility: the 2 runs at each cap landed within ±0.05 of each other
+(e.g. 816 → 2.30 / 2.22).
 
-### 5.1 캡 816 이 S0-A 를 거의 그대로 재현한다
+### 5.1 A cap of 816 reproduces S0-A almost exactly
 
-| | king p50 | jack p50 | queen p50 | 편차 | throughput |
+| | king p50 | jack p50 | queen p50 | spread | throughput |
 |---|---:|---:|---:|---:|---:|
-| **S0-A** (열 유래, 팬리스 86°C) | 156.9 | 64.7 | 66.0 | **2.4×** | 345.4 |
-| **캡 816** (클럭, 팬 ON 50°C) | 150.9 | 67.3 | 65.6 | **2.30×** | 359.8 |
+| **S0-A** (thermal, fanless 86 °C) | 156.9 | 64.7 | 66.0 | **2.4×** | 345.4 |
+| **cap 816** (clock, fan ON 50 °C) | 150.9 | 67.3 | 65.6 | **2.30×** | 359.8 |
 
-세 노드 지연이 모두 **6ms 이내로 겹친다.** S0-A 에서 king 의 CPU
-**최저값이 816 MHz** 였다는 점과도 맞는다 — 열 강등이 밀어붙인 하한을
-우리가 직접 지정한 셈이다.
+All three node latencies **overlap within 6 ms.** It also fits the fact that
+king's **CPU minimum in S0-A was 816 MHz** — we specified directly the floor the
+thermal downgrade had pushed it to.
 
-> **강한 이질을 결정론적으로 만들 수 있다.** S0-C §17.2 의 게이트(2.0×)를
-> 넘는 조건이 이제 재현 가능하고, 30분 예열도 실리콘 운도 필요 없다.
+> **Strong heterogeneity can be produced deterministically.** The condition that
+> clears S0-C §17.2's gate (2.0×) is now reproducible, with no 30-minute preheat
+> and no silicon luck required.
 
-### 5.2 부수 관측 — RR 에서 느린 노드가 빠른 노드를 놀린다
+### 5.2 Side observation — under RR a slow node idles the fast ones
 
-캡을 내릴수록 **king 은 느려지는데 jack·queen 은 오히려 빨라진다.**
+As the cap comes down, **king gets slower while jack and queen actually get
+faster.**
 
 ```text
-king  캡 2208  83.8ms  ->  캡 600  213.5ms   (2.5배 느려짐)
-jack  캡 2208  86.6ms  ->  캡 600   54.4ms   (1.6배 빨라짐)
-queen 캡 2208  89.4ms  ->  캡 600   54.5ms   (1.6배 빨라짐)
+king  cap 2208  83.8ms  ->  cap 600  213.5ms   (2.5x slower)
+jack  cap 2208  86.6ms  ->  cap 600   54.4ms   (1.6x faster)
+queen cap 2208  89.4ms  ->  cap 600   54.5ms   (1.6x faster)
 ```
 
-c36 고정에 RR 이면 클라이언트 슬롯 36개가 세 노드에 균등 분배된다.
-king 이 느려지면 **더 많은 슬롯이 king 을 기다리며 묶이고**, 그만큼
-jack·queen 에 동시에 떠 있는 요청이 줄어 둘은 저부하가 된다.
-p50 54ms 는 놀고 있다는 뜻이다.
+At fixed c36 with RR, the client's 36 slots are split evenly across three nodes.
+When king slows, **more slots are tied up waiting on king**, so fewer requests
+are in flight on jack and queen and those two run underloaded. A p50 of 54 ms
+means they are idling.
 
-즉 캡 600 의 처리량 손실 **−18%**(388.1 → 318.4)는 king 의 능력 저하
-그 자체가 아니라 **RR 이 놀고 있는 두 노드를 못 쓰는 몫**을 포함한다.
-adaptive 정책이 회수할 수 있는 상한이 여기 있다. S0-A 에서 관측된
-"king 이 2.4배 느린데 요청은 정확히 1/3" 과 같은 현상이며, 이번엔
-**편차를 지정해 그 크기를 조절할 수 있다.**
+So the −18% throughput loss at cap 600 (388.1 → 318.4) is not king's capacity
+loss alone; it includes **the share RR fails to use from the two idling nodes.**
+The ceiling on what an adaptive policy can recover is right there. It is the same
+phenomenon S0-A observed — "king is 2.4× slower and requests are still exactly
+1/3" — except that this time **the spread can be specified and its size dialled.**
 
-## 6. 2단계 정책 A/B — **Future Work (지금 하지 않는다)**
+## 6. Stage 2 policy A/B — **future work (not being done now)**
 
-교정이 대응표를 주었으므로 언제든 돌릴 수 있다. 다만 **지금 우선순위가
-아니다** — ECT 와 LQ 의 우열은 NPUDure 의 핵심 결론을 바꾸지 않기
-때문이다(§7). 본선은 S3.9b 다.
+Calibration produced the mapping, so it can be run at any time. But **it is not
+the priority right now** — which of ECT and LQ wins does not change NPUDure's
+central conclusion (§7). The main line is S3.9b.
 
-돌릴 때의 설계:
+The design when it is run:
 
 ```bash
-# 캡 1200 / 1008 / 816 / 600  =  편차 1.33 / 1.79 / 2.26 / 3.93x
-# 정책 3종 x 4 편차 x 3 run, 팬 ON 이라 예열 불필요 — 약 40분
+# caps 1200 / 1008 / 816 / 600  =  spreads 1.33 / 1.79 / 2.26 / 3.93x
+# 3 policies x 4 spreads x 3 runs; fan ON so no preheat - about 40 minutes
 ```
 
-- 판정 밴드는 S0-C §17.3 을 그대로 쓴다 (처리량 2%, p99 5%).
-- 가설: **편차가 커질수록 ECT 의 처리량 우위가 커진다.** 커지지 않으면
-  ECT 의 설계 근거(서비스 속도 반영)가 실측으로 반박된다.
-- 편차를 **연속 변수로** 다루므로 "2.4배에서 어느 쪽" 보다 강한 결론이
-  나온다 — 우위가 편차에 대해 단조 증가하는지를 본다.
+- The decision bands are taken unchanged from S0-C §17.3 (throughput 2%, p99 5%).
+- Hypothesis: **ECT's throughput advantage grows as the spread widens.** If it
+  does not, ECT's design rationale (reflecting service rate) is refuted by
+  measurement.
+- Because the spread is treated as **a continuous variable**, the conclusion is
+  stronger than "which one at 2.4×" — it asks whether the advantage increases
+  monotonically with the spread.
 
-## 7. 이 계보의 현재 결론
+## 7. Where this lineage currently stands
 
-교정까지의 결과를 정책 계보 전체와 합치면 이렇다.
+Combining the calibration result with the policy lineage as a whole:
 
-1. **RR 은 이질성에 취약하다.** 느린 노드에도 1/3 을 계속 보내고,
-   이질 조건에서 tail 의 예측 가능성까지 무너진다(p99 SD 34.7 vs ~1).
-2. **fresh-state adaptive scheduling 이 RR 의 tail 을 크게 개선한다.**
-   p99 −37%, 노드 지연 편차 1.33× → 1.00× (S0-C §9).
-3. **LQ 와 ECT 는 둘 다 정상 동작한다.** 두 조건 모두 regression 없음.
-4. **강한 이질에서 ECT 가 우위인지는 미확정이다.**
-5. **그러나 그 우열은 NPUDure 의 핵심 결론을 바꾸지 않는다.** 핵심은
-   "상태 신선도를 고친 부하 인지 스케줄링이 이질을 흡수한다" 이고,
-   그것은 LQ·ECT 어느 쪽으로도 성립한다. 기본값은 `ect` 를 유지한다.
-6. **S0-D 가 남긴 것은 답이 아니라 fixture 다** — 그 질문을 언제든
-   **재현 가능하게** 시험할 수 있는 장치.
+1. **RR is vulnerable to heterogeneity.** It keeps sending 1/3 to a slow node,
+   and under heterogeneity even the predictability of the tail collapses
+   (p99 SD 34.7 vs ~1).
+2. **Fresh-state adaptive scheduling improves RR's tail markedly.** p99 −37%,
+   node latency spread 1.33× → 1.00× (S0-C §9).
+3. **LQ and ECT both work.** No regression under either condition.
+4. **Whether ECT wins under strong heterogeneity is undetermined.**
+5. **But that outcome does not change NPUDure's central conclusion.** The core
+   is "load-aware scheduling with state freshness fixed absorbs heterogeneity",
+   and that holds with either LQ or ECT. The default stays `ect`.
+6. **What S0-D leaves behind is not an answer but a fixture** — apparatus for
+   testing that question **reproducibly**, whenever.
 
 ---
 
 ## Figure
 
-![캡 → 편차 대응. 816 MHz 가 S0-A(2.4×)를 재현한다](../results/capacity-calib-20260821/figures/fig_capacity_calibration.png)
+![Cap to spread mapping. 816 MHz reproduces S0-A (2.4x)](../results/capacity-calib-20260821/figures/fig_capacity_calibration.png)
 
-**`fig_capacity_calibration.png`** — 캡 → 편차 대응. 816 MHz 가 S0-A(2.4×)를 재현한다
+**`fig_capacity_calibration.png`** — cap → spread mapping; 816 MHz reproduces
+S0-A (2.4×)
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`
 
 ---
 
 <a id="experiments-s0-sustained-load"></a>
 
-# S0 — Sustained Load (조건 A 팬리스 / 조건 B 능동 냉각)
+# S0 — Sustained Load (condition A fanless / condition B active cooling)
 
-- 실험 ID: **S0-A · S0-B**
-- 측정일: 2026-08-21
-- 코드: `bb3f7ab` + `[transport] node_connections = 2`
-- 상태: **둘 다 완료** (각 30 run × 60초 ≈ 31분 연속)
-- 원본: [`../../results/sustained-20260821-fan/`](../results/sustained-20260821-fan) ·
+*[한국어 원문](experiments/S0_SUSTAINED_LOAD.ko.md)*
+
+- Experiment ID: **S0-A · S0-B**
+- Measured: 2026-08-21
+- Code: `bb3f7ab` + `[transport] node_connections = 2`
+- Status: **both complete** (30 runs × 60 s each ≈ 31 minutes continuous)
+- Raw data: [`../../results/sustained-20260821-fan/`](../results/sustained-20260821-fan) ·
   [`../../results/sustained-20260821-fanless/`](../results/sustained-20260821-fanless)
-- 선행: [`S3_8_OPTIMIZED_SCALEOUT.md`](#experiments-s3-8-optimized-scaleout)
+- Predecessor: [`S3_8_OPTIMIZED_SCALEOUT.md`](#experiments-s3-8-optimized-scaleout)
 
 ---
 
 ## 1. Research Question
 
-> **short-run operating point 가 sustained 부하에서도 유지되는가?
-> 그리고 그 답이 냉각 조건에 얼마나 의존하는가?**
+> **Does the short-run operating point hold under sustained load? And how much
+> does that answer depend on the cooling condition?**
 
-지금까지의 **모든** 측정이 60초 이하 = throttling 발현 전 구간이었다.
+**Every** measurement so far has been 60 seconds or less — the region before
+throttling appears.
 
 ```text
-short-run operating point    60초 이하 benchmark 기준
-sustained operating point    thermal steady-state 기준
+short-run operating point    based on benchmarks of 60 s or less
+sustained operating point    based on thermal steady state
 ```
 
 ## 2. Method
 
-- 운영점 그대로: **3노드, 노드당 커넥션 2개, c36**(= 노드당 c12).
-- **60초 run × 30회 연속**, 노드·스케줄러 **재기동 없음**.
-- 세 보드 `thermal-logger.sh` **1초 간격** — 온도 4종, CPU MHz, NPU MHz, 전압.
-- run 마다 **응답 노드 수와 NPU 최대 온도**를 기록. 팬리스에서 노드가 임계
-  (degraded 80 / disable 90°C)에 걸려 제외되면 처리량 하락이 throttling 이
-  아니라 **노드 수 감소** 때문이다. 둘을 구분해야 한다.
-- 판정 규칙은 **측정 전에** 정했다: `steady = 마지막 1/3 평균`,
-  `degradation = 1 − steady/peak`. <3% 없음 / 3~10% 경미 / >10% 뚜렷.
-- 두 조건의 **유휴 시작 온도가 비슷**하다(팬 40.7~41.6°C, 팬리스 38.8~40.7°C).
-  유휴에서는 팬 효과가 작아 시작점이 맞춰진 공정한 A/B 다.
+- The operating point as-is: **3 nodes, 2 connections per node, c36** (= c12 per
+  node).
+- **60-second runs × 30 consecutively**, with **no restart** of nodes or
+  scheduler.
+- `thermal-logger.sh` on all three boards at **1-second intervals** — four
+  temperatures, CPU MHz, NPU MHz, voltage.
+- Each run records **the number of responding nodes and peak NPU temperature**.
+  If a node is excluded fanless by hitting a threshold (degraded 80 / disable
+  90 °C), the throughput drop is a **reduction in node count**, not throttling.
+  The two have to be distinguished.
+- The decision rule was fixed **before measuring**: `steady = mean of the last
+  third`, `degradation = 1 − steady/peak`. <3% none / 3–10% slight / >10%
+  pronounced.
+- The two conditions **start from similar idle temperatures** (fan 40.7–41.6 °C,
+  fanless 38.8–40.7 °C). At idle the fan does little, so this is a fair A/B with
+  matched starting points.
 
 ## 3. Results
 
-오류율 **양쪽 전 구간 0**. **노드 제외 0건** (팬리스도 90°C 임계에 닿지 않았다).
+Error rate **0 throughout in both**. **Zero node exclusions** (even fanless
+never reached the 90 °C threshold).
 
-| | **B: 능동 냉각** | **A: 팬리스** |
+| | **B: active cooling** | **A: fanless** |
 |---|---:|---:|
 | peak | 387.7 | 389.4 |
-| **steady (뒤 1/3)** | **380.3 ± 2.2** | **345.4 ± 3.8** |
+| **steady (last third)** | **380.3 ± 2.2** | **345.4 ± 3.8** |
 | **degradation** | **1.9%** | **11.3%** |
-| soc 최대 | 58.2 ~ 61.0°C | **85.9 ~ 86.8°C** |
-| npu 최대 | 59.2 ~ 61.0°C | **86.8 ~ 87.8°C** |
-| **CPU 최저** | **2208 MHz (강등 0회)** | **816 / 1200 / 1416 MHz** |
-| NPU 최저 | 950 MHz | **950 MHz (강등 없음)** |
-| 노드 제외 | 0 | 0 |
+| soc max | 58.2 – 61.0 °C | **85.9 – 86.8 °C** |
+| npu max | 59.2 – 61.0 °C | **86.8 – 87.8 °C** |
+| **CPU minimum** | **2208 MHz (0 downgrades)** | **816 / 1200 / 1416 MHz** |
+| NPU minimum | 950 MHz | **950 MHz (no downgrade)** |
+| Node exclusions | 0 | 0 |
 
-시간 추이:
+Over time:
 
-| t+분 | B 처리량 | A 처리량 | A vs peak |
+| t+min | B throughput | A throughput | A vs peak |
 |---:|---:|---:|---:|
 | 1 | 387.7 | 389.4 | 100.0% |
 | 5 | 385.8 | 380.9 | 97.8% |
@@ -8862,139 +8892,150 @@ sustained operating point    thermal steady-state 기준
 
 ## 4. Interpretation
 
-### 4.1 냉각이 운영점을 지키고 있었다
+### 4.1 Cooling was holding the operating point up
 
-능동 냉각에서는 **1.9%** — 판정 규칙상 "열화 없음". 클럭 강등이 보드당
-1,660여 샘플 전부에서 **0회**다. 온도는 5분 내 58~61°C 평탄역에 들고
-임계치까지 20°C 이상 여유가 있다.
+Under active cooling: **1.9%** — "no degradation" by the decision rule. Clock
+downgrades number **zero** across all ~1,660 samples per board. Temperature
+reaches a 58–61 °C plateau within five minutes, with over 20 °C of headroom to
+the threshold.
 
-**팬을 빼면 11.3%.** 두 운영점이 갈라진다.
+**Remove the fan and it is 11.3%.** The two operating points diverge.
 
 ```text
-short-run operating point                   3N 387~389 inf/s
-sustained operating point (능동 냉각)       3N 380.3      (−1.9%)
-sustained operating point (팬리스)          3N 345.4      (−11.3%)
+short-run operating point                       3N 387-389 inf/s
+sustained operating point (active cooling)      3N 380.3      (-1.9%)
+sustained operating point (fanless)             3N 345.4      (-11.3%)
 ```
 
-> **"throttling 이 있다/없다" 는 조건과 함께 써야 한다.** 같은 하드웨어,
-> 같은 운영점, 같은 부하인데 냉각 하나로 결론이 바뀐다.
+> **"There is / is not throttling" has to be written with its conditions.**
+> Same hardware, same operating point, same load — and cooling alone changes the
+> conclusion.
 
-### 4.2 NPU 는 한 번도 강등되지 않았다 — 강등된 것은 CPU 다
+### 4.2 The NPU was never downgraded — what was downgraded is the CPU
 
-**양쪽 조건 모두 NPU 950 MHz 고정.** 팬리스에서 NPU 온도가 87.8°C 까지
-올라도 클럭은 안 떨어졌다.
+**The NPU stayed pinned at 950 MHz in both conditions.** Fanless, even with NPU
+temperature reaching 87.8 °C, the clock did not drop.
 
-강등된 것은 CPU 다. 그리고 **보드마다 다르다.**
+What was downgraded is the CPU. And **it differs per board.**
 
-| 보드 | CPU 최저 | soc 최대 |
+| Board | CPU minimum | soc max |
 |---|---:|---:|
-| **king** | **816 MHz** (−63%) | 86.8°C |
-| jack | 1200 MHz (−46%) | 86.8°C |
-| queen | 1416 MHz (−36%) | 85.9°C |
+| **king** | **816 MHz** (−63%) | 86.8 °C |
+| jack | 1200 MHz (−46%) | 86.8 °C |
+| queen | 1416 MHz (−36%) | 85.9 °C |
 
-worklog 가 "throttling 을 NPU 클럭만으로 판정했다" 를 네 번째 실수로 기록한
-바로 그 지점이다(discuss §3.1). **이번 측정이 그 교훈을 재확인한다.**
+This is precisely the point the worklog recorded as its fourth mistake —
+"judging throttling by NPU clock alone" (discuss §3.1). **This measurement
+re-confirms that lesson.**
 
-### 4.3 진짜 발견 — round-robin 이 강등된 노드를 그대로 때린다
+### 4.3 The real finding — round-robin keeps hitting the downgraded node
 
-팬리스 마지막 5 run 의 **노드별** 지연이다.
+Per-node latency over the last 5 fanless runs:
 
-| | p50 | p95 | **분배** |
+| | p50 | p95 | **share** |
 |---|---:|---:|---:|
 | jack | 64.7 | 107.0 | **33.3%** |
 | **king** | **156.9** | **313.9** | **33.3%** |
 | queen | 66.0 | 107.4 | **33.3%** |
 
-**king 이 다른 두 노드보다 2.4배 느린데 요청은 정확히 1/3 씩 간다.**
-round-robin 은 부하도 상태도 보지 않기 때문이다.
+**king is 2.4× slower than the other two and still receives exactly one third of
+the requests.** Round-robin looks at neither load nor state.
 
-능동 냉각에서는 세 노드가 85.2~90.3 ms 로 고르다. 팬리스에서만 갈라진다.
+Under active cooling the three nodes sit evenly at 85.2–90.3 ms. They diverge
+only when fanless.
 
-그리고 queen·jack 은 팬리스에서 **오히려 빨라졌다**(85~90 → 65~66 ms).
-전체 처리량이 떨어져 노드당 부하가 줄었기 때문이다.
+And queen and jack actually got **faster** fanless (85–90 → 65–66 ms), because
+total throughput fell and with it the per-node load.
 
-> 지연이 크게 낮아진 것은 **queue pressure 가 줄었다는 강한 신호**이지만,
-> "놀고 있다" 로 단정하려면 노드별 **CPU idle 또는 outstanding queue depth**
-> 가 필요하다. 이번 측정에는 없다 — S0-C 에서 함께 남긴다.
+> The large latency drop is **a strong signal that queue pressure fell**, but
+> concluding "they are idling" would need per-node **CPU idle or outstanding
+> queue depth**. This measurement has neither — S0-C records them alongside.
 
-> ⚠️ **여기까지가 관측이고, 아래는 가설이다.**
+> ⚠️ **Everything to this point is observation; what follows is hypothesis.**
 >
-> **확인된 것**
-> - 열 편차가 있다 (CPU 816 / 1200 / 1416 MHz)
-> - king 의 service capacity 가 실제로 낮다 (p50 2.4배)
-> - RR 이 느려진 king 에도 33.3% 를 계속 보낸다
+> **Confirmed**
+> - There is a thermal spread (CPU 816 / 1200 / 1416 MHz)
+> - king's service capacity really is lower (p50 2.4×)
+> - RR keeps sending 33.3% to the slowed king
 >
-> **아직 아닌 것**
-> - "팬리스 손실 = 열 편차 × 부하 무인지 정책" — 정책을 바꿨을 때 손실이
->   **실제로 회수돼야** 마지막 인과고리가 닫힌다.
+> **Not yet**
+> - "fanless loss = thermal spread × load-blind policy" — the final causal link
+>   closes only when changing the policy **actually recovers** the loss.
 >
-> 저장소에 `least-queue` 와 `ect` 가 구현돼 있으나 실장비 검증이 없다.
-> **S0-C 가 이 고리를 닫는다**(§8).
+> `least-queue` and `ect` are implemented in the repository but have no
+> validation on real hardware. **S0-C closes this link** (§8).
 >
-> 반대 결과도 중요하다 — 정책을 켜도 분배가 1/3 로 유지되거나 성능이
-> 그대로라면, **현재 정책의 상태 신호가 thermal-induced capacity
-> degradation 을 감지하지 못한다**는 뜻이다.
+> A negative result matters too — if the split stays at 1/3 or performance is
+> unchanged with the policies on, that means **the current policies' state
+> signal does not detect thermal-induced capacity degradation.**
 
-### 4.4 원래 −27% 와의 관계
+### 4.4 Relation to the original −27%
 
-| | 원래(discuss §12) | 이번 S0-A |
+| | Original (discuss §12) | This S0-A |
 |---|---|---|
-| 부하 | 로컬 8스레드 (CPU 포화) | 클러스터 (CPU 여유) |
-| 냉각 | 팬리스 | 팬리스 |
-| NPU 온도 | 90.4°C | 87.8°C |
-| CPU 강등 | 2208 → **816 MHz** | 2208 → **816 MHz** (king) |
-| 결과 | **−27%** | **−11.3%** |
+| Load | local, 8 threads (CPU saturated) | cluster (CPU headroom) |
+| Cooling | fanless | fanless |
+| NPU temperature | 90.4 °C | 87.8 °C |
+| CPU downgrade | 2208 → **816 MHz** | 2208 → **816 MHz** (king) |
+| Result | **−27%** | **−11.3%** |
 
-**CPU 는 똑같이 816 MHz 까지 떨어졌다.** 그런데 손실은 절반 이하다.
-클러스터 운전은 보드 CPU 가 49~63% 유휴라(S3.5, S3.7c) 강등의 영향을 덜
-받고, 세 보드 중 한 대만 최악으로 떨어졌기 때문이다.
+**The CPU fell to the same 816 MHz.** Yet the loss is less than half. Cluster
+operation leaves the board CPU 49–63% idle (S3.5, S3.7c) so it is less affected
+by the downgrade, and only one of the three boards fell to the worst case.
 
-→ **−27% 는 틀리지 않았다. 조건이 다를 뿐이다.**
+→ **−27% was not wrong. The conditions were different.**
 
 ## 5. Limitations
 
-- **부하 인지 정책 미측정**(§4.3). round-robin 만 썼다. `least-queue`/`ect`
-  로 팬리스 손실이 얼마나 회수되는지는 **가설이며 검증 대상**이다.
-- 31분이다. 온도가 평탄역에 들었으므로 더 길어도 크게 다르지 않을 것으로
-  보이나 **추정**이다.
-- 실내 온도를 통제하지 않았다. 두 조건은 같은 날 연속 측정이다.
-- run 사이 2~4초 공백(§2).
-- 3노드 운영점 하나만. 1N/2N 은 미측정.
-- 팬리스에서도 90°C 임계에 닿지 않아 **노드 제외 동작은 검증되지 않았다.**
+- **Load-aware policies not measured** (§4.3). Only round-robin was used. How
+  much of the fanless loss `least-queue`/`ect` recover **is a hypothesis, and
+  the thing to be tested**.
+- This is 31 minutes. Temperature reached a plateau so longer runs are unlikely
+  to differ much, but that is an **estimate**.
+- Room temperature was not controlled. The two conditions were measured
+  back-to-back on the same day.
+- 2–4 second gaps between runs (§2).
+- One 3-node operating point only. 1N and 2N were not measured.
+- Even fanless never reached the 90 °C threshold, so **node-exclusion behaviour
+  is unverified.**
 
 ## 6. Reproduction
 
 ```bash
-bash scripts/run-sustained-load.sh 30 fan       # 조건 B
-bash scripts/run-sustained-load.sh 30 fanless   # 조건 A (팬 제거 후)
+bash scripts/run-sustained-load.sh 30 fan       # condition B
+bash scripts/run-sustained-load.sh 30 fanless   # condition A (fan removed)
 PYTHONIOENCODING=utf-8 python scripts/analyze-sustained.py \
     results/sustained-20260821-fanless
 ```
 
 ## 7. Conclusion
 
-**능동 냉각에서는 short-run 운영점이 sustained 에서도 유지된다**
-(degradation **1.9%**, 클럭 강등 0회). S2~S3.9a 의 60초 결과가 지속 운전에
-그대로 적용된다.
+**Under active cooling the short-run operating point holds under sustained load**
+(degradation **1.9%**, 0 clock downgrades). The 60-second results from S2 through
+S3.9a apply unchanged to continuous operation.
 
-**팬을 빼면 11.3% 로 벌어진다.** 강등된 것은 NPU 가 아니라 **CPU** 이고
-(950 MHz 고정 vs 2208 → 816 MHz), 그 정도가 보드마다 다르다.
+**Remove the fan and it widens to 11.3%.** What is downgraded is not the NPU but
+the **CPU** (pinned at 950 MHz vs 2208 → 816 MHz), and by different amounts per
+board.
 
-가장 값진 발견은 §4.3 이다 — **king 이 2.4배 느려졌는데 round-robin 은
-여전히 1/3 을 보낸다.** RR 입장에서 세 노드는 동일하지만 실제 service
-capacity 는 이미 동일하지 않다.
+The most valuable finding is §4.3 — **king became 2.4× slower and round-robin
+still sends it one third.** To RR the three nodes are identical; their actual
+service capacity already is not.
 
-**이것이 adaptive scheduling 의 시험장이다.** 부하 인지 정책의 실장비
-검증이 이로써 기능 항목에서 **성능 항목으로 승격**된다 → **S0-C**.
+**This is the proving ground for adaptive scheduling.** Validating load-aware
+policies on real hardware is hereby **promoted from a functional item to a
+performance item** → **S0-C**.
 
-다만 "손실 = 열 편차 × 정책" 은 **아직 가설**이다(§4.3 주). 정책을 바꿔
-손실이 회수되는 것을 봐야 인과가 닫힌다.
+That said, "loss = thermal spread × policy" is **still a hypothesis** (see the
+note in §4.3). Causality closes only once changing the policy is seen to recover
+the loss.
 
-## 8. 다음 — S0-C (팬을 켜기 전에 한다)
+## 8. Next — S0-C (do it before turning the fan back on)
 
-**능동 냉각에서는 세 노드가 거의 동질적이라 정책 차이가 사라질 가능성이
-크다.** 지금 팬리스 상태가 정책을 검증하기 가장 좋은 조건이다. 식히기 전에
-인과 검증까지 닫는다.
+**Under active cooling the three nodes are nearly homogeneous, so policy
+differences are likely to vanish.** The current fanless state is the best
+condition for validating the policies. Close the causal check before cooling
+down.
 
 | Policy | Throughput | p95 | p99 | king share | jack share | queen share |
 |---|---:|---:|---:|---:|---:|---:|
@@ -9002,30 +9043,33 @@ capacity 는 이미 동일하지 않다.
 | least-queue | ? | ? | ? | ? | ? | ? |
 | ect | ? | ? | ? | ? | ? | ? |
 
-보고 싶은 것은 단순한 처리량 상승이 아니다. 예를 들어 ECT 가
-`king 15% / jack 42% / queen 43%` 정도로 이동하면서 345 → 370~380 에
-가까워지면 이렇게 말할 수 있다.
+What we want to see is not simply higher throughput. If, for example, ECT shifts
+to something like `king 15% / jack 42% / queen 43%` while moving 345 towards
+370–380, then this can be said:
 
 > **Thermal heterogeneity reduces node capacity, and state-aware scheduling
 > recovers performance by adapting load allocation to heterogeneous service
 > rates.**
 
-설계상 지켜야 할 것:
-- **먼저 충분히 가열해 thermal steady-state 에 든 뒤** 비교한다. 정책마다
-  시작 온도가 다르면 정책 효과와 thermal drift 가 섞인다.
-- 정책 순서를 회전시킨다.
-- 처리량·p95·p99 외에 **노드별 분배와 노드별 지연**, 그리고 **노드별 CPU
-  idle** 을 함께 남긴다.
+Design constraints to respect:
+
+- **Heat thoroughly into thermal steady state first**, then compare. If the
+  starting temperature differs per policy, the policy effect and thermal drift
+  get mixed together.
+- Rotate the policy order.
+- Beyond throughput, p95 and p99, record **per-node distribution and per-node
+  latency**, plus **per-node CPU idle**.
 
 ---
 
 ## Figure
 
-![31분 연속 — 능동 냉각 −1.9% vs 팬리스 −11.3%](../results/sustained-20260821-fanless/figures/fig_sustained_thermal.png)
+![31 minutes continuous - active cooling -1.9% vs fanless -11.3%](../results/sustained-20260821-fanless/figures/fig_sustained_thermal.png)
 
-**`fig_sustained_thermal.png`** — 31분 연속 — 능동 냉각 −1.9% vs 팬리스 −11.3%
+**`fig_sustained_thermal.png`** — 31 minutes continuous; active cooling −1.9%
+vs fanless −11.3%
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`
 
 ---
 
@@ -11133,12 +11177,14 @@ Regenerate: `python scripts/make-experiment-figures.py`
 
 # S3 — Per-configuration Saturation
 
-- 실험 ID: **S3**
-- 측정일: 2026-08-20
-- 동결 commit: `1da69d4` (bench `254d560` 코드, S2 와 동일). 측정 중 무변경
-- 상태: **완료 (45 runs)**
-- 원본: [`../../results/saturation-20260820/raw/`](../results/saturation-20260820/raw) · 그래프: [`figures/fig3`](../results/saturation-20260820/figures/fig3_saturation_sweep.png)
-- 선행: [`S2_GRPC_BASELINE.md`](#experiments-s2-grpc-baseline)
+*[한국어 원문](experiments/S3_SATURATION.ko.md)*
+
+- Experiment ID: **S3**
+- Measured: 2026-08-20
+- Frozen commit: `1da69d4` (bench code `254d560`, same as S2). No changes during measurement
+- Status: **complete (45 runs)**
+- Raw data: [`../../results/saturation-20260820/raw/`](../results/saturation-20260820/raw) · figure: [`figures/fig3`](../results/saturation-20260820/figures/fig3_saturation_sweep.png)
+- Predecessor: [`S2_GRPC_BASELINE.md`](#experiments-s2-grpc-baseline)
 
 ---
 
@@ -11147,26 +11193,27 @@ Regenerate: `python scripts/make-experiment-figures.py`
 > **What is the maximum sustainable throughput (ceiling) of each cluster
 > configuration, and at what concurrency is it reached?**
 
-**S2 와 다른 질문이다.** S2 는 *동일 노드당 부하*(c = 8×N)에서 선형성을 봤다.
-S3 는 각 구성(1/2/3 node)의 **진짜 상한**을 concurrency 를 올려 탐색한다.
-두 실험을 섞지 않는다.
+**This is a different question from S2.** S2 looked at linearity under
+*identical per-node load* (c = 8×N). S3 explores each configuration's **true
+ceiling** (1/2/3 node) by raising concurrency. The two experiments are not
+mixed.
 
 ## 2. Method
 
-- concurrency sweep (노드당 부하를 넘겨 포화점까지):
+- Concurrency sweep, past per-node load and up to saturation:
   ```text
   1 node : c4, c8, c16, c32, c48
   2 node : c8, c16, c24, c32, c48
   3 node : c12, c24, c32, c48, c64
   ```
-- 각 point **3 runs, 30초**. 조건 순서 rotate. 총 45 runs.
-- 조건 고정은 S2 와 동일(INT8, want_float=0, performance, Active Cooling,
-  round-robin, worker 8, gRPC). 동결 유지.
-- 스크립트: [`scripts/run-saturation-sweep.sh`](../scripts/run-saturation-sweep.sh).
+- **3 runs of 30 s** per point. Condition order rotates. 45 runs total.
+- Fixed conditions match S2 (INT8, want_float=0, performance, active cooling,
+  round-robin, 8 workers, gRPC). The freeze holds.
+- Script: [`scripts/run-saturation-sweep.sh`](../scripts/run-saturation-sweep.sh).
 
 ## 3. Results — Saturation Curves
 
-3 runs 평균 (inf/s), SD 는 전부 ≤ 2.2:
+Mean of 3 runs (inf/s); every SD is ≤ 2.2:
 
 | concurrency | 1 node | 2 node | 3 node |
 |---:|---:|---:|---:|
@@ -11199,49 +11246,55 @@ S3 는 각 구성(1/2/3 node)의 **진짜 상한**을 concurrency 를 올려 탐
 | 2 node | 232.0 | 2.01× | 101% |
 | 3 node | 341.8 | **2.97×** | **99%** |
 
-S2 는 동일 부하에서의 선형성을, S3 는 최대 처리량에서의 선형성을 보였다.
-**두 각도에서 독립적으로 near-linear scaling 이 확인된다.** 3-node 상한
-341.8 inf/s 는 1-node 상한의 2.97배다.
+S2 showed linearity under identical load; S3 shows it at maximum throughput.
+**Near-linear scaling is confirmed independently from two angles.** The 3-node
+ceiling of 341.8 inf/s is 2.97× the 1-node ceiling.
 
-곡선의 세 구간:
-- **낮은 concurrency (미포화):** 왕복 지연(≈68 ms, S2 §7.4)에 막혀 처리량이
-  낮다. closed-loop 이라 동시 요청이 적으면 파이프라인이 비는 구간이다
-  (1N c4 = 84, 3N c12 = 252).
-- **plateau (포화):** 노드당 ~10–16 동시에서 최대. worker 8 을 파이프라인이
-  채우고 나면 더 올려도 오르지 않는다.
-- **과부하 (살짝 하락):** 더 올리면 큐잉만 늘어 소폭 감소(3N c32 341.8 →
-  c64 335.9). 오류는 여전히 0 — 스케줄러/노드 큐가 흡수한다.
+Three regions of the curve:
+
+- **Low concurrency (unsaturated):** throughput is held down by round-trip
+  latency (≈68 ms, S2 §7.4). Being closed-loop, too few in-flight requests
+  leave the pipeline empty (1N c4 = 84, 3N c12 = 252).
+- **Plateau (saturated):** maximum at roughly 10–16 concurrent per node. Once
+  the pipeline keeps the 8 workers fed, raising it further adds nothing.
+- **Overload (slight decline):** beyond that, only queueing grows and throughput
+  dips slightly (3N c32 341.8 → c64 335.9). Errors remain 0 — the scheduler and
+  node queues absorb it.
 
 ## 5. Limitations
 
-- S2 와 동일: 측정 시간 짧음(30초, throttling 전), Active Cooling 만,
-  closed-loop, 2노드 조합 하나(king+queen).
-- **S2 대비 duration 이 다르다(30 vs 60초).** ceiling 값(115/232/342)은
-  S2 의 c8/c16/c24(112.9/229.0/338.4)와 근접하나 완전 동일 조건은 아니다.
-  saturation 은 곡선 형태와 상한 위치가 목적이며, 절대값은 S2 를 우선한다.
-- ceiling 을 넘는 과부하 하락은 closed-loop 큐잉 효과다 — 열린 모델에서는
-  다르게 나타날 수 있다([`adrs/028`](../adrs/028-bench-run-validity.md)).
+- Same as S2: short measurement window (30 s, before throttling), active cooling
+  only, closed-loop, one 2-node combination (king+queen).
+- **The duration differs from S2 (30 vs 60 s).** The ceiling values
+  (115/232/342) are close to S2's c8/c16/c24 (112.9/229.0/338.4) but the
+  conditions are not identical. Saturation is about the shape of the curve and
+  where the ceiling sits; for absolute values, S2 takes precedence.
+- The decline past the ceiling is a closed-loop queueing effect — it may look
+  different under an open model
+  ([`adrs/028`](../adrs/028-bench-run-validity.md)).
 
 ## 6. Reproduction
 
 ```bash
-bash scripts/run-saturation-sweep.sh    # 45 run → server:/tmp/sat30
-python scripts/make-figures.py          # Figure 3 재생성
+bash scripts/run-saturation-sweep.sh    # 45 runs -> server:/tmp/sat30
+python scripts/make-figures.py          # regenerate Figure 3
 ```
-동결 commit `1da69d4`.
+Frozen commit `1da69d4`.
 
 ## 7. Raw Data & Conclusion
 
-- 원본 45건: [`../../results/saturation-20260820/raw/`](../results/saturation-20260820/raw)
-  (`sat_n{노드}_c{concurrency}_r{라운드}.json`)
+- 45 raw files: [`../../results/saturation-20260820/raw/`](../results/saturation-20260820/raw)
+  (`sat_n{nodes}_c{concurrency}_r{round}.json`)
 
-**Conclusion.** 각 구성의 처리량 상한은 1/2/3-node 에서 **115 / 232 / 342 inf/s**
-이며, 3-node 는 1-node 상한의 **2.97× (99%)** 로 **ceiling 기준으로도
-near-linear** 하다. 포화는 노드당 ~10–16 동시에서 일어난다. 이로써 S2 의
-선형 확장 결론이 최대 처리량 관점에서도 재확인됐다.
+**Conclusion.** The throughput ceiling of each configuration is
+**115 / 232 / 342 inf/s** at 1/2/3 nodes, and 3 nodes reach **2.97× (99%)** of
+the 1-node ceiling — **near-linear by the ceiling measure too**. Saturation
+occurs at roughly 10–16 concurrent per node. This re-confirms S2's linear-scaling
+conclusion from the maximum-throughput perspective.
 
-→ 다음: **S4 (io_uring)** — 이 baseline 과 동일 조건에서 payload-transfer
-경로(S2 §8: non-inference latency 의 94%) 비용을 얼마나 줄이는지 비교한다.
+→ Next: **S4 (io_uring)** — compare, under conditions identical to this
+baseline, how much it reduces the cost of the payload-transfer path (S2 §8: 94%
+of non-inference latency).
 
 ---
 

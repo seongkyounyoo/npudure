@@ -1,219 +1,239 @@
-# S0-D — Capacity Heterogeneity (결정론적 이질)
+# S0-D — Capacity Heterogeneity (deterministic)
 
-- 실험 ID: **S0-D**
-- 착수일: 2026-08-21
-- 상태: **1단계 교정 완료** (12 run, 오류 0). 2단계 정책 A/B 남음
-- 선행: [`S0_C_POLICY_AB.md`](S0_C_POLICY_AB.md) §18~19 · [`S0_SUSTAINED_LOAD.md`](S0_SUSTAINED_LOAD.md)
+*[한국어 원문](S0_D_CAPACITY_HETERO.ko.md)*
+
+- Experiment ID: **S0-D**
+- Started: 2026-08-21
+- Status: **stage 1 calibration complete** (12 runs, 0 errors). Stage 2 policy A/B outstanding
+- Predecessors: [`S0_C_POLICY_AB.md`](S0_C_POLICY_AB.md) §18–19 · [`S0_SUSTAINED_LOAD.md`](S0_SUSTAINED_LOAD.md)
 
 ---
 
 ## 1. Research Question
 
-> **노드간 capacity 편차가 커질수록 ECT 가 LQ 보다 유리해지는가?**
+> **Does ECT gain over LQ as the capacity spread between nodes widens?**
 
-S0-C 는 "편차가 있을 때 adaptive 가 RR 보다 낫다" 까지 닫았다(§11).
-남은 것은 **LQ 와 ECT 중 무엇을 기본값으로 둘 것인가** 이고, 두
-정책은 두 조건(이질 1.33× / 동질)에서 어느 쪽도 지배하지 못했다.
+S0-C closed the question as far as "adaptive beats RR when there is a spread"
+(§11). What remains is **which of LQ and ECT should be the default**, and across
+two conditions (heterogeneous 1.33× / homogeneous) neither dominated.
 
-ECT 를 기본값으로 둔 설계 근거는 **서비스 속도를 점수에 반영한다** 는
-것이다. 그렇다면 **편차가 커질수록 ECT 가 유리해져야 한다.** 이 실험은
-그 가설을 직접 시험한다. "2.4배에서 어느 쪽이 나은가" 보다 강한 질문이다.
+The design rationale for making ECT the default is that **it reflects service
+rate in its score**. If so, **ECT should gain as the spread widens.** This
+experiment tests that hypothesis directly. It is a stronger question than "which
+is better at 2.4×".
 
-## 2. 왜 열이 아니라 클럭을 조작하는가
+## 2. Why manipulate the clock rather than heat
 
-S0-C 4차에서 팬리스 연속 가열로 강한 이질을 재현하려다 실패했다(§18).
+The S0-C 4th attempt tried to reproduce strong heterogeneity through continuous
+fanless heating and failed (§18).
 
 ```text
-세 실험 모두 soc 86.8 / 85.9 / 86.8°C — 열 조건은 동일
-갈린 것은 CPU 강등의 보드간 편차뿐
+all three experiments: soc 86.8 / 85.9 / 86.8 C - thermal conditions identical
+what differed was only the board-to-board spread in CPU downgrade
 
-  클럭 편차  1.14x -> 1.50x -> 1.79x
-  지연 편차  1.10x -> 1.33x -> 2.40x     (S0-C 4차 / S0-C 2차 / S0-A)
+  clock spread    1.14x -> 1.50x -> 1.79x
+  latency spread  1.10x -> 1.33x -> 2.40x     (S0-C 4th / S0-C 2nd / S0-A)
 ```
 
-**열 조건은 이질의 필요조건이지 충분조건이 아니다.** 충분조건은 강등이
-보드마다 갈리는 것인데, 열 제어는 온도를 목표로 하지 편차를 목표로
-하지 않는다. 세 보드가 같은 온도에서 같이 내려가면 이질은 생기지 않고,
-그 갈림은 실리콘·기류·위치의 산물이라 **냉각으로 불러낼 수 없다.**
+**Thermal conditions are necessary for heterogeneity but not sufficient.** The
+sufficient condition is the downgrade differing per board, and thermal control
+targets temperature, not the spread. If all three boards come down together at
+the same temperature no heterogeneity appears, and that divergence is a product
+of silicon, airflow and position — **it cannot be summoned by cooling.**
 
-그래서 **열 제어가 쓰는 손잡이를 직접 잡는다.** 강등은
-`scaling_max_freq` 를 내리는 방식으로 구현돼 있다(측정 중 king 이
-`1008000` 으로 관측됐다). 같은 파일을 우리가 쓴다.
+So we take hold of **the handle thermal control itself uses.** The downgrade is
+implemented by lowering `scaling_max_freq` (king was observed at `1008000`
+during measurement). We use the same file.
 
-| | 열 유래 (S0-A/C) | **클럭 캡 (S0-D)** |
+| | Thermally induced (S0-A/C) | **Clock cap (S0-D)** |
 |---|---|---|
-| 재현성 | 실리콘 운에 의존 | **결정론적** |
-| 열 교란 | 정책 비교에 섞인다 | **팬 ON — 변수에서 뺀다** |
-| 편차 지정 | 불가 | **1.3× / 1.8× / 2.4× 로 지정** |
+| Reproducibility | depends on silicon luck | **deterministic** |
+| Thermal disturbance | mixes into the policy comparison | **fan ON — removed as a variable** |
+| Specifying the spread | not possible | **set to 1.3× / 1.8× / 2.4×** |
 
-대가: 열 유래가 아니므로 **thermal heterogeneity 라고 부를 수 없다.**
-capacity heterogeneity 다. 열 유래 이질에서 정책이 작동한다는 인과는
-S0-C 2차에서 이미 닫혔고, 지금 질문은 **편차 크기에 대한 정책의 반응**
-이므로 이 치환이 타당하다.
+The cost: since it is not thermally induced, **it cannot be called thermal
+heterogeneity.** It is capacity heterogeneity. The causal claim that the policies
+work under thermally induced heterogeneity was already closed in S0-C's 2nd
+round, and the present question is **how the policies respond to the size of the
+spread**, so the substitution is legitimate.
 
-## 3. Method — 1단계 교정
+## 3. Method — stage 1 calibration
 
 `scripts/run-capacity-calibration.sh`
 
-- **팬 ON**, 보드 유휴 42~47°C. 열 제어가 캡보다 낮게 내릴 이유가 없다.
-- 정책 **round-robin 고정** — 적응하지 않으므로 균등 부하 아래 raw
-  capacity 편차가 그대로 드러난다. S0-A 의 2.4× 도 같은 정의다.
-- king 의 CPU 캡을 사다리로: **2208 / 1608 / 1200 / 1008 / 816 / 600 MHz**
-  (`policy0`·`policy4` 양쪽, 각 그룹 상한으로 clamp)
-- 캡마다 c36 · 60초 × 2회. 3노드 · 커넥션 2/node — 운영점 그대로.
-- run 마다 `scaling_cur_freq` 를 되읽어 **캡이 부하 중에도 유지되는지**
-  확인한다. EXIT 트랩으로 중단돼도 king 을 강등된 채 남기지 않는다.
+- **Fan ON**, boards idle at 42–47 °C. Thermal control has no reason to go below
+  the cap.
+- Policy **fixed at round-robin** — it does not adapt, so raw capacity spread
+  shows through directly under an even load. S0-A's 2.4× uses the same
+  definition.
+- king's CPU cap on a ladder: **2208 / 1608 / 1200 / 1008 / 816 / 600 MHz**
+  (on both `policy0` and `policy4`, each clamped to its group ceiling)
+- Per cap: c36 · 60 s × 2. Three nodes, 2 connections/node — the operating point
+  as-is.
+- Each run reads `scaling_cur_freq` back to confirm **the cap holds under load**.
+  An EXIT trap makes sure an interruption does not leave king downgraded.
 
-**S0-A 의 클럭을 그대로 복제하지 않는 이유**: 열 로거가 `cpu4` 만
-기록해 리틀 코어 값을 모른다. 클럭을 맞추는 대신 **관측량(노드 p50
-편차)에 직접 맞추는** 편이 정직하다. 교정이 캡 → 편차 대응표를 준다.
+**Why S0-A's clocks are not simply replicated**: the thermal logger records only
+`cpu4`, so the little-core values are unknown. Rather than matching clocks, it
+is more honest to **match the observed quantity (per-node p50 spread)
+directly**. Calibration gives the cap → spread mapping.
 
-## 4. 사고 기록 — 첫 시도는 하네스 충돌로 폐기 (2026-08-21)
+## 4. Incident record — the first attempt was discarded to a harness collision (2026-08-21)
 
-첫 교정 시도의 **무캡 기준선이 197.4 inf/s** 로 나왔다(정상 391.2).
-노드 편차 2.73×, 다음 run 은 **오류율 82.4%**. "king·jack 만 느리다" 로
-보여 **클러스터 고장으로 오진하기 직전이었다.**
+The first calibration attempt produced an **uncapped baseline of 197.4 inf/s**
+(391.2 is normal). Node spread 2.73×, and the next run had an **82.4% error
+rate**. It looked like "only king and jack are slow" and **we were one step from
+misdiagnosing a cluster failure.**
 
-원인은 고장이 아니었다. **정책 A/B 하네스가 죽지 않고 살아 있었다.**
+The cause was not a failure. **The policy A/B harness had not died.**
 
 ```text
-믿은 것   TaskStop 으로 정책 A/B 하네스를 중단했다
-실제      래퍼 셸만 죽고 자식 bash 는 계속 돌았다
-결과      두 하네스가 같은 3노드를 각각 c36 으로 때렸다 (합 72)
+believed   the policy A/B harness was stopped via TaskStop
+actually   only the wrapper shell died; the child bash kept running
+result     two harnesses hitting the same 3 nodes at c36 each (72 combined)
 ```
 
-살아남은 하네스는 자기 설정(`scheduler-s0c.toml`)으로 **스케줄러를 계속
-재기동했다.** 그래서 내가 "기본 설정으로 복구" 한 것이 몇 초 뒤 덮여
-있었고, 그 사실이 보이지 않았다.
+The surviving harness kept **restarting the scheduler with its own
+configuration** (`scheduler-s0c.toml`). So the "restore to default settings"
+step was being overwritten seconds later, invisibly.
 
-**관측이 거짓말을 했다.** git-bash 에서 `ps -ef` 에 안 보였고 `pkill -f`
-도 못 잡았다. PowerShell `Get-CimInstance Win32_Process` 로만 보였다.
+**Observation lied.** In git-bash it did not appear in `ps -ef` and `pkill -f`
+could not catch it. Only PowerShell's `Get-CimInstance Win32_Process` showed it.
 
 ```powershell
 Get-CimInstance Win32_Process -Filter "Name='bash.exe'" |
   ? { $_.CommandLine -match 'scripts/run-' } | select ProcessId,CommandLine
 ```
 
-정리 후 재측정: **391.2 inf/s · p50 86.2 · 오류 0 · 편차 1.02×.**
-클러스터는 처음부터 멀쩡했다.
+After cleanup and re-measurement: **391.2 inf/s · p50 86.2 · 0 errors · spread
+1.02×.** The cluster had been fine all along.
 
-### 4.1 재발 방지
+### 4.1 Preventing recurrence
 
-`npuforge_assert_cluster_free`(`scripts/lib/remote.sh`)를 추가하고 정책
-A/B·capacity 교정 하네스 시작점에 배선했다. **서버에 `npuforge-bench`
-가 돌고 있으면 시작하지 않고 큰 소리로 멈춘다.**
+`npuforge_assert_cluster_free` (`scripts/lib/remote.sh`) was added and wired into
+the start of the policy A/B and capacity calibration harnesses. **If
+`npuforge-bench` is running on the server, it does not start — it stops loudly.**
 
-로컬 프로세스 확인이 아니라 **공유 자원 쪽에서 확인**하는 것이 핵심이다
-— 로컬 관측은 플랫폼에 따라 거짓말을 하지만, 서버에서 도는 벤치는
-거짓말을 하지 않는다.
+The point is verifying **at the shared resource** rather than checking local
+processes — local observation lies depending on the platform, but a bench
+running on the server does not.
 
-### 4.2 오염된 데이터
+### 4.2 Contaminated data
 
-- **첫 교정 시도 — 폐기.** 같은 조건에서 재측정했다(§5).
-- **4차 정책 A/B 진행분 — `results/policy-ab-20260821-contaminated/` 로
-  이름을 바꿔 보존한다.** 삭제하지 않는 이유는 이 사고 자체가 방법론
-  기록이기 때문이다(README §4.11). 해당 디렉터리 `README.md` 에 유효·무효
-  구간을 명시했다 — **유효한 것은 r1 round-robin 과 1초 열 로그뿐**이고,
-  S0-C §18 의 게이트 판정은 그 둘에만 근거하므로 영향받지 않는다.
+- **First calibration attempt — discarded.** Re-measured under the same
+  conditions (§5).
+- **The 4th policy A/B in progress — renamed to
+  `results/policy-ab-20260821-contaminated/` and kept.** It is not deleted
+  because the incident itself is a methodology record (README §4.11). That
+  directory's `README.md` states which parts are valid and which are not —
+  **only the r1 round-robin run and the 1-second thermal log are valid** — and
+  S0-C §18's gate verdict rests on just those two, so it is unaffected.
 
-> ⚠️ 4차 하네스가 **같은 날짜 경로를 재사용해 S0-C 1차 데이터(15 run)를
-> 덮어썼다.** `git checkout` 으로 복원했다. 하네스의 출력 경로가
-> `results/policy-ab-<날짜>` 라 하루에 두 번 돌리면 덮어쓴다 —
-> `NPUFORGE_SUFFIX` 를 쓰거나 기존 디렉터리가 있으면 멈춰야 한다.
+> ⚠️ The 4th harness **reused the same dated path and overwrote S0-C's 1st-round
+> data (15 runs).** It was restored with `git checkout`. The harness output path
+> is `results/policy-ab-<date>`, so running twice in a day overwrites — it must
+> use `NPUFORGE_SUFFIX` or stop when the directory already exists.
 
-## 5. Results — 교정 (12 run, 오류율 0)
+## 5. Results — calibration (12 runs, error rate 0)
 
-- 원본: [`../../results/capacity-calib-20260821/`](../../results/capacity-calib-20260821/)
-- 팬 ON, 보드 48~55°C. **열 제어는 전 구간 개입하지 않았다** — run 마다
-  되읽은 `scaling_cur_freq` 가 지정한 캡과 항상 일치했다.
+- Raw data: [`../../results/capacity-calib-20260821/`](../../results/capacity-calib-20260821/)
+- Fan ON, boards at 48–55 °C. **Thermal control never intervened** — the
+  `scaling_cur_freq` read back each run always matched the specified cap.
 
-| king 캡 (MHz) | throughput | king p50 | jack p50 | queen p50 | **편차** |
+| king cap (MHz) | throughput | king p50 | jack p50 | queen p50 | **spread** |
 |---:|---:|---:|---:|---:|---:|
-| 2208 (무캡) | 388.1 | 83.8 | 86.6 | 89.4 | **1.12×** |
+| 2208 (uncapped) | 388.1 | 83.8 | 86.6 | 89.4 | **1.12×** |
 | 1608 | 382.9 | 96.3 | 83.3 | 81.6 | **1.18×** |
 | 1200 | 379.6 | 103.6 | 83.3 | 77.7 | **1.33×** |
 | 1008 | 369.0 | 127.7 | 72.4 | 72.7 | **1.79×** |
 | **816** | **359.6** | **149.8** | **67.9** | **66.3** | **2.26×** |
 | 600 | 318.4 | 213.5 | 54.4 | 54.5 | **3.93×** |
 
-편차 재현성은 캡마다 2 run 이 ±0.05 이내로 붙었다(예: 816 → 2.30 / 2.22).
+Spread reproducibility: the 2 runs at each cap landed within ±0.05 of each other
+(e.g. 816 → 2.30 / 2.22).
 
-### 5.1 캡 816 이 S0-A 를 거의 그대로 재현한다
+### 5.1 A cap of 816 reproduces S0-A almost exactly
 
-| | king p50 | jack p50 | queen p50 | 편차 | throughput |
+| | king p50 | jack p50 | queen p50 | spread | throughput |
 |---|---:|---:|---:|---:|---:|
-| **S0-A** (열 유래, 팬리스 86°C) | 156.9 | 64.7 | 66.0 | **2.4×** | 345.4 |
-| **캡 816** (클럭, 팬 ON 50°C) | 150.9 | 67.3 | 65.6 | **2.30×** | 359.8 |
+| **S0-A** (thermal, fanless 86 °C) | 156.9 | 64.7 | 66.0 | **2.4×** | 345.4 |
+| **cap 816** (clock, fan ON 50 °C) | 150.9 | 67.3 | 65.6 | **2.30×** | 359.8 |
 
-세 노드 지연이 모두 **6ms 이내로 겹친다.** S0-A 에서 king 의 CPU
-**최저값이 816 MHz** 였다는 점과도 맞는다 — 열 강등이 밀어붙인 하한을
-우리가 직접 지정한 셈이다.
+All three node latencies **overlap within 6 ms.** It also fits the fact that
+king's **CPU minimum in S0-A was 816 MHz** — we specified directly the floor the
+thermal downgrade had pushed it to.
 
-> **강한 이질을 결정론적으로 만들 수 있다.** S0-C §17.2 의 게이트(2.0×)를
-> 넘는 조건이 이제 재현 가능하고, 30분 예열도 실리콘 운도 필요 없다.
+> **Strong heterogeneity can be produced deterministically.** The condition that
+> clears S0-C §17.2's gate (2.0×) is now reproducible, with no 30-minute preheat
+> and no silicon luck required.
 
-### 5.2 부수 관측 — RR 에서 느린 노드가 빠른 노드를 놀린다
+### 5.2 Side observation — under RR a slow node idles the fast ones
 
-캡을 내릴수록 **king 은 느려지는데 jack·queen 은 오히려 빨라진다.**
+As the cap comes down, **king gets slower while jack and queen actually get
+faster.**
 
 ```text
-king  캡 2208  83.8ms  ->  캡 600  213.5ms   (2.5배 느려짐)
-jack  캡 2208  86.6ms  ->  캡 600   54.4ms   (1.6배 빨라짐)
-queen 캡 2208  89.4ms  ->  캡 600   54.5ms   (1.6배 빨라짐)
+king  cap 2208  83.8ms  ->  cap 600  213.5ms   (2.5x slower)
+jack  cap 2208  86.6ms  ->  cap 600   54.4ms   (1.6x faster)
+queen cap 2208  89.4ms  ->  cap 600   54.5ms   (1.6x faster)
 ```
 
-c36 고정에 RR 이면 클라이언트 슬롯 36개가 세 노드에 균등 분배된다.
-king 이 느려지면 **더 많은 슬롯이 king 을 기다리며 묶이고**, 그만큼
-jack·queen 에 동시에 떠 있는 요청이 줄어 둘은 저부하가 된다.
-p50 54ms 는 놀고 있다는 뜻이다.
+At fixed c36 with RR, the client's 36 slots are split evenly across three nodes.
+When king slows, **more slots are tied up waiting on king**, so fewer requests
+are in flight on jack and queen and those two run underloaded. A p50 of 54 ms
+means they are idling.
 
-즉 캡 600 의 처리량 손실 **−18%**(388.1 → 318.4)는 king 의 능력 저하
-그 자체가 아니라 **RR 이 놀고 있는 두 노드를 못 쓰는 몫**을 포함한다.
-adaptive 정책이 회수할 수 있는 상한이 여기 있다. S0-A 에서 관측된
-"king 이 2.4배 느린데 요청은 정확히 1/3" 과 같은 현상이며, 이번엔
-**편차를 지정해 그 크기를 조절할 수 있다.**
+So the −18% throughput loss at cap 600 (388.1 → 318.4) is not king's capacity
+loss alone; it includes **the share RR fails to use from the two idling nodes.**
+The ceiling on what an adaptive policy can recover is right there. It is the same
+phenomenon S0-A observed — "king is 2.4× slower and requests are still exactly
+1/3" — except that this time **the spread can be specified and its size dialled.**
 
-## 6. 2단계 정책 A/B — **Future Work (지금 하지 않는다)**
+## 6. Stage 2 policy A/B — **future work (not being done now)**
 
-교정이 대응표를 주었으므로 언제든 돌릴 수 있다. 다만 **지금 우선순위가
-아니다** — ECT 와 LQ 의 우열은 NPUDure 의 핵심 결론을 바꾸지 않기
-때문이다(§7). 본선은 S3.9b 다.
+Calibration produced the mapping, so it can be run at any time. But **it is not
+the priority right now** — which of ECT and LQ wins does not change NPUDure's
+central conclusion (§7). The main line is S3.9b.
 
-돌릴 때의 설계:
+The design when it is run:
 
 ```bash
-# 캡 1200 / 1008 / 816 / 600  =  편차 1.33 / 1.79 / 2.26 / 3.93x
-# 정책 3종 x 4 편차 x 3 run, 팬 ON 이라 예열 불필요 — 약 40분
+# caps 1200 / 1008 / 816 / 600  =  spreads 1.33 / 1.79 / 2.26 / 3.93x
+# 3 policies x 4 spreads x 3 runs; fan ON so no preheat - about 40 minutes
 ```
 
-- 판정 밴드는 S0-C §17.3 을 그대로 쓴다 (처리량 2%, p99 5%).
-- 가설: **편차가 커질수록 ECT 의 처리량 우위가 커진다.** 커지지 않으면
-  ECT 의 설계 근거(서비스 속도 반영)가 실측으로 반박된다.
-- 편차를 **연속 변수로** 다루므로 "2.4배에서 어느 쪽" 보다 강한 결론이
-  나온다 — 우위가 편차에 대해 단조 증가하는지를 본다.
+- The decision bands are taken unchanged from S0-C §17.3 (throughput 2%, p99 5%).
+- Hypothesis: **ECT's throughput advantage grows as the spread widens.** If it
+  does not, ECT's design rationale (reflecting service rate) is refuted by
+  measurement.
+- Because the spread is treated as **a continuous variable**, the conclusion is
+  stronger than "which one at 2.4×" — it asks whether the advantage increases
+  monotonically with the spread.
 
-## 7. 이 계보의 현재 결론
+## 7. Where this lineage currently stands
 
-교정까지의 결과를 정책 계보 전체와 합치면 이렇다.
+Combining the calibration result with the policy lineage as a whole:
 
-1. **RR 은 이질성에 취약하다.** 느린 노드에도 1/3 을 계속 보내고,
-   이질 조건에서 tail 의 예측 가능성까지 무너진다(p99 SD 34.7 vs ~1).
-2. **fresh-state adaptive scheduling 이 RR 의 tail 을 크게 개선한다.**
-   p99 −37%, 노드 지연 편차 1.33× → 1.00× (S0-C §9).
-3. **LQ 와 ECT 는 둘 다 정상 동작한다.** 두 조건 모두 regression 없음.
-4. **강한 이질에서 ECT 가 우위인지는 미확정이다.**
-5. **그러나 그 우열은 NPUDure 의 핵심 결론을 바꾸지 않는다.** 핵심은
-   "상태 신선도를 고친 부하 인지 스케줄링이 이질을 흡수한다" 이고,
-   그것은 LQ·ECT 어느 쪽으로도 성립한다. 기본값은 `ect` 를 유지한다.
-6. **S0-D 가 남긴 것은 답이 아니라 fixture 다** — 그 질문을 언제든
-   **재현 가능하게** 시험할 수 있는 장치.
+1. **RR is vulnerable to heterogeneity.** It keeps sending 1/3 to a slow node,
+   and under heterogeneity even the predictability of the tail collapses
+   (p99 SD 34.7 vs ~1).
+2. **Fresh-state adaptive scheduling improves RR's tail markedly.** p99 −37%,
+   node latency spread 1.33× → 1.00× (S0-C §9).
+3. **LQ and ECT both work.** No regression under either condition.
+4. **Whether ECT wins under strong heterogeneity is undetermined.**
+5. **But that outcome does not change NPUDure's central conclusion.** The core
+   is "load-aware scheduling with state freshness fixed absorbs heterogeneity",
+   and that holds with either LQ or ECT. The default stays `ect`.
+6. **What S0-D leaves behind is not an answer but a fixture** — apparatus for
+   testing that question **reproducibly**, whenever.
 
 ---
 
 ## Figure
 
-![캡 → 편차 대응. 816 MHz 가 S0-A(2.4×)를 재현한다](../../results/capacity-calib-20260821/figures/fig_capacity_calibration.png)
+![Cap to spread mapping. 816 MHz reproduces S0-A (2.4x)](../../results/capacity-calib-20260821/figures/fig_capacity_calibration.png)
 
-**`fig_capacity_calibration.png`** — 캡 → 편차 대응. 816 MHz 가 S0-A(2.4×)를 재현한다
+**`fig_capacity_calibration.png`** — cap → spread mapping; 816 MHz reproduces
+S0-A (2.4×)
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`
