@@ -10,7 +10,7 @@
 > python scripts/build-adr-bundle.py $(git log -1 --format=%cs -- adrs/)
 > ```
 >
-> - 생성 기준: **미상** (`adrs/` 최종 커밋일)
+> - 생성 기준: **2026-09-02** (`adrs/` 최종 커밋일)
 > - 원본: `adrs/README.md`, `adrs/OVERVIEW.md`, ADR 28건, `adrs/TEMPLATE.md`
 > - 파일 간 링크는 문서 내 앵커로 바뀌어 있다
 
