@@ -9367,326 +9367,355 @@ that per-node overhead lies not in compute or the scheduler but in the
 
 # S3.5 — Transport Cost Profiling
 
-- 실험 ID: **S3.5** (+ **S3.5b** RPS A/B)
-- 측정일: 2026-08-20
-- 동결 commit: `01f29a2`. 노드·스케줄러·모델·bench **무변경**
-- 상태: **완료**
-- 원본: [`../../results/transport-profile-20260820/raw/`](../results/transport-profile-20260820/raw) ·
+*[한국어 원문](experiments/S3_5_TRANSPORT_PROFILE.ko.md)*
+
+- Experiment ID: **S3.5** (+ **S3.5b** RPS A/B)
+- Measured: 2026-08-20
+- Frozen commit: `01f29a2`. Node, scheduler, model and bench **unchanged**
+- Status: **complete**
+- Raw data: [`../../results/transport-profile-20260820/raw/`](../results/transport-profile-20260820/raw) ·
   [`../../results/rps-ab-20260820/`](../results/rps-ab-20260820)
-- 선행: [`S2_GRPC_BASELINE.md`](#experiments-s2-grpc-baseline), [`S3_SATURATION.md`](#experiments-s3-saturation)
-- 후속: **S3.6** (H2 / channel A/B — 이 문서가 남긴 ①②③을 가른다, §7)
+- Predecessors: [`S2_GRPC_BASELINE.md`](#experiments-s2-grpc-baseline), [`S3_SATURATION.md`](#experiments-s3-saturation)
+- Successor: **S3.6** (H2 / channel A/B — separates the ①②③ this document leaves open, §7)
 
 ---
 
 ## 1. Research Question
 
-> **노드당 상한 ~115 inf/s (로컬 direct ~160 대비 −30%) 를 실제로 무엇이
-> 누르고 있는가?**
+> **What is actually holding the per-node ceiling at ~115 inf/s (−30% against
+> ~160 for local direct)?**
 
-S2 는 이 손실이 **payload-transfer path** 에 있다는 것까지 밝혔다(non-inference
-latency 의 94%). 하지만 그 경로 안에서 *무엇이* 비용인지는 열려 있었다.
-후보는 최소 넷이다 — 링크 대역폭, 보드 CPU 총량, 커널 네트워크 스택,
-그리고 전송 계층 구조.
+S2 established that this loss lies in the **payload-transfer path** (94% of
+non-inference latency). But *what* within that path costs was left open. There
+are at least four candidates — link bandwidth, board CPU capacity, the kernel
+network stack, and the transport layer's structure.
 
-**S4(io_uring)를 시작하기 전에 이 질문이 먼저 닫혀야 한다.** io_uring 은
-syscall 과 복사 비용을 줄이는 도구다. 병목이 거기가 아니면 큰 구현을 하고도
-아무것도 못 얻는다. `01-TECHSPEC.md` §15.1 이 정한 순서(2.CPU profile →
-3.syscall·복사 비용 → 4.버퍼 풀 → 5.io_uring)에서 2~4 가 비어 있었다.
+**This question has to close before S4 (io_uring) starts.** io_uring is a tool
+for reducing syscall and copy costs. If the bottleneck is not there, a large
+implementation buys nothing. In the order `01-TECHSPEC.md` §15.1 lays out
+(2. CPU profile → 3. syscall/copy cost → 4. buffer pool → 5. io_uring), steps
+2–4 were empty.
 
-또한 §15.4 가 요구하는 지표(syscalls/req, ctx switches/req, cycles/req)는
-S4 의 **before** 기준값으로 어차피 필요한데 저장소에 하나도 없었다
-(S2 raw 30건에 CPU 항목 없음). 먼저 만들고 나서 재면 개선을 무엇에 귀속시킬
-근거가 없다.
+Also, the metrics §15.4 requires (syscalls/req, ctx switches/req, cycles/req)
+are needed anyway as S4's **before** baseline, and the repository had none of
+them (the 30 S2 raw files carry no CPU fields). Building first and measuring
+afterwards leaves nothing to attribute an improvement to.
 
 ## 2. Method
 
-같은 보드(king)에서 세 조건을 잰다. 냉각·governor·모델은 S2·S3 와 동일.
+Three conditions on the same board (king). Cooling, governor and model match S2
+and S3.
 
-| 조건 | 부하 | 의미 |
+| Condition | Load | Meaning |
 |---|---|---|
-| `idle` | 없음 | 계측기 자체의 바닥값 |
-| `cluster` | 1노드 클러스터 c32 | S3 ceiling 조건 |
-| `local` | 로컬 direct 8스레드 | 네트워크 경로가 통째로 빠진 조건 |
+| `idle` | none | the instrument's own floor |
+| `cluster` | 1-node cluster c32 | the S3 ceiling condition |
+| `local` | local direct, 8 threads | the network path removed entirely |
 
-`cluster` 와 `local` 의 차이가 곧 transport 가 보드에서 쓰는 비용이다.
+The difference between `cluster` and `local` is what transport costs on the
+board.
 
-- 부하 80초, 그 안쪽 **t+20 부터 45초**만 수집. 램프와 warmup 을 제외한다.
-- 보드에서는 `/proc` 원본만 떠 오고 계산은 개발 PC 에서 한다. 나중에 다른
-  각도로 다시 볼 수 있어야 한다.
-- 수집: `mpstat -P ALL`(코어별), `pidstat -t`(스레드별), `/proc/PID/io`
-  (syscr·syscw), `/proc/PID/task/*/status`(ctx switch), `/proc/net/dev`,
-  `/proc/interrupts`, `/proc/softirqs`.
-- 스크립트: [`run-transport-profile.sh`](../scripts/run-transport-profile.sh),
+- 80 s of load, collecting only **45 s from t+20** within it, excluding the ramp
+  and warmup.
+- Only raw `/proc` data is pulled from the board; the arithmetic happens on the
+  development PC, so it can be revisited from another angle later.
+- Collected: `mpstat -P ALL` (per core), `pidstat -t` (per thread),
+  `/proc/PID/io` (syscr, syscw), `/proc/PID/task/*/status` (ctx switch),
+  `/proc/net/dev`, `/proc/interrupts`, `/proc/softirqs`.
+- Scripts: [`run-transport-profile.sh`](../scripts/run-transport-profile.sh),
   [`node-profile-collect.sh`](../scripts/node-profile-collect.sh),
   [`analyze-transport-profile.py`](../scripts/analyze-transport-profile.py).
 
-> `perf` 는 보드에 없다(커널 6.1.141 vendor, apt 는 6.8 용만 제공).
-> cycles/req 는 PMU 값이 아니라 코어별 busy 시간 × 고정 클럭(A53 2016 /
-> A72 2208 MHz, governor=performance)으로 환산한 **근사값**이다.
+> `perf` is not on the board (kernel 6.1.141 vendor; apt only offers a 6.8
+> build). cycles/req is not a PMU value but an **approximation** from per-core
+> busy time × fixed clock (A53 2016 / A72 2208 MHz, governor=performance).
 
 ## 3. Results
 
-수집 창 45.1초, king, 팬, performance.
+45.1 s collection window, king, fan, performance.
 
 | | idle | cluster | local |
 |---|---:|---:|---:|
 | throughput (inf/s) | 0 | **116.6** | **159.1** |
-| **%idle (8코어 전체)** | 99.9 | **63.1** | 82.9 |
+| **%idle (all 8 cores)** | 99.9 | **63.1** | 82.9 |
 | %usr / %sys / %soft | 0.0 / 0.0 / 0.0 | 18.3 / 12.2 / 6.4 | 9.7 / 7.3 / 0.0 |
 | **CPU0 busy** | 0.3 | **69.7** | 21.5 |
 | **CPU0 %soft** | 0.0 | **51.5** | 0.0 |
 | eth0 RX / TX (Gbps) | 0 | **1.196 / 1.194** | 0 |
-| **링크 실측(2.34) 대비** | — | **51.1% / 51.0%** | — |
-| RX 패킷/s | 9 | 112,008 | 8 |
+| **vs measured link (2.34)** | — | **51.1% / 51.0%** | — |
+| RX packets/s | 9 | 112,008 | 8 |
 | NET_RX softirq/s | 10 | 10,954 | 8 |
 
-코어별 busy%:
+Per-core busy%:
 
 ```text
 cluster :  c0=70  c1=38  c2=37  c3=37  c4=30  c5=29  c6=27  c7=27
 local   :  c0=21  c1=19  c2=19  c3=19  c4=15  c5=15  c6=15  c7=15
 ```
 
-### 요청당 비용 (TECHSPEC §15.4 — S4 의 before 기준값)
+### Per-request cost (TECHSPEC §15.4 — S4's before baseline)
 
-| | cluster | local | 차이 |
+| | cluster | local | difference |
 |---|---:|---:|---:|
 | **syscalls/req** | **84.5** | ~0.0 | +84.5 |
 | ├ read/req | 0.1 | 0.0 | |
 | └ write/req | **84.4** | 0.0 | |
 | ctx switch/req (vol) | 157.6 | 221.6 | −64.0 |
 | ctx switch/req (nonvol) | 0.7 | 0.1 | |
-| 프로세스 CPU-ms/req | **22.2** | 9.0 | **+13.2** |
-| 보드 전체 CPU-ms/req | **25.3** | 8.6 | **+16.7** |
+| Process CPU-ms/req | **22.2** | 9.0 | **+13.2** |
+| Whole-board CPU-ms/req | **25.3** | 8.6 | **+16.7** |
 | ≈ Mcycles/req | 52.9 | 18.1 | +34.8 |
-| RX 패킷/req | 960.7 | 0 | |
+| RX packets/req | 960.7 | 0 | |
 
-transport 는 추론 1건당 보드 CPU 를 **약 2.9배** 쓰게 만든다(8.6 → 25.3 ms).
-write syscall 이 요청당 **84.4회** — 응답 1,218,000 byte 를 약 14.4 KB 씩
-쪼개 내보내고 있다(HTTP/2 프레임 크기와 일치).
+Transport makes each inference cost about **2.9×** the board CPU (8.6 → 25.3 ms).
+Write syscalls come to **84.4 per request** — the 1,218,000-byte response is
+being pushed out in roughly 14.4 KB pieces (matching the HTTP/2 frame size).
 
-## 4. 병목 후보를 하나씩 배제한다
+## 4. Ruling out bottleneck candidates one at a time
 
-### 4.1 링크 대역폭 — 아니다
+### 4.1 Link bandwidth — no
 
-2.5GbE 는 full-duplex 라 요청과 응답이 방향을 나눠 쓴다.
+2.5GbE is full-duplex, so request and response split the directions.
 
-| | 바이트/추론 | @116.6 inf/s | 실측 링크(2.34 Gbps) 대비 |
+| | bytes/inference | @116.6 inf/s | vs measured link (2.34 Gbps) |
 |---|---:|---:|---:|
-| RX (요청 640×640×3) | 1,228,800 | 1.196 Gbps | **51.1%** |
-| TX (응답 want_float=0) | 1,218,000 | 1.194 Gbps | **51.0%** |
+| RX (request 640×640×3) | 1,228,800 | 1.196 Gbps | **51.1%** |
+| TX (response want_float=0) | 1,218,000 | 1.194 Gbps | **51.0%** |
 
-방향당 절반이 남는다. `/proc/net/dev` 실측이 ADR-008 의 페이로드 크기와
-4.7% 오차(HTTP/2 + TCP/IP 헤더) 안에서 일치하므로 계산이 아니라 관측이다.
+Half is left in each direction. The `/proc/net/dev` measurement agrees with
+ADR-008's payload sizes to within 4.7% (HTTP/2 + TCP/IP headers), so this is an
+observation, not a calculation.
 
-서버 쪽 aggregation 도 아니다. 3노드에서 3.00× 선형 확장이 나왔으므로
-(S2 Finding 1) 공유 10G 링크와 스케줄러는 이 지점에서 병목이 아니다.
-**같은 이유로 서버·스케줄러 자체도 배제된다** — 1노드에서 116 을 못 넘기게
-하는 것이 서버였다면 3노드 342 가 나올 수 없다. 병목은 노드 쪽에 있다.
+Server-side aggregation is not it either. Three nodes scaled 3.00× linearly
+(S2 Finding 1), so the shared 10G link and the scheduler are not the bottleneck
+at this point. **By the same reasoning the server and scheduler themselves are
+excluded** — if the server were what kept one node under 116, three nodes could
+not reach 342. The bottleneck is on the node side.
 
-> ⚠️ **[2026-08-20 추가 — S3.8]** 이 배제는 **baseline(노드당 커넥션 1개)
-> 조건에서만 유효하다.** 노드당 커넥션을 2개로 올리자 shared path 부하가
-> 늘어 optimized 3N 의 scaling efficiency 가 **98.9% → 95.3%** 로 내려갔고,
-> 서버 10G 링크도 67% → **76%** 로 올라왔다. **서버·스케줄러는 다시 후보다.**
+> ⚠️ **[Added 2026-08-20 — S3.8]** This exclusion **holds only under the
+> baseline condition (1 connection per node).** Raising it to 2 connections per
+> node increased load on the shared path, dropping optimized 3N scaling
+> efficiency from **98.9% to 95.3%** and taking the server 10G link from 67% to
+> **76%**. **The server and scheduler are candidates again.**
 > → [S3.8 §4.3](#experiments-s3-8-optimized-scaleout)
 >
-> 배제 판정에는 **어떤 조건에서 배제됐는지**가 함께 붙어야 한다.
+> An exclusion verdict has to carry **the conditions it was reached under**.
 
-### 4.2 보드 CPU 총량 — 아니다
+### 4.2 Board CPU capacity — no
 
-8코어 전체 **63.1% idle**. 가장 바쁜 CPU0 도 30.3% 남는다.
+All 8 cores are **63.1% idle**. Even the busiest, CPU0, has 30.3% left.
 
-### 4.3 커널 softirq 편중 (CPU0) — **A/B 로 반증됨**
+### 4.3 Kernel softirq concentration (CPU0) — **refuted by A/B**
 
-프로파일은 CPU0 이 유독 바쁘다고 지목했다(busy 69.7%, 그중 %soft 51.5%.
-나머지 코어는 27~38%). eth0 는 **RX 큐 1개**, IRQ 는 CPU0 고정, **RPS 꺼짐**
-(`rps_cpus=00`, [`nic-topology.txt`](../results/transport-profile-20260820/raw/nic-topology.txt)).
-그래서 NET_RX softirq 가 전부 CPU0 에서 직렬 처리된다.
+The profile pointed at CPU0 as unusually busy (69.7% busy, of which 51.5%
+softirq; the other cores are 27–38%). eth0 has **one RX queue**, its IRQ is
+pinned to CPU0, and **RPS is off** (`rps_cpus=00`,
+[`nic-topology.txt`](../results/transport-profile-20260820/raw/nic-topology.txt)).
+So all NET_RX softirq work is serialized onto CPU0.
 
-코드 0줄로 검증 가능하므로 먼저 쟀다 — **S3.5b**: `rps_cpus` 를 `00`(CPU0만)
-과 `fe`(코어 1~7)로 번갈아, 각 3회 60초, c32.
+Since this is verifiable with zero lines of code, it was measured first —
+**S3.5b**: alternate `rps_cpus` between `00` (CPU0 only) and `fe` (cores 1–7),
+3 runs of 60 s each, c32.
 
 | rps_cpus | throughput | CPU0 %soft |
 |---|---:|---:|
-| `00` (기본) | **115.9 ± 0.7** | 50.4 / 50.9 / 51.3 |
-| `fe` (코어 1~7) | **115.6 ± 0.9** | 42.4 / 41.9 / 42.0 |
-| 차이 | **−0.3 inf/s (−0.2%)** | |
+| `00` (default) | **115.9 ± 0.7** | 50.4 / 50.9 / 51.3 |
+| `fe` (cores 1–7) | **115.6 ± 0.9** | 42.4 / 41.9 / 42.0 |
+| difference | **−0.3 inf/s (−0.2%)** | |
 
-**효과 없음.** softirq 는 실제로 이동했는데(51% → 42%) 처리량은 그대로다.
-CPU0 은 병목이 아니었다 — busy 69.7% 로 이미 30% 남아 있었던 것과 일치한다.
+**No effect.** The softirq work really did move (51% → 42%) and throughput did
+not change. CPU0 was not the bottleneck — consistent with it having 30% left at
+69.7% busy.
 
-> 이 null 결과는 §4.4 의 근거가 된다. RPS 는 **flow 해시**로 분산한다.
-> 흐름이 하나뿐이면 나눌 것이 없다. 그리고 실제로 흐름은 하나다.
+> This null result becomes the basis for §4.4. RPS distributes by **flow hash**.
+> With only one flow there is nothing to divide. And there is, in fact, one flow.
 
-### 4.4 HTTP/2 전송 경로 — **남는 것은 여기다**
+### 4.4 The HTTP/2 transport path — **this is what is left**
 
-부하 중 실제 TCP 연결을 셌다.
+The actual TCP connections were counted under load.
 
 ```text
-king  ← scheduler   : 1 connection   192.168.123.3:51001 ← 192.168.123.9:37992
-server: bench → scheduler : 32 connections (c32, 워커당 1개)
+king  <- scheduler       : 1 connection   192.168.123.3:51001 <- 192.168.123.9:37992
+server: bench -> scheduler : 32 connections (c32, one per worker)
 ```
 
-코드도 같은 말을 한다.
+The code says the same.
 
-- bench 는 **동시성 워커마다 채널을 하나씩** 만든다
+- The bench creates **one channel per concurrency worker**
   ([`driver.rs:83-90`](../crates/npuforge-bench/src/driver.rs)).
-- 스케줄러는 **노드당 채널 하나**를 캐시해 재사용한다
+- The scheduler caches and reuses **one channel per node**
   ([`node_client.rs:31-79`](../crates/npuforge-scheduler/src/node_client.rs)).
-  HTTP/2 다중화를 믿고 내린 결정이고, 요청마다 핸드셰이크를 피한다는
-  근거 자체는 옳다.
+  That decision trusts HTTP/2 multiplexing, and its rationale — avoiding a
+  handshake per request — is itself sound.
 
-결과적으로 **클라이언트 쪽 32 연결이 노드 앞에서 1 연결로 수렴한다.**
-동시 요청 32건이 전부 이 연결 하나의 HTTP/2 스트림으로 흐른다. 그 연결은
+The result is that **32 connections on the client side converge to 1 connection
+in front of the node.** All 32 concurrent requests flow through HTTP/2 streams
+on that single connection. And that connection:
 
-- h2 커넥션 상태 기계 하나가 직렬로 프레이밍한다(단일 태스크),
-- **64 KB 커넥션 flow-control window 하나를 32 스트림이 나눠 쓴다**
-  — tonic 0.12.3 / h2 0.4.15 에서 window 설정이 코드 어디에도 없어
-  전부 기본값(65,535)이다,
-- TCP 흐름이 하나라 RPS·RSS 로 나눌 수 없다(§4.3).
+- is framed serially by one h2 connection state machine (a single task),
+- has **one 64 KB connection flow-control window shared by 32 streams** — in
+  tonic 0.12.3 / h2 0.4.15 the window is set nowhere in the code, so everything
+  is at the default (65,535),
+- carries one TCP flow, so it cannot be split by RPS or RSS (§4.3).
 
-다만 **이 셋은 아직 한 덩어리다.** HTTP/2 는 원래 커넥션 하나에서 스트림을
-다중화하라고 만든 프로토콜이다. "커넥션이 1개" 라는 사실만으로 병목이라고
-단정할 수 없다. 최소한 셋으로 갈라야 한다.
+That said, **these three are still one lump.** HTTP/2 was designed precisely to
+multiplex streams over a single connection. The bare fact of "one connection"
+does not make it the bottleneck. It has to be split at least three ways.
 
-| 하위 후보 | 내용 |
+| Sub-candidate | Content |
 |---|---|
-| ① flow control | 64 KB 기본 window 가 1.2 MB 메시지를 stop-and-wait 로 만든다 |
-| ② 커넥션/TCP 경로 | h2 커넥션 상태 기계·소켓 하나가 직렬화 지점이다 |
-| ③ protobuf·복사 | 프레이밍과 encode/decode, `to_vec()` 복사 비용 |
+| ① flow control | the 64 KB default window turns a 1.2 MB message into stop-and-wait |
+| ② connection/TCP path | one h2 connection state machine and socket is a serialization point |
+| ③ protobuf and copies | framing, encode/decode, and the `to_vec()` copy cost |
 
-**S3.6 이 이 셋을 가른다**(§7). 아래 정합성은 "전송 경로가 의심된다" 까지를
-지지하는 것이지, 셋 중 어느 것인지를 지목하지 않는다.
+**S3.6 separates these three** (§7). The consistency below supports "the
+transport path is suspect" — it does not name which of the three.
 
-관측이 전부 이 그림과 맞는다.
+Every observation fits the picture.
 
-| 관측 | 단일 커넥션 가설과의 정합 |
+| Observation | Consistency with the single-connection hypothesis |
 |---|---|
-| 대역폭 51%, CPU 63% idle | 자원이 아니라 **대기**가 상한을 만든다 |
-| RPS 무효 | 흐름이 하나라 분산할 대상이 없다 |
-| `node_queue` ≈ 0.02 ms | 요청이 워커를 기다리는 게 아니라 **도착을 못 한다** |
-| 같은 보드 로컬 direct 8워커 = **161.5 inf/s** | 클러스터 116. 노드에 여유가 남는다 |
-| S3 plateau (노드당 c10~16 이후 무증가) | 스트림을 늘려도 커넥션 상한은 그대로 |
-| write syscall 84.4/req (≈14.4 KB) | 한 커넥션이 프레임 단위로 직렬 송신 |
+| Bandwidth 51%, CPU 63% idle | the ceiling comes from **waiting**, not resources |
+| RPS ineffective | one flow, nothing to distribute |
+| `node_queue` ≈ 0.02 ms | requests are not waiting for a worker; they **fail to arrive** |
+| Local direct, 8 workers, same board = **161.5 inf/s** | cluster is 116. The node has headroom |
+| S3 plateau (no gain past c10–16 per node) | adding streams leaves the connection ceiling unchanged |
+| Write syscalls 84.4/req (≈14.4 KB) | one connection transmitting serially, frame by frame |
 
-특히 **`node_queue` ≈ 0 과 로컬 direct 161.5 inf/s** 가 결정적이다. 노드가
-자기 상한(161.5)에 걸렸다면 c32 부하에서 워커 대기가 쌓여야 한다. 그런데
-`node_queue` 는 0.02 ms 다. 받은 것을 즉시 처리하고 여유가 남는다는 뜻이다.
-병목은 워커 풀 **앞**, 전송 계층에 있다.
+**`node_queue` ≈ 0 together with local direct at 161.5 inf/s** is decisive. Had
+the node hit its own ceiling (161.5), worker waiting would pile up under c32
+load. Instead `node_queue` is 0.02 ms. It processes what it receives
+immediately and has room left. The bottleneck is **in front of** the worker
+pool, in the transport layer.
 
-> ⚠️ **`8워커 / inference_us 24.7 ms ≈ 324 inf/s` 를 노드 용량으로 쓰면
-> 안 된다.** 같은 보드의 로컬 direct 8워커가 161.5 inf/s 에 그치므로 워커
-> 8개가 독립적으로 돌지 않는다 — RKNN 런타임·NPU 내부 경합이 이미 있다.
-> starvation 의 비교 기준은 **161.5** 다. 회수 가능한 gap 은 116 → 161.5,
-> 약 30% 이지 116 → 324 가 아니다.
+> ⚠️ **Do not use `8 workers / inference_us 24.7 ms ≈ 324 inf/s` as node
+> capacity.** Local direct with 8 workers on the same board tops out at
+> 161.5 inf/s, so the 8 workers do not run independently — there is already
+> contention inside the RKNN runtime and the NPU. The reference for starvation
+> is **161.5**. The recoverable gap is 116 → 161.5, about 30% — not 116 → 324.
 
 ## 5. Interpretation
 
-노드당 −30% 손실(116 → 161.5)의 정체는 **compute 도, 대역폭도, 커널 스택도
-아니라 스케줄러↔노드 HTTP/2 전송 경로**다. 그 경로 안에서 flow control /
-커넥션 / 직렬화 중 무엇인지는 **S3.6 에서 가른다.**
+The −30% per-node loss (116 → 161.5) is not compute, not bandwidth and not the
+kernel stack, but **the scheduler↔node HTTP/2 transport path**. Which of flow
+control, the connection, or serialization it is within that path **is separated
+in S3.6.**
 
-S2 Finding 2("오버헤드는 payload transfer path 에 있다")는 유효하다. S3.5 는
-그 경로 안에서 비용의 성격을 바꿔 놓는다 — **바쁜 비용이 아니라 기다리는
-비용**이다. 보드는 63% 놀고 링크는 49% 비어 있는데 처리량이 안 오른다.
+S2's Finding 2 ("the overhead is in the payload-transfer path") holds. S3.5
+changes the character of the cost within that path — **it is not a busy cost but
+a waiting cost.** The board is 63% idle and the link 49% empty, and throughput
+still does not rise.
 
 ## 6. Limitations
 
-- **§4.4 는 아직 반증 실패이지 증명이 아니다.** 다른 셋을 배제했고 모든
-  관측이 정합하지만, 커넥션 수나 window 를 바꿔 처리량이 오르는 것을
-  직접 보여야 확정된다. 그 검증은 코드 변경이 필요해 동결을 벗어난다.
-- 단일 보드(king), 단일 조건(c32, 45초 창). 3노드 프로파일은 없다.
-- cycles/req 는 PMU 없는 근사값(§2 주). 절대값이 아니라 조건 간 비교용.
-- `local` 조건의 도구(`sustained_load_test`)는 노드와 다른 프로그램이다.
-  지연 정의가 달라(50.2 ms vs `inference_us` 24.7 ms) 두 값을 직접 빼면
-  안 된다. 처리량과 CPU 점유만 비교했다.
-- S3.5b 는 `rps_cpus` 만 바꿨다. RSS(다중 RX 큐)는 r8125 단일 큐라 불가.
-- **S3.5b 의 per-run bench JSON 은 마지막 1건만 남았다.** 스크립트가 run
-  사이에 `rm -f *.json` 으로 출력 디렉터리를 비워 앞선 원본을 함께 지웠다
-  (수정 완료). 처리량·CPU0 %soft 는 `raw/results.csv` 와 `raw/mpstat_*` 에
-  6건 모두 남아 있어 §4.3 의 결론은 영향받지 않는다.
+- **§4.4 is a failure to refute, not a proof.** The other three were excluded
+  and every observation is consistent, but it is settled only by changing the
+  connection count or window and seeing throughput rise. That check needs code
+  changes and falls outside the freeze.
+- Single board (king), single condition (c32, 45 s window). There is no 3-node
+  profile.
+- cycles/req is an approximation without a PMU (note in §2). For comparison
+  between conditions, not as an absolute.
+- The `local` condition's tool (`sustained_load_test`) is a different program
+  from the node. Its latency definition differs (50.2 ms vs `inference_us`
+  24.7 ms), so the two must not be subtracted. Only throughput and CPU occupancy
+  were compared.
+- S3.5b changed only `rps_cpus`. RSS (multiple RX queues) is impossible on the
+  single-queue r8125.
+- **Only the last of S3.5b's per-run bench JSON files survived.** The script
+  cleared the output directory with `rm -f *.json` between runs and deleted the
+  earlier raw files with it (since fixed). Throughput and CPU0 %soft survive for
+  all six in `raw/results.csv` and `raw/mpstat_*`, so §4.3's conclusion is
+  unaffected.
 
-## 7. S4 에 대한 함의
+## 7. Implications for S4
 
-**io_uring 은 이 병목을 겨냥하지 않는다.** io_uring 이 줄이는 것은 syscall
-진입 비용과 복사다. 지금 보드는 CPU 가 63% 놀고 있으므로, syscall 을 더
-싸게 만들어도 상한이 오르지 않는다. TECHSPEC §15.3 이 적어 둔 비적용 조건
-("구현 복잡도 대비 개선이 5% 미만")에 정면으로 해당한다.
+**io_uring does not target this bottleneck.** What io_uring reduces is syscall
+entry cost and copies. The board's CPU is 63% idle, so making syscalls cheaper
+does not raise the ceiling. This falls squarely under the non-applicability
+condition TECHSPEC §15.3 records ("improvement under 5% against implementation
+complexity").
 
-측정된 비용 순서대로, 훨씬 싼 수단이 앞에 있다.
+In order of measured cost, much cheaper means come first.
 
-**io_uring 을 취소하는 것이 아니다.** 그 정도의 칼을 꺼낼 문제인지를 마지막으로
-확인하는 단계를 넣는다.
+**This is not cancelling io_uring.** It inserts a final step to confirm whether
+this is a problem that warrants a knife of that size.
 
 ```text
 S2   scaling baseline      DONE
 S3   saturation            DONE
-S3.5 transport profiling   DONE  ← 이 문서
-S3.6 H2 / channel A/B      다음   ← 원인을 셋으로 가른다
-       ↓
-     원인 확정
-       ↓
-S4 ├─ H2 tuning 이 답이면 → gRPC optimized
-   └─ 아니면              → io_uring
+S3.5 transport profiling   DONE  <- this document
+S3.6 H2 / channel A/B      next  <- splits the cause three ways
+       |
+     cause established
+       |
+S4 |- if H2 tuning is the answer -> gRPC optimized
+   \- otherwise                  -> io_uring
 ```
 
-S3.6 은 최소 변경으로 §4.4 의 ①②를 분리한다. 1노드 saturation 동일 조건에서:
+S3.6 separates §4.4's ① and ② with minimal changes, under conditions identical
+to 1-node saturation:
 
-| Test | 노드당 커넥션 | H2 window | 목적 |
+| Test | Connections/node | H2 window | Purpose |
 |---|---:|---|---|
-| A | 1 | default | baseline (= 현재 115) |
-| B | 1 | 크게 확대 | **flow control 검증** |
-| C | 4 | default | **커넥션/TCP 경로 검증** |
-| D | 4 | 확대 | 결합 효과 |
+| A | 1 | default | baseline (= the current 115) |
+| B | 1 | greatly enlarged | **test flow control** |
+| C | 4 | default | **test the connection/TCP path** |
+| D | 4 | enlarged | combined effect |
 
-해석은 깨끗하다.
+The interpretation is clean.
 
-- **B 만 상승** → 범인은 커넥션 수가 아니라 HTTP/2 flow control
-- **C 만 상승** → 범인은 단일 커넥션 / TCP 경로
-- **B·C 둘 다 상승** → 둘 다 영향
-- **D 까지 그대로** → HTTP/2 가설 약화 → ③(protobuf·복사·syscall)로 복귀,
-  **이때 io_uring 이 훨씬 강한 근거를 갖는다** (대역폭도, CPU 배치도,
-  flow control 도 아니었다)
-  — 단 "스케줄러도 아니다" 는 이후 S3.8 에서 **철회**됐다(위 §4.1 주 참조)
+- **B alone rises** → the culprit is HTTP/2 flow control, not connection count
+- **C alone rises** → the culprit is the single connection / TCP path
+- **Both B and C rise** → both contribute
+- **Even D unchanged** → the HTTP/2 hypothesis weakens → back to ③ (protobuf,
+  copies, syscalls), **and at that point io_uring has a much stronger case**
+  (not bandwidth, not CPU placement, not flow control)
+  — though "not the scheduler either" was later **withdrawn** in S3.8 (see the
+  note in §4.1 above)
 
-window 는 최적값 탐색이 아니라 **64 KB 급 기본값이 막고 있었는지 여부**만
-본다. 수 MB~수십 MB 수준으로 충분히 크게 잡는다.
+The window is not a search for an optimum but only a test of **whether a
+64 KB-class default was blocking**. Set it generously large, in the range of
+several MB to tens of MB.
 
-만약 window 만 키워 115 → 145~155 가 나온다면 S4 의 결론이 바뀐다 —
-"gRPC 가 느린 게 아니라 **기본 HTTP/2 설정이 대형 payload workload 와 맞지
-않았다**". 수천 줄짜리 transport 를 새로 만들기 전에 몇 줄짜리 설정으로
-30% 의 상당 부분을 회수한다면, 시스템 연구로서 그쪽이 더 강한 판단이다.
+If enlarging the window alone takes 115 to 145–155, S4's conclusion changes —
+"gRPC is not slow; **the default HTTP/2 settings did not suit a large-payload
+workload**". Recovering a substantial share of the 30% with a few lines of
+configuration, before writing a transport of several thousand lines, is the
+stronger judgement as systems research.
 
-그 밖에 측정으로 뒷받침되는 수단:
+Other means the measurements support:
 
-| 수단 | 근거 |
+| Means | Basis |
 |---|---|
-| **응답 페이로드 축소** — 노드 postprocess 후 검출결과만 반환 (1.218 MB → 수 KB) | 와이어·protobuf·복사 부하를 절반 제거 |
+| **Shrink the response payload** — postprocess on the node and return only detections (1.218 MB → a few KB) | removes half the wire, protobuf and copy load |
 
 ## 8. Reproduction
 
 ```bash
-bash scripts/run-transport-profile.sh              # 세 조건 (약 5분)
-bash scripts/run-transport-profile.sh --only local # 한 조건만
+bash scripts/run-transport-profile.sh              # three conditions (about 5 min)
+bash scripts/run-transport-profile.sh --only local # one condition
 PYTHONIOENCODING=utf-8 python scripts/analyze-transport-profile.py
 
-bash scripts/run-rps-ab.sh                         # S3.5b (약 10분)
+bash scripts/run-rps-ab.sh                         # S3.5b (about 10 min)
 ```
 
-동결 commit `01f29a2`. `run-rps-ab.sh` 는 `rps_cpus` 를 런타임으로만 바꾸고
-끝에서 원래 값(`00`)으로 되돌린다.
+Frozen commit `01f29a2`. `run-rps-ab.sh` changes `rps_cpus` at runtime only and
+restores the original value (`00`) at the end.
 
 ## 9. Conclusion
 
-노드당 ~116 inf/s 상한의 원인은 **스케줄러↔노드 HTTP/2 전송 경로**에 있다.
-링크 대역폭(방향당 51% 사용), 보드 CPU 총량(63% idle), 커널 softirq 편중
-(RPS A/B −0.2%), 서버·스케줄러(3노드 3.00× 선형)는 모두 배제됐다. 노드는
-같은 보드에서 로컬 direct 161.5 inf/s 를 내면서 클러스터에서는 116 에
-그치고, `node_queue` ≈ 0 으로 여유가 남는다.
+The cause of the ~116 inf/s per-node ceiling lies in the **scheduler↔node
+HTTP/2 transport path**. Link bandwidth (51% used per direction), board CPU
+capacity (63% idle), kernel softirq concentration (RPS A/B −0.2%) and the
+server/scheduler (three nodes scaling 3.00× linearly) are all excluded. The same
+board yields 161.5 inf/s local direct while managing only 116 in the cluster,
+with `node_queue` ≈ 0 showing headroom to spare.
 
-전송 경로 안에서 ①flow control ②커넥션/TCP ③protobuf·복사 중 무엇인지는
-**아직 갈리지 않았다.** → **S3.6** 이 최소 변경 A/B 로 이를 가르고, 그
-결과가 S4 를 `gRPC optimized` 와 `io_uring` 중 하나로 확정한다(§7).
+Which of ①flow control ②connection/TCP ③protobuf and copies it is within the
+transport path **has not yet been separated.** → **S3.6** splits it with a
+minimal-change A/B, and that result fixes S4 as either `gRPC optimized` or
+`io_uring` (§7).
 
 ---
 
@@ -9694,74 +9723,83 @@ bash scripts/run-rps-ab.sh                         # S3.5b (약 10분)
 
 # S3.6 — HTTP/2 Window × Connections-per-Node A/B
 
-- 실험 ID: **S3.6**
-- 측정일: 2026-08-20
-- 코드: `11cec9b` + `[transport]` 설정 추가 (기본값은 동결과 동일 동작)
-- 상태: **완료 (20 runs, 4조건 × 5라운드)**
-- 원본: [`../../results/h2-channel-ab-20260820/`](../results/h2-channel-ab-20260820)
-- 선행: [`S3_5_TRANSPORT_PROFILE.md`](#experiments-s3-5-transport-profile)
-- 후속: **S4** — 이 결과로 방향이 정해진다 (§7)
+*[한국어 원문](experiments/S3_6_H2_CHANNEL_AB.ko.md)*
+
+- Experiment ID: **S3.6**
+- Measured: 2026-08-20
+- Code: `11cec9b` + the `[transport]` settings added (defaults behave identically to the freeze)
+- Status: **complete (20 runs, 4 conditions × 5 rounds)**
+- Raw data: [`../../results/h2-channel-ab-20260820/`](../results/h2-channel-ab-20260820)
+- Predecessor: [`S3_5_TRANSPORT_PROFILE.md`](#experiments-s3-5-transport-profile)
+- Successor: **S4** — this result sets the direction (§7)
 
 ---
 
 ## 1. Research Question
 
-> **S3.5 가 전송 경로로 좁힌 −30% 손실은, 그 경로 안에서 무엇 때문인가?**
+> **The −30% loss S3.5 narrowed to the transport path — what within that path
+> causes it?**
 
-S3.5 는 대역폭(방향당 51%), 보드 CPU 총량(63% idle), CPU0 softirq 편중
-(RPS A/B −0.2%), 서버·스케줄러(3노드 3.00× 선형)를 배제했다. 남은 것은
-스케줄러↔노드 HTTP/2 전송 경로인데, 그 안에 후보가 셋 뭉쳐 있었다.
+S3.5 excluded bandwidth (51% per direction), board CPU capacity (63% idle),
+CPU0 softirq concentration (RPS A/B −0.2%) and the server/scheduler (three nodes
+scaling 3.00× linearly). What remained was the scheduler↔node HTTP/2 transport
+path, with three candidates bundled inside it.
 
-| | 하위 후보 |
+| | Sub-candidate |
 |---|---|
-| ① | **flow control** — 64 KB 기본 window 가 1.2 MB 메시지를 stop-and-wait 로 만드는가 |
-| ② | **커넥션/TCP** — 커넥션 상태 기계·소켓 하나가 직렬화 지점인가 |
-| ③ | **protobuf·복사** — 프레이밍과 encode/decode 비용인가 |
+| ① | **flow control** — does the 64 KB default window turn a 1.2 MB message into stop-and-wait |
+| ② | **connection/TCP** — is one connection state machine and socket a serialization point |
+| ③ | **protobuf and copies** — is it framing and encode/decode cost |
 
-**"커넥션이 1개" 라는 사실만으로 ②라고 단정하면 안 된다.** HTTP/2 는 원래
-커넥션 하나에서 스트림을 다중화하라고 만든 프로토콜이다. 그래서 ①과 ②를
-직교하게 흔든다.
+**The bare fact of "one connection" must not be taken as ②.** HTTP/2 was
+designed precisely to multiplex streams over a single connection. So ① and ②
+are varied orthogonally.
 
 ## 2. Method
 
-2×2. 1노드(king) saturation 조건(c32, 60초)에서 조건당 **5 run**, 총 20 run.
+A 2×2. Under the 1-node (king) saturation condition (c32, 60 s), **5 runs** per
+condition, 20 runs total.
 
-| Test | 노드당 커넥션 | H2 window | 목적 |
+| Test | Connections/node | H2 window | Purpose |
 |---|---:|---|---|
 | **A** | 1 | default (64 KB) | baseline |
-| **B** | 1 | stream 8 MB / conn 64 MB | ① 검증 |
-| **C** | 4 | default | ② 검증 |
-| **D** | 4 | 8 MB / 64 MB | 결합 |
+| **B** | 1 | stream 8 MB / conn 64 MB | test ① |
+| **C** | 4 | default | test ② |
+| **D** | 4 | 8 MB / 64 MB | combined |
 
-- window 는 최적값 탐색이 **아니다**. 64 KB 급 기본값이 막고 있었는지 여부만
-  본다. 한 메시지(1.23 MB)가 WINDOW_UPDATE 없이 통째로 들어가는 크기로 잡았다.
-- flow control 은 **수신자가 광고**한다. 요청(1.23 MB) 방향은 노드가, 응답
-  (1.218 MB) 방향은 스케줄러가 정하므로 **양쪽 다** 설정했다.
-- 라운드마다 조건 순서를 rotate. 온도·시간 경과가 한 조건에 몰리지 않게 한다.
-- run 마다 노드의 실제 TCP 커넥션 수를 `ss` 로 세어 기록했다 — 설정이 조용히
-  무시되면 A/B 가 아니라 같은 조건 4번이 된다.
-- 스크립트: [`run-h2-channel-ab.sh`](../scripts/run-h2-channel-ab.sh),
+- The window is **not** a search for an optimum. It only tests whether a
+  64 KB-class default was blocking. It is sized so that one message (1.23 MB)
+  fits whole without a WINDOW_UPDATE.
+- Flow control is **advertised by the receiver**. The node sets it for the
+  request direction (1.23 MB) and the scheduler for the response direction
+  (1.218 MB), so **both sides** were configured.
+- Condition order rotates each round, so temperature and elapsed time do not
+  land on one condition.
+- Each run counts the node's actual TCP connections with `ss` and records it — a
+  silently ignored setting would turn the A/B into the same condition four times.
+- Scripts: [`run-h2-channel-ab.sh`](../scripts/run-h2-channel-ab.sh),
   [`analyze-h2-channel-ab.py`](../scripts/analyze-h2-channel-ab.py).
 
 ## 3. Results
 
-5 run 평균 ± SD. 오류율 전 구간 **0**.
+Mean ± SD of 5 runs. Error rate **0** throughout.
 
-| 조건 | TCP 실측 | throughput | vs A | E2E p50 | E2E p95 | →node | node_queue |
+| Condition | TCP measured | throughput | vs A | E2E p50 | E2E p95 | →node | node_queue |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | **A** 1ch default | 1 | **115.3 ± 0.8** | — | 269.3 | 392.8 | 115.8 | 0.02 |
 | **B** 1ch bigwin | 1 | **73.5 ± 0.4** | **−36.3%** | 480.1 | 596.2 | 204.0 | 0.02 |
 | **C** 4ch default | 4 | **140.1 ± 0.3** | **+21.5%** | 163.3 | 572.6 | 60.1 | 0.02 |
 | **D** 4ch bigwin | 4 | **139.5 ± 1.1** | +21.0% | 172.7 | 558.6 | 64.2 | 0.02 |
 
-SD 가 0.3~1.1 로 매우 작다. TCP 실측이 1/1/4/4 로 의도한 조건이 실제로 걸렸다.
+SD of 0.3–1.1 is very small. The measured TCP counts of 1/1/4/4 confirm the
+intended conditions actually took effect.
 
-**A 가 115.3 으로 S2·S3 baseline(115.2 ceiling)을 재현한다.** `[transport]`
-추가가 기존 동작을 바꾸지 않았다는 회귀 검사가 된다.
+**A at 115.3 reproduces the S2/S3 baseline (115.2 ceiling).** That serves as a
+regression check that adding `[transport]` did not change existing behaviour.
 
-### 보드 프로파일 (king, 조건별 5 run 평균)
+### Board profile (king, 5-run average per condition)
 
-| 조건 | %usr | %sys | %soft | %idle | CPU0 busy | CPU0 %soft | syscall/req |
+| Condition | %usr | %sys | %soft | %idle | CPU0 busy | CPU0 %soft | syscall/req |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | A | 18.0 | 12.2 | 6.3 | **63.4** | 69.5 | 51.0 | 84.9 |
 | B | 13.9 | 8.9 | 4.3 | **73.0** | 51.5 | 35.2 | 93.6 |
@@ -9770,74 +9808,83 @@ SD 가 0.3~1.1 로 매우 작다. TCP 실측이 1/1/4/4 로 의도한 조건이 
 
 ## 4. Interpretation
 
-### 4.1 ② 노드당 단일 커넥션 구조가 주요 제약 요인이다 (+21.5%)
+### 4.1 ② The single-connection-per-node structure is the primary constraint (+21.5%)
 
-커넥션만 1 → 4 로 늘렸을 뿐인데 **115.3 → 140.1 inf/s**. window 는 기본값
-그대로다. `network_to_node` 가 115.8 → 60.1 ms 로 절반이 됐고, 보드 idle 이
-63.4% → 43.9% 로 떨어졌다 — **같은 시간에 실제로 더 많은 일이 진행된다.**
+Raising connections alone from 1 to 4 gives **115.3 → 140.1 inf/s**, with the
+window left at its default. `network_to_node` halved from 115.8 to 60.1 ms and
+board idle fell from 63.4% to 43.9% — **more work actually progresses in the
+same time.**
 
-로컬 direct(161.5 inf/s) 기준으로 보면
+Against local direct (161.5 inf/s):
 
 ```text
-A  115.3  ──  회수 24.8  ──▶  C  140.1  ──  남은 21.4  ──▶  로컬 161.5
-              (gap 46.2 중 54%)                (13.3% 남음)
+A  115.3  --  recovered 24.8  -->  C  140.1  --  remaining 21.4  -->  local 161.5
+              (54% of the 46.2 gap)              (13.3% left)
 ```
 
-**설정 한 줄로 gap 의 절반 이상을 회수했다.**
+**One line of configuration recovered more than half the gap.**
 
-> ⚠️ **"커넥션 수가 제약" 까지가 이 실험이 보인 것이다.** 그 안에서 실제로
-> 무엇이 직렬화 지점인지는 **아직 분리되지 않았다.** 최소한 셋이 남는다.
+> ⚠️ **What this experiment showed goes as far as "connection count is a
+> constraint".** What within that is the actual serialization point **has not
+> been separated.** At least three remain.
+
 >
-> | | 남은 내부 후보 |
+> | | Remaining internal candidate |
 > |---|---|
-> | ②-a | TCP per-flow 처리 (소켓·softirq·혼잡제어가 흐름 단위) |
-> | ②-b | HTTP/2 multiplexing / 커넥션 상태 기계의 락·직렬화 |
-> | ②-c | flow control 과의 상호작용 (커넥션당 window 를 스트림이 나눠 씀) |
+> | ②-a | TCP per-flow processing (socket, softirq and congestion control are per flow) |
+> | ②-b | HTTP/2 multiplexing / locking and serialization in the connection state machine |
+> | ②-c | interaction with flow control (streams sharing the per-connection window) |
 >
-> 1ch → 4ch 라는 단일 변경으로 +21.5% 가 반복 재현됐으므로 **단일 커넥션
-> 구조가 실제 제약이라는 것은 상당히 강하다.** 하지만 ②-a/b/c 중 무엇인지를
-> 지목하려면 커넥션 수 sweep 과 per-flow 계측이 더 필요하다(§7).
+> The +21.5% reproduced from the single change 1ch → 4ch, so **the claim that
+> the single-connection structure is a real constraint is quite strong.** But
+> naming which of ②-a/b/c requires a connection-count sweep and per-flow
+> instrumentation (§7).
 
-### 4.2 ① 64 MB 급 large window 는 이 workload 에서 크게 해롭다 (−36.3%)
+### 4.2 ① A 64 MB-class large window is badly harmful on this workload (−36.3%)
 
-window 를 키우자 **처리량이 36% 떨어졌다.** 재현성도 높다(SD 0.4).
+Enlarging the window **dropped throughput by 36%**, and reproducibly (SD 0.4).
 
-지연이 원인이다. E2E p50 269 → 480 ms, `network_to_node` 115.8 → 204.0 ms.
-closed-loop c32 에서 지연 증가는 그대로 처리량 손실이다(32 / 0.48 s ≈ 67).
-보드 idle 은 오히려 **올라간다**(63.4% → 73.0%) — 일을 더 하는 게 아니라
-더 기다린다.
+Latency is why. E2E p50 269 → 480 ms, `network_to_node` 115.8 → 204.0 ms. In a
+closed loop at c32, added latency is throughput loss directly (32 / 0.48 s ≈ 67).
+Board idle actually **rises** (63.4% → 73.0%) — it is not doing more work, it is
+waiting more.
 
-> **해석(가설).** 64 MB 커넥션 window 는 동시 요청 32건(39 MB)을 한꺼번에
-> 소켓에 밀어 넣도록 허용한다. HTTP/2 는 DATA 프레임을 스트림 사이로
-> 번갈아 내보내므로, 32개가 앞서거니 뒤서거니 하며 **다 같이 늦게** 끝난다.
-> 64 KB 기본 window 는 in-flight 를 제한해 사실상 backpressure·pacing 으로
-> 동작하고 있었고, 그래서 앞선 요청이 먼저 끝날 수 있었다.
+> **Interpretation (hypothesis).** A 64 MB connection window permits all 32
+> concurrent requests (39 MB) to be pushed into the socket at once. HTTP/2
+> interleaves DATA frames between streams, so all 32 advance together and
+> **finish late together**. The 64 KB default window limited in-flight data and
+> was effectively acting as backpressure and pacing, which let earlier requests
+> finish first.
 >
-> 이건 지연 분해와 idle 상승으로 뒷받침되는 **가설이지 확정이 아니다.**
-> 확정하려면 in-flight 바이트와 프레임 인터리빙을 직접 계측해야 한다.
+> This is **a hypothesis supported by the latency breakdown and the rise in
+> idle, not a settled fact.** Settling it needs direct measurement of in-flight
+> bytes and frame interleaving.
 
-4 커넥션에서는 window 효과가 사라진다(D 139.5 ≈ C 140.1). 커넥션당 동시
-스트림이 32 → 8 로 줄어 인터리빙 폭이 좁아진 것과 일관되지만, 이 역시
-직접 계측하지 않았다.
+At 4 connections the window effect disappears (D 139.5 ≈ C 140.1). That is
+consistent with concurrent streams per connection falling from 32 to 8 and
+narrowing the interleaving, but this too was not measured directly.
 
-**실무 결론: window 는 기본값(64 KB)을 유지한다.** 적어도 이 크기로는 손해다.
+**Practical conclusion: keep the window at its default (64 KB).** At this size,
+at least, it is a loss.
 
-> ⚠️ **이 실험이 보인 것은 "64 MB 급 large window 가 이 workload 에서 성능을
-> 크게 악화시켰다" 까지다.** "window tuning 은 효과가 없다" 가 아니다.
-> 64 KB → 64 MB 는 **1000배 차이라 극단적인 A/B** 이고, 중간값(256 KB /
-> 1 MB / 4 MB)에 최적점이 있을 가능성을 배제하지 못한다.
-> 지금 우선순위는 아니지만 열어 둔다.
+> ⚠️ **What this experiment showed goes as far as "a 64 MB-class large window
+> badly degraded performance on this workload".** It is not "window tuning has
+> no effect". 64 KB → 64 MB is a **1000× extreme A/B**, and it cannot rule out
+> an optimum at intermediate values (256 KB / 1 MB / 4 MB). Not the priority
+> now, but left open.
 
-### 4.3 대가 — tail latency 는 나빠진다
+### 4.3 The cost — tail latency gets worse
 
-> ⚠️ **[2026-08-20 정정 — S3.7b]** 이 절의 tail 결론은 **c32 에서 잰 것인데,
-> c32 는 이 워크로드의 overload 구간이다.** S3.7b 가 운영점을 c12 로 확정했고
-> (peak 의 98% 를 내는 가장 낮은 concurrency), **그 지점에서는 커넥션 1 → 2 가
-> 처리량 +18.8% 와 함께 p95 −18.8% / p99 −17.8% 로 tail 도 개선한다.**
-> 트레이드오프가 아니라 strict Pareto improvement 다.
+> ⚠️ **[Corrected 2026-08-20 — S3.7b]** This section's tail conclusion **was
+> measured at c32, and c32 is this workload's overload region.** S3.7b fixed the
+> operating point at c12 (the lowest concurrency delivering 98% of peak), and
+> **at that point going from 1 to 2 connections improves the tail as well —
+> throughput +18.8% together with p95 −18.8% / p99 −17.8%.** Not a trade-off but
+> a strict Pareto improvement.
 >
-> 아래 측정값 자체는 유효하다. 다만 그것이 재는 것은 "어느 구성이 더 좋은가"
-> 가 아니라 **"어느 구성이 과부하에서 더 완만하게 무너지는가"** 다.
+> The measured values below remain valid. What they measure, however, is not
+> "which configuration is better" but **"which configuration degrades more
+> gracefully under overload"**.
 > → [`S3_7_CONNECTION_TUNING.md`](#experiments-s3-7-connection-tuning) §4.3
 
 | | A | C |
@@ -9845,144 +9892,161 @@ closed-loop c32 에서 지연 증가는 그대로 처리량 손실이다(32 / 0.
 | E2E p50 | 269.3 | **163.3** (−39%) |
 | E2E p95 | **392.8** | 572.6 (**+46%**) |
 
-처리량과 p50 은 좋아지는데 **p95 는 46% 나빠진다.** 평균적인 요청은 훨씬
-빨라졌는데 일부 요청이 크게 늦어진다.
+Throughput and p50 improve while **p95 gets 46% worse.** The average request got
+much faster and some requests got much slower.
 
-**이걸 round-robin 탓으로 확정하면 안 된다.** 가능한 원인이 여럿이다.
+**This must not be pinned on round-robin.** Several causes are possible.
 
-| | 후보 |
+| | Candidate |
 |---|---|
-| a | 커넥션별 in-flight 불균형 (round-robin 이 부하를 안 봄) |
-| b | HTTP/2 커넥션 내부 큐 편차 |
-| c | NPU 워커 도착 burst |
+| a | in-flight imbalance across connections (round-robin does not look at load) |
+| b | queue variance inside the HTTP/2 connection |
+| c | bursty arrivals at the NPU workers |
 | d | transport queueing |
-| e | 처리량이 올라가면서 생기는 일반적인 tail queue 증가 |
+| e | the general growth of tail queueing that comes with higher throughput |
 
-전부 미검증이다. 이 트레이드오프를 숨기면 안 된다 — 실시간 추론에서 tail 은
-중요한 지표이고, **다음 실험의 연구 질문이지 각주가 아니다.** S3.7 의 커넥션
-sweep 은 처리량만이 아니라 **p95·p99 를 함께 보고 최적점을 정한다**(§7).
+All unverified. This trade-off must not be hidden — the tail is an important
+metric for real-time inference, and **it is the next experiment's research
+question, not a footnote.** S3.7's connection sweep decides the optimum by
+**looking at p95 and p99 alongside throughput** (§7).
 
-### 4.4 다음 병목이 드러났다 — 그리고 S3.5b 의 null 이 설명된다
+### 4.4 The next bottleneck has surfaced — and it explains S3.5b's null
 
-C·D 에서 **CPU0 busy 81.1%, 그중 %soft 74.4%.** 다른 코어는 여유가 있는데
-CPU0 만 포화에 가까워진다. eth0 는 RX 큐 1개이고 RPS 는 꺼져 있다.
+In C and D, **CPU0 busy is 81.1%, of which 74.4% is softirq.** Other cores have
+headroom while CPU0 alone approaches saturation. eth0 has one RX queue and RPS
+is off.
 
-S3.5b 에서 RPS 가 무효였던 이유가 여기서 분명해진다 — **RPS 는 flow 해시로
-분산하는데 그때는 흐름이 하나뿐이었다.** 이제 흐름이 4개다. 즉 S3.5b 를
-C 조건 위에서 다시 하면 결과가 달라질 수 있다(§7).
+Why RPS was ineffective in S3.5b becomes clear here — **RPS distributes by flow
+hash, and at that time there was only one flow.** Now there are four. So
+repeating S3.5b on top of condition C may give a different result (§7).
 
-## 5. 판정
+## 5. Verdicts
 
-| 후보 | 판정 |
+| Candidate | Verdict |
 |---|---|
-| ① flow control | **64 MB 급 확대는 −36.3% 로 해롭다.** 기본 64 KB 가 backpressure 로 기능하고 있었다. 중간값은 미측정이라 "튜닝 무효" 로는 결론짓지 않는다 |
-| ② 커넥션/TCP | **노드당 단일 커넥션 구조가 주요 제약 요인.** 1 → 4 로 +21.5%, gap 의 54% 회수. 다만 ②-a/b/c 중 무엇인지는 미분리 |
-| ③ protobuf·복사 | 남은 13.3% 안에 있을 수 있다. 아직 미분리 |
+| ① flow control | **Enlarging to 64 MB is harmful at −36.3%.** The 64 KB default was functioning as backpressure. Intermediate values are unmeasured, so this is not concluded as "tuning is ineffective" |
+| ② connection/TCP | **The single-connection-per-node structure is the primary constraint.** 1 → 4 gives +21.5%, recovering 54% of the gap. Which of ②-a/b/c remains unseparated |
+| ③ protobuf and copies | May lie within the remaining 13.3%. Still unseparated |
 
 ## 6. Limitations
 
-- **4 가 최적이라는 근거는 없다.** 1 과 4 만 비교했다. 2/8/16 은 미측정.
-- **1노드 결과다.** 3노드에서는 서버가 12 커넥션을 들게 된다. S2·S3 숫자를
-  갱신하려면 다중 노드에서 다시 재야 한다.
-- **§4.2 의 bufferbloat 설명은 가설이다.** 지연 분해·idle 상승과 정합하지만
-  in-flight 바이트를 직접 재지 않았다.
-- window 는 8 MB / 64 MB 한 점만 봤다. 중간 크기(예: 1~2 MB)는 미측정이라
-  "크게 하면 나쁘다" 를 단조 관계로 일반화할 수 없다.
-- **p95 악화의 원인은 미검증이다.** 후보가 최소 5개 있고(§4.3) 어느 것도
-  배제하지 못했다.
-- 조건마다 스케줄러·노드를 재기동한다. 재기동 자체의 영향은 A 가 baseline 을
-  재현하는 것으로 간접 배제했다.
+- **There is no basis for 4 being optimal.** Only 1 and 4 were compared. 2/8/16
+  are unmeasured.
+- **This is a 1-node result.** At three nodes the server would hold 12
+  connections. Updating the S2/S3 numbers requires re-measuring at multiple
+  nodes.
+- **§4.2's bufferbloat explanation is a hypothesis.** It is consistent with the
+  latency breakdown and the rise in idle, but in-flight bytes were not measured
+  directly.
+- The window was sampled at one point, 8 MB / 64 MB. Intermediate sizes (e.g.
+  1–2 MB) are unmeasured, so "bigger is worse" cannot be generalised as a
+  monotonic relation.
+- **The cause of the p95 degradation is unverified.** There are at least five
+  candidates (§4.3) and none was excluded.
+- The scheduler and node are restarted for each condition. The effect of
+  restarting itself is indirectly excluded by A reproducing the baseline.
 
-## 7. S4 에 대한 함의
+## 7. Implications for S4
 
-**io_uring 은 지금도 정당화되지 않는다.** syscall/req 는 네 조건에서
-80.5~93.6 으로 거의 변하지 않는데 처리량은 73.5~140.1 로 두 배 차이가 난다 —
-**syscall 횟수는 지금의 1차 병목을 설명하지 못한다.**
+**io_uring is still not justified.** syscall/req barely moves across the four
+conditions (80.5–93.6) while throughput differs twofold (73.5–140.1) — **syscall
+count does not explain the current primary bottleneck.**
 
-> 단, 이것이 "io_uring 이 효과 없다" 는 뜻은 아니다. **syscall 횟수가 같다는
-> 것과 syscall·복사에 쓰는 CPU 시간이 작다는 것은 다른 문제다.** 지금 말할 수
-> 있는 것은 **순서**다 — 더 싼 병목이 아직 남아 있으므로 io_uring 은 뒤로 민다.
+> This does not mean "io_uring has no effect". **Syscall count being equal and
+> CPU time spent on syscalls and copies being small are different questions.**
+> What can be said now is a matter of **order** — cheaper bottlenecks remain, so
+> io_uring is pushed back.
 
-로드맵을 이렇게 갱신한다.
+The roadmap updates to:
 
 ```text
-S3.5  transport profiling   DONE  전송 경로로 좁힘
-S3.6  H2/channel A/B        DONE  ← 단일 커넥션 구조가 주요 제약
-        ↓
-S3.7  ① 커넥션 sweep (1/2/4/8/16) → 최적 N
-      ② 그 N 위에서 RPS 재시도                                  ← 다음
-        ↓
-optimized gRPC baseline (1N/2N/3N 재측정)
-        ↓
-남은 gap 분석
-        ↓
-필요하면 io_uring
+S3.5  transport profiling   DONE  narrowed to the transport path
+S3.6  H2/channel A/B        DONE  <- the single-connection structure is the primary constraint
+        |
+S3.7  1. connection sweep (1/2/4/8/16) -> optimal N
+      2. retry RPS on top of that N                              <- next
+        |
+optimized gRPC baseline (re-measure 1N/2N/3N)
+        |
+analyse the remaining gap
+        |
+io_uring if needed
 ```
 
-**최적점은 최대 처리량이 아니라 처리량–tail latency 트레이드오프로 정한다.**
-예를 들어 `4ch = 140 inf/s, p95 573` 과 `8ch = 148 inf/s, p95 900` 이면
-8ch 가 더 좋은 시스템이라고 할 수 없다. 무조건 많을수록 좋은 것도 아니다 —
-어느 지점부터는 커넥션 관리 비용과 queueing 으로 다시 꺾일 수 있다.
+**The optimum is decided by the throughput–tail-latency trade-off, not by
+maximum throughput.** If `4ch = 140 inf/s, p95 573` and `8ch = 148 inf/s,
+p95 900`, 8ch cannot be called the better system. Nor is more unconditionally
+better — past some point, connection management cost and queueing bend the curve
+back down.
 
-RPS 재시도가 특히 가치 있는 이유: 1커넥션일 때는 흐름이 하나라 나눌 게
-없었지만 이제 흐름이 여러 개다. 그리고 CPU0 는 busy 81% / soft 74% 다.
-- 여기서 오르면 → "단일 커넥션 제약을 풀자 NIC 처리 병목이 드러났고,
-  multi-flow 에서 비로소 RPS 가 효과를 갖는다" 는 서사가 성립한다.
-- 또 변화가 없으면 → CPU0 softirq 는 **상관관계일 뿐 처리량 limiter 가
-  아니다** 로 더 강하게 배제할 수 있다.
+Why retrying RPS is especially worthwhile: at one connection there was one flow
+and nothing to divide, but now there are several flows. And CPU0 is at busy 81%
+/ soft 74%.
 
-S3.7 이 싼 이유: 커넥션 수는 이미 설정이고, RPS 는 코드 0줄이다. 이 둘을
-털고 나서야 ③ 이 순수하게 남는다.
+- If it rises → the narrative holds: "releasing the single-connection constraint
+  exposed a NIC processing bottleneck, and RPS only has an effect once there are
+  multiple flows".
+- If again nothing changes → CPU0 softirq can be excluded more strongly as
+  **merely a correlation and not a throughput limiter**.
 
-> **S2·S3 숫자는 아직 갱신하지 않는다.** 140.1 은 1노드 최적화 결과일 뿐이고,
-> 3노드에서는 서버가 4 × 3 = 12 커넥션을 들게 되어 서버 쪽에 새 병목이
-> 나타날 수 있다. S3.7 에서 N 을 확정한 뒤 1N/2N/3N 을 다시 돌린다.
+Why S3.7 is cheap: connection count is already a setting, and RPS is zero lines
+of code. Only after clearing those two does ③ remain in pure form.
+
+> **The S2/S3 numbers are not updated yet.** 140.1 is a single-node optimization
+> result, and at three nodes the server would hold 4 × 3 = 12 connections, which
+> may surface a new server-side bottleneck. Once S3.7 fixes N, 1N/2N/3N will be
+> re-run.
 
 ## 8. Reproduction
 
 ```bash
-bash scripts/run-h2-channel-ab.sh 5     # 20 run, 약 35분
+bash scripts/run-h2-channel-ab.sh 5     # 20 runs, about 35 minutes
 PYTHONIOENCODING=utf-8 python scripts/analyze-h2-channel-ab.py \
     results/h2-channel-ab-20260820/raw/results.csv
 ```
 
-스크립트는 끝에서 기본 설정(= 동결과 동일 동작)으로 되돌린다. 동결
-바이너리는 `npuforge-{scheduler,node}.frozen-01f29a2` 로 남아 있다.
+The script restores the default settings (behaving identically to the freeze) at
+the end. The frozen binaries remain as
+`npuforge-{scheduler,node}.frozen-01f29a2`.
 
-> 노드는 `--features rknn` 과 `RKNN_SDK_PATH=/usr/include` 가 필요하다.
-> 빠뜨리면 Mock 백엔드 바이너리가 나와 기동에 실패한다(실제로 한 번 겪었고,
-> 하네스가 큰 소리로 실패해 바로 잡혔다).
+> The node needs `--features rknn` and `RKNN_SDK_PATH=/usr/include`. Omitting
+> them produces a mock-backend binary that fails to start (this did happen once,
+> and the harness failed loudly so it was caught immediately).
 
 ## 9. Conclusion
 
-**노드당 단일 gRPC/HTTP2 커넥션 구조가 처리량을 제한하는 주요 요인임을
-확인했다.** 노드당 커넥션을 4개로 늘리자 **115.3 → 140.1 inf/s (+21.5%)**,
-로컬 direct 까지의 gap 46.2 중 **54% 를 설정만으로 회수**했다. 코드 아키텍처를
-갈아엎지 않고 커넥션 풀 하나로 얻은 결과다. 대가로 p95 가 46% 나빠진다.
+**The single gRPC/HTTP2 connection per node was confirmed as the primary factor
+limiting throughput.** Raising connections per node to 4 gave
+**115.3 → 140.1 inf/s (+21.5%)**, recovering **54% of the 46.2 gap to local
+direct through configuration alone.** That came from one connection pool, with
+no rewrite of the code architecture. The cost is a 46% worse p95.
 
-그 구조 안에서 TCP per-flow 처리인지, H2 multiplexing/락인지, flow control
-상호작용인지는 **아직 분리되지 않았다**(§4.1).
+Whether, within that structure, it is TCP per-flow processing, H2
+multiplexing/locking, or the flow-control interaction **has not been separated**
+(§4.1).
 
-> ⚠️ **[정정]** 아래 "대가로 p95 가 46% 나빠진다" 는 c32(overload 구간) 측정이다.
-> 운영점 c12 에서는 커넥션 1 → 2 가 tail 도 개선한다(S3.7b §4.3).
+> ⚠️ **[Correction]** The "cost is a 46% worse p95" below was measured at c32,
+> the overload region. At the c12 operating point, 1 → 2 connections improves
+> the tail as well (S3.7b §4.3).
 
-**64 MB 급 large window 는 이 workload 에서 −36.3% 로 크게 해로웠다.**
-기본 64 KB 가 backpressure 로 기능하고 있었다는 뜻이다. 기본값을 유지하되,
-1000배 차이의 극단 A/B 였으므로 중간값에 최적점이 있을 가능성은 열어 둔다.
+**A 64 MB-class large window was badly harmful on this workload at −36.3%**,
+meaning the 64 KB default was functioning as backpressure. The default is kept,
+though since this was a 1000× extreme A/B the possibility of an optimum at
+intermediate values is left open.
 
-남은 13.3% 와 새로 드러난 CPU0 포화(busy 81%, soft 74%)는 S3.7 에서 다룬다.
-io_uring 은 여전히 근거가 부족하다 — syscall/req 는 조건 간 거의 불변인데
-처리량은 두 배 차이가 났다.
+The remaining 13.3% and the newly surfaced CPU0 saturation (busy 81%, soft 74%)
+are handled in S3.7. io_uring still lacks a basis — syscall/req is nearly
+invariant across conditions while throughput differs twofold.
 
 ---
 
 ## Figure
 
-![커넥션은 돕고 window 확대는 해친다](../results/h2-channel-ab-20260820/figures/fig_h2_window_vs_conns.png)
+![Connections help; enlarging the window hurts](../results/h2-channel-ab-20260820/figures/fig_h2_window_vs_conns.png)
 
-**`fig_h2_window_vs_conns.png`** — 커넥션은 돕고 window 확대는 해친다
+**`fig_h2_window_vs_conns.png`** — connections help; enlarging the window hurts
 
-재생성: `python scripts/make-experiment-figures.py`
+Regenerate: `python scripts/make-experiment-figures.py`
 
 ---
 
