@@ -1,15 +1,18 @@
 # datasets
 
-INT8 양자화 캘리브레이션에 쓴 이미지는 **이 저장소에 포함하지 않는다.**
+*[한국어 원문](README.ko.md)*
 
-COCO 이미지는 Flickr 출처라 재배포 조건이 이미지마다 다르다. 조건은
-[`../MODEL_LICENSES.md`](../MODEL_LICENSES.md) 를 참조한다.
+The images used for INT8 quantization calibration are **not included in this
+repository.**
 
-캘리브레이션을 재현하려면 직접 내려받는다.
+COCO images come from Flickr, so redistribution terms differ per image. See
+[`../MODEL_LICENSES.md`](../MODEL_LICENSES.md) for the terms.
+
+To reproduce the calibration, download them yourself.
 
 ```bash
 bash scripts/fetch-calib-images.sh
 ```
 
-측정 결과 재현에는 필요하지 않다 — 모델은 이미 양자화된 상태로
-배포되며, 벤치마크는 합성 입력을 쓴다.
+They are not needed to reproduce the measurement results — the model is
+distributed already quantized, and the benchmark uses synthetic input.

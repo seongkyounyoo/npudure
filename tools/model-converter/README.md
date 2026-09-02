@@ -1,47 +1,58 @@
-# NPUDure 모델 변환 환경
+# The NPUDure model conversion environment
 
-ONNX 모델을 RK3576 용 `.rknn` 으로 변환한다.
+*[한국어 원문](README.ko.md)*
 
-## 전제
+Converts an ONNX model into a `.rknn` for RK3576.
 
-| 항목 | 값 |
+## Prerequisites
+
+| Item | Value |
 |---|---|
-| 대상 플랫폼 | **`rk3576`** (NanoPi R76S) |
-| 보드 RKNN Runtime | 2.3.0 |
-| Toolkit 버전 | 2.3.0 (Runtime 과 일치시킴) |
-| 실행 환경 | **x86_64 Linux 전용** |
+| Target platform | **`rk3576`** (NanoPi R76S) |
+| The boards' RKNN Runtime | 2.3.0 |
+| Toolkit version | 2.3.0 (matched to the Runtime) |
+| Execution environment | **x86_64 Linux only** |
 
-**`rk3588` 로 변환한 `.rknn` 은 RK3576 에서 동작하지 않는다.** 플랫폼 간 호환되지 않으므로 인터넷의 참고 예제나 사전 변환 모델을 그대로 쓸 수 없다.
+**A `.rknn` converted for `rk3588` does not work on RK3576.** They are not
+compatible across platforms, so reference examples or pre-converted models found
+online cannot be used as-is.
 
-Toolkit 버전이 보드의 Runtime 보다 높으면 변환된 모델이 로딩되지 않을 수 있다. 보드 실측값은 `docs/environment-matrix.md` §3 을 따른다.
+If the Toolkit version is higher than the boards' Runtime, converted models may
+fail to load. The boards' measured values follow
+`docs/environment-matrix.md` §3.
 
-## 왜 Docker 인가
+## Why Docker
 
-변환 결과가 호스트 환경에 따라 달라지면 재현성이 깨진다. 이미지가 Python·Toolkit·의존성 버전을 고정하므로 누구 PC에서 돌려도 같은 `.rknn` 이 나온다.
+If the conversion result varies with the host environment, reproducibility
+breaks. The image pins the Python, Toolkit and dependency versions, so the same
+`.rknn` comes out on anyone's machine.
 
-오픈소스 공개 시 "우리 환경에서는 됩니다"가 아니라 "이 이미지로 재현하세요"가 되어야 한다.
+For an open-source release it has to be "reproduce it with this image" rather
+than "it works in our environment".
 
-## 사용법
+## Usage
 
-### 1. 이미지 빌드
+### 1. Build the image
 
 ```bash
 docker build -t npuforge-converter:2.3.0 tools/model-converter
 ```
 
-`torch`, `onnx` 등이 포함되어 이미지가 5~8GB 정도 된다. 디스크 여유를 먼저 확인한다.
+Including `torch`, `onnx` and the rest, the image comes to around 5–8 GB. Check
+your disk space first.
 
-### 2. YOLOv8n ONNX 준비
+### 2. Prepare the YOLOv8n ONNX
 
 ```bash
 mkdir -p models datasets/calib
-# yolov8n.onnx 를 models/ 에 둔다
-# calibration 용 이미지 100~300장을 datasets/calib/ 에 둔다
+# put yolov8n.onnx in models/
+# put 100-300 calibration images in datasets/calib/
 ```
 
-INT8 양자화에는 calibration 이미지가 필요하다. 실제 추론 입력과 분포가 비슷해야 정확도가 유지된다.
+INT8 quantization needs calibration images. Their distribution has to resemble
+the real inference input for accuracy to hold.
 
-### 3. 변환
+### 3. Convert
 
 ```bash
 docker run --rm \
@@ -55,11 +66,11 @@ docker run --rm \
     --calib-limit 200
 ```
 
-FP16 으로 변환해 INT8 과 비교하려면 `--no-quant` 를 준다.
+To convert to FP16 for comparison against INT8, pass `--no-quant`.
 
-### 4. 메타데이터 기록
+### 4. Record the metadata
 
-변환이 끝나면 `models/yolov8n.rknn.meta.json` 이 생성된다.
+When conversion finishes, `models/yolov8n.rknn.meta.json` is generated.
 
 ```json
 {
@@ -73,9 +84,10 @@ FP16 으로 변환해 INT8 과 비교하려면 `--no-quant` 를 준다.
 }
 ```
 
-**이 값을 `docs/environment-matrix.md` §6 에 옮겨 적는다.** 기록되지 않은 모델로 측정한 성능 수치는 공식 결과로 사용하지 않는다.
+**Transcribe these values into `docs/environment-matrix.md` §6.** Performance
+figures measured with an unrecorded model are not used as official results.
 
-### 5. 보드 배포
+### 5. Deploy to the boards
 
 ```bash
 for h in npuforge-k npuforge-q npuforge-j; do
@@ -85,19 +97,25 @@ for h in npuforge-k npuforge-q npuforge-j; do
 done
 ```
 
-**세 노드의 SHA-256 이 모두 같아야 한다.** 다르면 그대로 진행하지 않는다.
+**All three nodes' SHA-256 have to match.** If they do not, do not proceed.
 
-## 메모리 제약
+## Memory constraint
 
-Scheduler 호스트의 RAM 이 3.5GB 다(`docs/environment-matrix.md` §4.2). YOLOv8n 은 작은 모델이라 변환 자체는 가능하지만, calibration 이미지가 많으면 양자화 단계에서 빠듯할 수 있다.
+The scheduler host has 3.5 GB of RAM (`docs/environment-matrix.md` §4.2).
+YOLOv8n is a small model so conversion itself is possible, but with many
+calibration images the quantization step can get tight.
 
-메모리 부족으로 실패하면 `--calib-limit` 를 줄인다(예: 100). 이미지 수를 바꾸면 양자화 결과가 달라지므로 반드시 메타데이터에 반영된 값을 사용한다.
+If it fails on memory, reduce `--calib-limit` (to 100, say). Changing the image
+count changes the quantization result, so always use the value reflected in the
+metadata.
 
-## 다음 단계
+## Next steps
 
-변환된 모델이 있어야 다음이 가능하다.
+A converted model is needed before the following are possible.
 
-1. **thread-safety 검증** — `crates/npuforge-rknn/native/thread_safety_test.c`
-   노드의 `worker_count` 를 결정하는 최대 미지수
-2. 단일 노드 추론 정확도 검증 (ONNX 결과와 비교)
-3. S0 열 특성 측정
+1. **Thread-safety verification** —
+   `crates/npuforge-rknn/native/thread_safety_test.c`
+   The biggest unknown in deciding the node's `worker_count`
+2. Single-node inference accuracy verification (compared against the ONNX
+   results)
+3. S0 thermal characterisation

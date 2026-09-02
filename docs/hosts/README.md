@@ -1,31 +1,37 @@
-# 호스트 인벤토리
+# Host inventory
 
-스케줄러 호스트의 하드웨어 규격을 기계가 수집한 그대로 남긴다.
+*[한국어 원문](README.ko.md)*
 
-| 파일 | 호스트 | 기간 |
+The scheduler hosts' hardware specifications, kept exactly as the machine
+collected them.
+
+| File | Host | Period |
 |---|---|---|
-| `server-xeon-e5-2630l-20260826.md` | **Dell PowerEdge R620** / Xeon E5-2630L ×2 | 2026-08-20 ~ 08-26 (**측정 421건**) |
-| `server-i7-4790-20260826.md` | Core i7-4790 / ASUS H81M-K | 2026-08-26 ~ |
+| `server-xeon-e5-2630l-20260826.md` | **Dell PowerEdge R620** / Xeon E5-2630L ×2 | 2026-08-20 – 08-26 (**the 421 measurements**) |
+| `server-i7-4790-20260826.md` | Core i7-4790 / ASUS H81M-K | 2026-08-26 – |
 
-## 왜 있는가
+## Why this exists
 
-**구서버(Xeon E5-2630L ×2)의 규격이 남아 있지 않았다.** 측정 421건이 나온
-장비인데 CPU·RAM 용량·NIC 이름만 문서에 적혀 있고 메인보드·RAM 종류·
-디스크 모델·PCIe 정보가 없었다.
+**The old server's (Xeon E5-2630L ×2) specification had not been kept.** It is
+the equipment the 421 measurements came from, and the documents recorded only
+the CPU, RAM capacity and NIC name — no motherboard, RAM type, disk model or
+PCIe information.
 
-2026-08-26 에 그 서버를 다시 켜서 뒤늦게 수집했다. **운이 좋았다** —
-장비가 아직 손 닿는 곳에 있었기 때문이다. 그 사이 OS 는 9.4 → 9.8 로
-바뀌었고 10G 카드는 빠져 있었다. **뒤늦은 수집은 당시 상태를 온전히
-복원하지 못한다.**
+It was belatedly collected on 2026-08-26 by powering that server back up. **We
+were lucky** — the equipment was still within reach. By then the OS had moved
+from 9.4 to 9.8 and the 10G card had been removed. **A belated collection cannot
+fully restore the state at the time.**
 
-보드에는 `collect-node-info.sh` 가 있었지만 호스트에는 없었다.
-`server-profile-collect.sh` 는 성능 프로파일러(S3.9a)이지 인벤토리가 아니다.
+The boards had `collect-node-info.sh`; the hosts did not.
+`server-profile-collect.sh` is a performance profiler (S3.9a), not an inventory
+tool.
 
-## 수집
+## Collection
 
 ```bash
 ssh <host> 'bash -s' < scripts/collect-host-info.sh > docs/hosts/<name>-<date>.md
 ```
 
-**호스트를 바꾸면 배치 전에 먼저 돌린다.** 시리얼·자산번호·UUID 는
-수집하지 않는다 — 재현에 필요한 것은 모델명과 규격이지 개체 식별자가 아니다.
+**When changing hosts, run it before deployment.** Serial numbers, asset tags
+and UUIDs are not collected — what reproduction needs is the model name and
+specification, not a unit identifier.

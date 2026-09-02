@@ -1,159 +1,186 @@
-# 모델 및 데이터 세트 라이선스
+# Model and dataset licenses
 
-NPUDure 소스코드는 Apache-2.0이다. 그러나 **벤치마크에 사용하는 모델과 데이터 세트는 별개의 라이선스를 따른다.**
+*[한국어 원문](MODEL_LICENSES.ko.md)*
 
-이 문서는 그 구분을 명확히 한다.
+NPUDure's source code is Apache-2.0. But **the models and datasets used for
+benchmarking follow separate licenses.**
+
+This document makes that distinction clear.
 
 ---
 
-# 1. 요약
+# 1. Summary
 
-| 구성요소 | 라이선스 | 저장소 포함 여부 |
+| Component | License | Included in the repository |
 |---|---|---|
-| NPUDure 소스코드 | Apache-2.0 | 포함 |
-| RKNN Runtime / Toolkit2 | Rockchip 자체 조건 | **미포함** |
-| YOLOv8n 가중치 및 파생 ONNX | **AGPL-3.0** | **미포함** |
-| 변환된 `.rknn` | AGPL-3.0 (파생물) | **미포함** |
-| Calibration / 벤치마크 데이터 | 미정 | **미포함** |
+| NPUDure source code | Apache-2.0 | included |
+| RKNN Runtime / Toolkit2 | Rockchip's own terms | **not included** |
+| YOLOv8n weights and the derived ONNX | **AGPL-3.0** | **not included** |
+| The converted `.rknn` | AGPL-3.0 (a derivative) | **not included** |
+| Calibration and benchmark data | undecided | **not included** |
 
-`.gitignore`가 `*.rknn`, `*.onnx`, `*.pt`, `/datasets/`를 제외하므로 이 저장소는 어떤 모델 가중치도 재배포하지 않는다.
+`.gitignore` excludes `*.rknn`, `*.onnx`, `*.pt` and `/datasets/`, so this
+repository redistributes no model weights of any kind.
 
-사용자는 변환 스크립트(`tools/model-converter/`)로 각자 모델을 확보한다.
+Users obtain the model themselves with the conversion scripts
+(`tools/model-converter/`).
 
 ---
 
-# 2. ⚠️ YOLOv8은 AGPL-3.0이다
+# 2. ⚠️ YOLOv8 is AGPL-3.0
 
-## 2.1 사실관계
+## 2.1 The facts
 
-기준 모델로 사용하는 YOLOv8n은 Ultralytics의 저작물이며 **AGPL-3.0**으로 배포된다.
+The YOLOv8n used as the reference model is Ultralytics' work and is distributed
+under **AGPL-3.0**.
 
-실제로 사용하는 ONNX는 Rockchip이 RKNN용으로 최적화한 판본이다.
+The ONNX actually used is Rockchip's RKNN-optimized version.
 
 ```text
 Ultralytics YOLOv8 (AGPL-3.0)
-  └─ airockchip/ultralytics_yolov8  (AGPL-3.0 유지, RKNN용 출력 구조 수정)
-       └─ yolov8n.onnx  (rknn_model_zoo 배포본)
-            └─ yolov8n.rknn  (NPUDure가 변환)   ← 파생물. AGPL-3.0 적용
+  |- airockchip/ultralytics_yolov8  (stays AGPL-3.0, output structure modified for RKNN)
+       |- yolov8n.onnx  (the rknn_model_zoo distribution)
+            |- yolov8n.rknn  (converted by NPUDure)   <- a derivative. AGPL-3.0 applies
 ```
 
-`airockchip/rknn_model_zoo` 저장소 자체는 Apache-2.0이지만, **그 안에서 배포하는 YOLOv8 모델의 라이선스가 Apache-2.0으로 바뀌지는 않는다.** 저장소 라이선스와 데이터 라이선스는 별개다.
+The `airockchip/rknn_model_zoo` repository is itself Apache-2.0, but **that does
+not change the license of the YOLOv8 model distributed inside it to
+Apache-2.0.** A repository's license and a datum's license are separate things.
 
-## 2.2 NPUDure에 미치는 영향
+## 2.2 The effect on NPUDure
 
-**소스코드는 영향받지 않는다.** NPUDure는 YOLOv8 코드를 링크하지 않는다. RKNN Runtime을 통해 모델 파일을 로딩할 뿐이며, 이는 저작물의 사용이지 결합이 아니다.
+**The source code is unaffected.** NPUDure does not link YOLOv8 code. It loads a
+model file through the RKNN Runtime, which is use of a work rather than
+combination with it.
 
-**모델 파일 재배포는 영향받는다.** 변환된 `.rknn`은 AGPL-3.0 가중치의 파생물이다. 배포하려면 AGPL-3.0 조건을 따라야 한다.
+**Redistributing the model file is affected.** The converted `.rknn` is a
+derivative of AGPL-3.0 weights. Distributing it means following AGPL-3.0's
+terms.
 
-**따라서 다음 방침을 따른다.**
+**So the following policy applies.**
 
-- 저장소에 `.rknn`, `.onnx`, `.pt`를 포함하지 않는다
-- 릴리스 아티팩트에도 포함하지 않는다
-- 사용자가 스크립트로 직접 내려받아 변환하게 한다
-- 벤치마크 결과(수치, JSONL, CSV)는 모델 파일이 아니므로 자유롭게 공개한다
+- No `.rknn`, `.onnx` or `.pt` in the repository
+- Nor in the release artefacts
+- Users download and convert it themselves with the scripts
+- Benchmark results (numbers, JSONL, CSV) are not model files and are published
+  freely
 
-이는 많은 오픈소스 프로젝트가 취하는 방식이며, 재현성을 해치지 않는다. 변환 스크립트와 원본 해시가 공개되어 있으면 누구나 같은 파일을 만들 수 있다.
+This is the approach many open-source projects take, and it does not harm
+reproducibility. With the conversion script and the source hash published,
+anyone can produce the same file.
 
-## 2.3 남은 판단
+## 2.3 What remains to be judged
 
-발표와 논문에서 "NPUDure는 Apache-2.0"이라고만 말하면 오해의 소지가 있다. **데모에 사용한 모델은 AGPL-3.0**이라는 점을 함께 밝힌다.
+Saying only "NPUDure is Apache-2.0" in a talk or a paper invites
+misunderstanding. **The model used in the demo is AGPL-3.0**, and that is stated
+alongside.
 
-상용 환경에서 AGPL을 피해야 하는 사용자를 위해 §3의 대체 모델을 문서화한다.
+For users who have to avoid AGPL in a commercial setting, the alternative models
+in §3 are documented.
 
 ---
 
-# 3. 대체 모델 후보
+# 3. Alternative model candidates
 
-기준 모델을 바꿀 경우의 후보다. **현재는 채택하지 않았다.**
+Candidates should the reference model change. **None is currently adopted.**
 
-| 모델 | 라이선스 | RKNN 지원 | 비고 |
+| Model | License | RKNN support | Note |
 |---|---|---|---|
-| **YOLOv8n** (현재) | AGPL-3.0 | 공식 예제 있음 | RK3576 지원 확인됨 |
-| YOLOX-nano | **Apache-2.0** | model_zoo에 예제 존재 | 라이선스가 깨끗함 |
-| PP-YOLOE | **Apache-2.0** | model_zoo에 예제 존재 | PaddlePaddle 계열 |
-| RTMDet-tiny | **Apache-2.0** | 예제 확인 필요 | MMDetection 계열 |
-| YOLOv6 | GPL-3.0 | — | AGPL보다는 완화되나 여전히 카피레프트 |
-| MobileNetV3 (분류) | Apache-2.0 / BSD | 예제 있음 | 객체탐지가 아니라 발표 시각화에 불리 |
+| **YOLOv8n** (current) | AGPL-3.0 | an official example exists | RK3576 support confirmed |
+| YOLOX-nano | **Apache-2.0** | an example exists in model_zoo | a clean license |
+| PP-YOLOE | **Apache-2.0** | an example exists in model_zoo | of the PaddlePaddle family |
+| RTMDet-tiny | **Apache-2.0** | example to be confirmed | of the MMDetection family |
+| YOLOv6 | GPL-3.0 | — | milder than AGPL but still copyleft |
+| MobileNetV3 (classification) | Apache-2.0 / BSD | an example exists | not object detection, so poor for talk visuals |
 
-## 3.1 YOLOv8n을 유지하는 이유
+## 3.1 Why YOLOv8n stays
 
-- RKNN 공식 예제와 참고자료가 압도적으로 많다
-- RK3576 지원이 문서로 확인된다
-- 사전 최적화된 ONNX가 제공되어 export 단계의 위험이 없다
-- 발표 화면에서 탐지 결과를 직관적으로 보여줄 수 있다
+- There is overwhelmingly more RKNN official example and reference material
+- RK3576 support is confirmed in documentation
+- A pre-optimized ONNX is provided, removing the risk of the export step
+- Detection results can be shown intuitively on a talk screen
 
-**이 프로젝트가 측정하는 것은 모델의 성능이 아니라 분산 추론 런타임의 확장 효율이다.** 모델은 부하를 만드는 수단이므로, 도구 지원이 가장 좋은 것을 쓰는 편이 위험이 적다.
+**What this project measures is not the model's performance but a distributed
+inference runtime's scaling efficiency.** The model is a means of generating
+load, so using whichever has the best tool support carries less risk.
 
-## 3.2 재검토 시점
+## 3.2 When to revisit
 
-다음 중 하나가 발생하면 대체 모델로 전환을 검토한다.
+Switching to an alternative model is considered if any of the following occurs.
 
-- 상용 사용자로부터 AGPL 관련 문의가 반복될 때
-- 논문 심사에서 라이선스가 문제로 지적될 때
-- YOLOv8n 변환에서 CPU fallback이 과다해 측정이 왜곡될 때
+- Repeated AGPL-related enquiries from commercial users
+- The license being raised as a problem in paper review
+- Excessive CPU fallback in YOLOv8n conversion distorting the measurements
 
 ---
 
-# 4. RKNN 소프트웨어
+# 4. RKNN software
 
-| 구성요소 | 출처 | 저장소 포함 |
+| Component | Source | Included in the repository |
 |---|---|---|
-| RKNN Runtime (`librknnrt.so`) | 보드 OS 이미지에 사전 설치 | 미포함 |
-| `rknn_api.h` 등 헤더 | 보드 OS 이미지에 사전 설치 | 미포함 |
-| RKNN-Toolkit2 | PyPI | 미포함 (Docker 빌드 시 설치) |
-| `rknn_model_zoo` | GitHub, Apache-2.0 | 미포함 (필요 시 clone) |
+| RKNN Runtime (`librknnrt.so`) | pre-installed in the board OS image | not included |
+| `rknn_api.h` and other headers | pre-installed in the board OS image | not included |
+| RKNN-Toolkit2 | PyPI | not included (installed during the Docker build) |
+| `rknn_model_zoo` | GitHub, Apache-2.0 | not included (cloned if needed) |
 
-**RKNN SDK 바이너리를 NPUDure 저장소에 포함하지 않는다.** 사용자는 보드 제조사가 제공하는 이미지나 Rockchip 공식 경로에서 설치한다.
+**RKNN SDK binaries are not included in the NPUDure repository.** Users install
+them from the image the board manufacturer provides, or from Rockchip's official
+source.
 
-`rknn_model_zoo`는 Apache-2.0이므로 코드 인용은 가능하다. 다만 그 안에서 배포하는 **모델 파일에는 각 원본 라이선스가 적용된다**(§2.1 참조).
+`rknn_model_zoo` is Apache-2.0 so its code can be quoted. But **the model files
+it distributes carry their own original licenses** (see §2.1).
 
 ---
 
-# 5. 데이터 세트
+# 5. Datasets
 
-## 5.1 현황: 미정
+## 5.1 Status: undecided
 
-Calibration 이미지와 벤치마크 입력 데이터가 아직 정해지지 않았다.
+The calibration images and benchmark input data are not yet settled.
 
-## 5.2 선정 기준
+## 5.2 Selection criteria
 
-| 기준 | 이유 |
+| Criterion | Reason |
 |---|---|
-| 재배포 가능 여부 | 저장소나 릴리스에 포함할 수 있어야 재현이 쉽다 |
-| 실제 입력과의 분포 유사성 | INT8 양자화 정확도가 여기에 달려 있다 |
-| 이미지 수 100~300장 | Calibration에 충분하며 변환 시간이 과하지 않다 |
-| 해상도 | 640×640으로 리사이즈되므로 그보다 크면 충분 |
+| Redistributable | being able to include it in the repository or a release makes reproduction easy |
+| Distribution similar to the real input | INT8 quantization accuracy depends on it |
+| 100–300 images | enough for calibration without excessive conversion time |
+| Resolution | resized to 640×640, so anything larger suffices |
 
-## 5.3 후보
+## 5.3 Candidates
 
-| 데이터 세트 | 라이선스 | 재배포 |
+| Dataset | License | Redistribution |
 |---|---|---|
-| COCO 2017 val | 이미지별 Flickr 조건, 주석은 CC BY 4.0 | ⚠️ 이미지 재배포 조건이 균일하지 않음 |
-| Open Images | CC BY 4.0 (이미지별 확인 필요) | 조건부 |
-| 직접 촬영 | 프로젝트 소유 | **가능** |
-| Unsplash / Pexels | 각 서비스 라이선스 | 조건부 |
+| COCO 2017 val | per-image Flickr terms; the annotations are CC BY 4.0 | ⚠️ the image redistribution terms are not uniform |
+| Open Images | CC BY 4.0 (needs per-image confirmation) | conditional |
+| Photographed ourselves | owned by the project | **possible** |
+| Unsplash / Pexels | each service's license | conditional |
 
-**직접 촬영이 가장 깨끗하다.** 발표 데모에서 어떤 장면을 보여줄지 정해지면, 그 환경에서 촬영한 이미지를 calibration과 벤치마크에 함께 쓰는 것이 라이선스와 양자화 정확도 양쪽에서 유리하다.
+**Photographing it ourselves is cleanest.** Once the scene for the talk demo is
+decided, using images shot in that environment for both calibration and
+benchmarking is favourable on both licensing and quantization accuracy.
 
-## 5.4 기록 의무
+## 5.4 Recording obligation
 
-어떤 데이터를 쓰든 다음을 `docs/environment-matrix.md` §7에 기록한다.
+Whatever data is used, the following is recorded in
+`docs/environment-matrix.md` §7.
 
 ```text
-데이터 세트 이름 / 출처 / 라이선스 / 재배포 조건
-이미지 수 / 입력 포맷 / Manifest SHA-256
+dataset name / source / license / redistribution terms
+image count / input format / manifest SHA-256
 ```
 
 ---
 
-# 6. 확인이 남은 항목
+# 6. Items still to confirm
 
-| 항목 | 상태 |
+| Item | Status |
 |---|---|
-| Ultralytics AGPL-3.0 적용 범위 정밀 검토 | 미완 |
-| RKNN Runtime 재배포 조건 원문 확인 | 미완 |
-| Calibration 데이터 세트 확정 | 미정 |
-| 벤치마크 입력 데이터 세트 확정 | 미정 |
-| `THIRD_PARTY_NOTICES.md` (Rust 의존성) 생성 | `cargo deny check licenses`로 자동화 예정 |
+| A precise review of Ultralytics AGPL-3.0's scope | incomplete |
+| Confirming the RKNN Runtime redistribution terms in the original text | incomplete |
+| Settling the calibration dataset | undecided |
+| Settling the benchmark input dataset | undecided |
+| Generating `THIRD_PARTY_NOTICES.md` (Rust dependencies) | to be automated with `cargo deny check licenses` |
 
-법적 판단이 필요한 부분은 이 문서의 범위를 넘는다. 여기서는 **사실관계와 프로젝트의 대응 방침**만 기록한다.
+Anything requiring legal judgement is outside this document's scope. What is
+recorded here is **the facts and the project's policy in response.**

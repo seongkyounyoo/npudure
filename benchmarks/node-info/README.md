@@ -1,21 +1,26 @@
-# 노드 하드웨어 인벤토리
+# Node hardware inventory
 
-`scripts/collect-node-info.sh` 가 세 보드에서 수집한 원본이다.
-환경 일치 검증(`preflight-check.sh`)의 근거다.
+*[한국어 원문](README.ko.md)*
 
-## 가려진 값
+The raw output `scripts/collect-node-info.sh` gathered from the three boards.
+It is the basis for environment matching verification
+(`preflight-check.sh`).
 
-**개체 식별정보는 `<redacted>` 로 바꿨다** (2026-08-27).
+## Redacted values
 
-| 필드 | 왜 |
+**Unit-identifying information was replaced with `<redacted>`** (2026-08-27).
+
+| Field | Why |
 |---|---|
-| `serial` | 보드 개체 식별자. 재현에 필요 없다 |
-| `*_mac` | 인터페이스 MAC. 재현에 필요 없다 |
-| `ssh_host_*_fp` | SSH 호스트 키 지문. 공개할 이유가 없다 |
+| `serial` | a board unit identifier. Not needed for reproduction |
+| `*_mac` | interface MACs. Not needed for reproduction |
+| `ssh_host_*_fp` | SSH host key fingerprints. No reason to publish them |
 
-**비밀은 아니다.** 다만 재현에 쓰이지 않는 값이라 공개 스냅샷에 남길
-이유가 없다. 모델명·커널·드라이버 해시·클럭·온도처럼 **재현에 필요한
-값은 그대로 있다.**
+**They are not secrets.** They are simply values unused in reproduction, with no
+reason to remain in a public snapshot. **The values reproduction does need** —
+model names, kernel, driver hashes, clocks, temperatures — **are all still
+there.**
 
-수집 스크립트 자체는 이 값들을 계속 수집한다. 자기 장비를 진단할 때는
-필요하다. 남의 장비 값이 공개 저장소에 남을 이유가 없을 뿐이다.
+The collection script still gathers them. They are needed when diagnosing your
+own equipment. There is just no reason for someone else's equipment values to
+sit in a public repository.
