@@ -10,7 +10,7 @@
 > python scripts/build-adr-bundle.py $(git log -1 --format=%cs -- adrs/)
 > ```
 >
-> - 생성 기준: **2026-08-31** (`adrs/` 최종 커밋일)
+> - 생성 기준: **미상** (`adrs/` 최종 커밋일)
 > - 원본: `adrs/README.md`, `adrs/OVERVIEW.md`, ADR 28건, `adrs/TEMPLATE.md`
 > - 파일 간 링크는 문서 내 앵커로 바뀌어 있다
 
@@ -1244,331 +1244,355 @@ FFI 는 `native/rknn_wrapper.c` 를 거친다. 이 wrapper 는 **실기 헤더�
 
 <a id="adr-007"></a>
 
-# ADR-007. 스레드마다 전용 RKNN 컨텍스트를 쓰고, 공유를 타입으로 막는다
+# ADR-007. A dedicated RKNN context per thread, with sharing blocked by the type system
+
+*[한국어 원문](007-per-thread-rknn-context.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **대체** | `environment-matrix.md` §3.1 의 "RKNN 2.3.0 은 thread-safe 이므로 컨텍스트를 공유해도 된다" 판단을 대체함 |
-| **관련** | [ADR-020](#adr-020) (`worker_count=8`), `docs/discuss.md` §9, `docs/RESULTS.md` §4.3 |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Supersedes** | the judgement in `environment-matrix.md` §3.1 that "RKNN 2.3.0 is thread-safe, so the context may be shared" |
+| **Related** | [ADR-020](#adr-020) (`worker_count=8`), `docs/discuss.md` §9, `docs/RESULTS.md` §4.3 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 컨텍스트를 공유하면 **오류를 하나도 내지 않으면서 100% 틀린 답**을 낸다.
-> 실측으로 확인했다. 그래서 워커마다 전용 컨텍스트를 주고, 공유가 아예
-> 컴파일되지 않도록 `infer` 가 `&mut self` 를 받는다.
+> Sharing a context produces **answers that are 100% wrong while raising not a
+> single error**. Confirmed by measurement. So each worker gets its own
+> context, and `infer` takes `&mut self` so that sharing does not compile at
+> all.
 
-## 배경
+## Context
 
-### 컨텍스트가 무엇인가
+### What a context is
 
-RKNN Runtime 에서 **컨텍스트(context)** 는 모델을 메모리에 올려 만든 손잡이다.
-`.rknn` 파일을 열면 컨텍스트 하나가 나오고, 추론은 그 컨텍스트에 대고 한다.
+In the RKNN Runtime a **context** is the handle produced by loading a model
+into memory. Opening a `.rknn` file yields one context, and inference is
+performed against it.
 
-추론 한 건은 함수 **세 번** 호출이다.
+One inference is **three** function calls.
 
 ```text
-rknn_inputs_set   입력 이미지를 컨텍스트에 넣는다
-rknn_run          NPU 에서 돌린다
-rknn_outputs_get  결과를 꺼낸다
+rknn_inputs_set   put the input image into the context
+rknn_run          run it on the NPU
+rknn_outputs_get  take the result out
 ```
 
-### 정해야 했던 것
+### What had to be decided
 
-노드는 워커를 8개 돌린다(→ ADR-020). 이 8개가 동시에 추론하려면 둘 중
-하나를 골라야 한다.
+The node runs 8 workers (→ ADR-020). For those 8 to infer concurrently, one of
+two choices had to be made.
 
 | | |
 |---|---|
-| **공유** | 컨텍스트 1개를 8 워커가 같이 쓴다. 메모리가 적게 든다. 코드가 짧다 |
-| **전용** | 워커마다 컨텍스트를 1개씩 갖는다. 메모리를 더 쓴다 |
+| **Shared** | 8 workers use one context together. Less memory. Shorter code |
+| **Dedicated** | each worker holds its own context. Uses more memory |
 
-### 처음에는 공유하기로 했었다
+### Sharing was the original decision
 
-`environment-matrix.md` §3.1 에 **"RKNN Runtime 2.3.0 은 thread-safe"** 라는
-결론이 이미 적혀 있었다. 그게 맞다면 공유가 당연한 선택이다. 하나면 되는데
-여덟 개를 만들 이유가 없다.
+`environment-matrix.md` §3.1 already recorded the conclusion that **"RKNN
+Runtime 2.3.0 is thread-safe"**. If that is right, sharing is the obvious
+choice. There is no reason to make eight of something when one will do.
 
-### 그런데 의심스러웠다
+### But it was suspicious
 
-두 가지가 걸렸다.
+Two things stood out.
 
-**첫째, 호출 하나가 안전한 것과 시퀀스가 안전한 것은 다르다.**
+**First, one call being safe and a sequence being safe are different things.**
 
 ```text
-스레드 A:  inputs_set(사진A) ─────────────► outputs_get()  ← 무엇이 나오나?
-스레드 B:            inputs_set(사진B) → run()
+thread A:  inputs_set(photoA) -----------> outputs_get()  <- what comes out?
+thread B:            inputs_set(photoB) -> run()
 ```
 
-`inputs_set` 개별 호출이 thread-safe 여도, A 가 자기 입력을 넣고 결과를
-꺼내는 **사이에** B 가 끼어들면 A 는 B 의 결과를 받는다. 개별 호출의
-원자성과 **시퀀스의 원자성**은 별개다.
+Even if each individual `inputs_set` call is thread-safe, if B cuts in
+**between** A putting in its input and taking out its result, A receives B's
+result. The atomicity of individual calls and **the atomicity of a sequence**
+are separate matters.
 
-**둘째, 그 "thread-safe" 판정이 무엇을 봤는지 확인했더니 — API 반환
-코드만 세고 있었다.** 출력 내용을 대조하지 않았다. 결과가 섞여도 반환
-코드는 `ok 40 / err 0` 으로 멀쩡하게 나온다.
+**Second, checking what that "thread-safe" verdict had actually looked at — it
+was counting API return codes only.** It never compared output contents. Even
+with results getting mixed up, the return codes come back a healthy
+`ok 40 / err 0`.
 
-## 결정
+## Decision
 
-**1. 워커마다 전용 컨텍스트를 준다.** `ContextPool` 이 `worker_count` 만큼
-컨텍스트를 만들고, 세마포어로 빈 것을 하나씩 점유하게 한다.
+**1. Give each worker a dedicated context.** `ContextPool` creates
+`worker_count` contexts and a semaphore has each worker take an idle one.
 
 ```rust
 pub struct ContextPool {
-    contexts: Vec<Mutex<RknnContext>>,   // 컨텍스트마다 독립된 락
-    permits: Arc<Semaphore>,             // 빈 슬롯 수만큼 발급
+    contexts: Vec<Mutex<RknnContext>>,   // an independent lock per context
+    permits: Arc<Semaphore>,             // issued to the number of free slots
     ...
 }
 ```
 
-세마포어 허가를 먼저 받으므로, 그 뒤 `try_lock` 순회에서 **최소 하나는
-반드시 비어 있다.** 만약 못 찾으면 세마포어와 락 개수가 어긋난 것이므로
-조용히 넘어가지 않고 내부 오류를 낸다 — 그냥 두면 원인 없는 성능 저하로만
-보인다.
+Since the semaphore permit is acquired first, **at least one must be free** in
+the subsequent `try_lock` scan. If none is found, the semaphore and lock counts
+have diverged, so it raises an internal error instead of quietly moving on —
+left alone it would look only like an unexplained performance drop.
 
-**2. 공유를 컴파일러가 막게 한다.**
+**2. Let the compiler block sharing.**
 
 ```rust
-/// `&mut self` 를 받는 것이 이 타입의 동시성 계약이다.
-/// 컴파일러가 같은 컨텍스트의 동시 호출을 막는다.
+/// Taking `&mut self` is this type's concurrency contract.
+/// The compiler blocks concurrent calls on the same context.
 pub fn infer(&mut self, input: &[u8]) -> Result<Vec<u8>>
 ```
 
-`&self` 로 두면 공유 호출이 **문법적으로 가능**해진다. `&mut self` 면
-같은 컨텍스트를 두 곳에서 동시에 쓰는 코드가 아예 빌드되지 않는다.
+With `&self`, a shared call is **syntactically possible**. With `&mut self`,
+code using the same context from two places at once simply does not build.
 
-> 이게 이 ADR 에서 가장 중요한 부분이다. **주석으로 "공유하지 마시오" 라고
-> 적는 것과 타입으로 막는 것은 다르다.** 이 결함은 눈으로 못 찾기 때문에,
-> 사람의 주의력에 맡기면 언젠가 다시 들어온다.
+> This is the most important part of this ADR. **Writing "do not share" in a
+> comment and blocking it with a type are different things.** This defect
+> cannot be found by eye, so leaving it to human attention means it comes back
+> eventually.
 
-**3. 풀 생성은 전부 아니면 전무로 한다.** 컨텍스트 8개 중 하나라도 열기에
-실패하면 노드 전체를 실패시킨다. 절반만 뜬 노드가 조용히 낮은 처리량으로
-도는 것보다 명확히 죽는 편이 낫다 — 벤치마크에서 그런 노드는 "느린 노드"
-로 기록되어 결론을 오염시킨다.
+**3. Pool creation is all-or-nothing.** If any one of the 8 contexts fails to
+open, the whole node fails. A node that came up half-way and quietly runs at
+lower throughput is worse than one that dies clearly — in a benchmark such a
+node gets recorded as "the slow node" and contaminates the conclusion.
 
-## 근거
+## Rationale
 
-### 측정
+### The measurement
 
-`native/shared_context_test.c` 로 쟀다. 스레드마다 **다른 입력**을 주고,
-먼저 단독으로 추론해 기준 출력을 저장한 뒤, 동시 실행 결과가 자기 기준과
-같은지 대조한다.
+Measured with `native/shared_context_test.c`. Each thread is given **a different
+input**; a reference output is first captured by inferring alone, then the
+concurrent results are compared against each thread's own reference.
 
 ```text
-측정 조건: king, FP16, 4스레드 × 50회 = 200건
+conditions: king, FP16, 4 threads x 50 = 200 inferences
 ```
 
-| 구성 | API 오류 | **결과 불일치** |
+| Configuration | API errors | **Result mismatches** |
 |---|---:|---:|
-| 컨텍스트 공유 | 0 | **200 / 200 (100%)** |
-| 스레드별 전용 | 0 | 0 / 200 (0%) |
+| Shared context | 0 | **200 / 200 (100%)** |
+| Per-thread dedicated | 0 | 0 / 200 (0%) |
 
-**공유는 오류를 하나도 내지 않으면서 전부 틀렸다.**
+**Sharing raised not a single error and got everything wrong.**
 
-### 이 결함이 특히 나쁜 이유
+### Why this defect is especially bad
 
-- **예외도 오류 코드도 없다.** 로그에 아무것도 안 남는다
-- **단일 스레드 테스트에서는 절대 재현되지 않는다.** CI 를 통과한다
-- **처리량 지표는 오히려 좋아 보인다.** 2스레드 공유가 34.8 inf/s 로 전용
-  33.2 보다 빨랐다 — **틀린 답을 더 빨리 내고 있었다**
-- **눈으로 봐도 그럴듯하다.** 다른 프레임의 검출 결과라서 쓰레기가 아니라
-  "말이 되는 박스"가 나온다
+- **No exception and no error code.** Nothing is left in the logs
+- **It never reproduces in a single-threaded test.** It passes CI
+- **The throughput metric actually looks better.** Two threads sharing reached
+  34.8 inf/s against 33.2 dedicated — **it was producing wrong answers faster**
+- **It looks plausible to the eye.** Being detections from another frame, the
+  output is not garbage but "boxes that make sense"
 
-이대로 갔다면 **처리량 수치는 전부 유효하고 검출 결과만 조용히 틀린 상태**
-로 발표까지 갔을 가능성이 크다. 성능은 자랑하고 정확도는 아무도 확인하지
-않는 구조였다.
+Had this gone unnoticed, it would very likely have reached a public talk with
+**all throughput figures valid and only the detection results quietly wrong**.
+The structure was one where performance gets boasted about and accuracy gets
+checked by nobody.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 컨텍스트 1개 공유 | 실측에서 100% 틀린 답. 논외 |
-| 컨텍스트 1개 + 뮤텍스로 직렬화 | 정답은 나오지만 NPU 를 한 번에 하나씩만 쓴다. 8워커의 의미가 사라진다 |
-| `rknn_dup_context` 로 복제 | 검증하지 않았다. 개별 `rknn_init` 로 이미 정답이 나오고 성능도 충분해서 우선순위가 밀렸다 |
-| 주석·문서로 "공유 금지" 명시 | 이 결함은 눈에 안 보인다. 규칙을 사람이 지키게 하면 언젠가 깨진다 |
+| One shared context | 100% wrong answers when measured. Out of the question |
+| One context + a mutex to serialize | Correct answers, but the NPU is used one at a time. The point of 8 workers disappears |
+| Duplicate with `rknn_dup_context` | Not verified. Individual `rknn_init` already gives correct answers with adequate performance, so it dropped down the priority list |
+| Stating "do not share" in comments and docs | This defect is invisible. A rule that humans have to keep gets broken eventually |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 8워커 동시 추론에서 결과 불일치 0건
-- 공유 코드가 **작성 자체가 불가능**해졌다
-- 실장비 통합 테스트 6종에 이 검증이 들어가 있다
+- Zero result mismatches under 8-worker concurrent inference
+- Sharing code became **impossible to write**
+- The check is part of six real-hardware integration tests
   (`crates/npuforge-rknn/tests/real_device.rs`)
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 컨텍스트 8개만큼 메모리를 더 쓴다. **얼마나 더 쓰는지는 측정하지 않았다.**
-  노드 RAM 4GB 에 모델이 6.46 MB(INT8) 라 문제가 안 될 것으로 보고 넘어간
-  상태다 — 근거 있는 판단이 아니라 여유가 커 보여서 미룬 것이다
-- 풀 생성 시간이 컨텍스트 수에 비례한다 (노드 기동 시 1회)
+- Uses the memory of 8 contexts. **How much more was not measured.** With 4 GB
+  of node RAM and a 6.46 MB model (INT8) it was judged unlikely to matter and
+  left there — not a reasoned judgement, just deferred because the headroom
+  looked large
+- Pool creation time scales with context count (once at node startup)
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- `supports_concurrent_infer = true` 의 **의미가 바뀌었다.** 예전에는
-  "런타임이 알아서 해준다" 는 뜻이었고, 지금은 **"백엔드가 풀로 직렬화해
-  준다"** 는 뜻이다. 값은 같은데 근거가 다르다
-- `worker_count` 를 늘리면 컨텍스트 수가 따라 늘어난다. 메모리 여유를
-  확인하지 않고 이 값을 키우면 안 된다
+- **The meaning of `supports_concurrent_infer = true` has changed.** It used to
+  mean "the runtime handles it", and now means **"the backend serializes it
+  through a pool"**. The value is the same; the basis differs
+- Raising `worker_count` raises the context count with it. This value must not
+  be increased without checking memory headroom
 
-## 뒤집힌다면
+## What would overturn this
 
-RKNN 이 컨텍스트 내부 상태를 호출 단위로 분리한 버전을 내면 다시 볼 수 있다.
+If RKNN ships a version that separates per-call context state, it can be
+revisited.
 
-**단, 재검증 기준을 미리 못 박아 둔다.**
+**But the re-verification criteria are pinned down in advance.**
 
-- ❌ API 반환 코드로 판정하지 않는다. 그 방법이 이 결함을 놓쳤다
-- ✅ **스레드마다 다른 입력을 주고, 단독 실행 기준 출력과 바이트 단위로
-  대조한다.** 불일치 0건이어야 통과다
-- ✅ 처리량이 올라간 것은 통과 근거가 아니다. 틀린 답을 빨리 내는 구성이
-  더 빨라 보인다는 것을 이미 겪었다
+- ❌ Do not judge by API return codes. That method missed this defect
+- ✅ **Give each thread a different input and compare byte-for-byte against the
+  standalone reference output.** Zero mismatches to pass
+- ✅ Higher throughput is not grounds for passing. We have already seen that a
+  configuration producing wrong answers fast looks faster
 
-## 남긴 교훈
+## The lesson left behind
 
-이 사건은 같은 유형 실수의 **세 번째**였다.
+This incident was **the third** of the same type of mistake.
 
 ```text
-1. run_duration 을 NPU 점유시간으로 읽음        → 큐 대기가 포함된 값
-2. NPU load 를 delayms=3000 인 채로 샘플링      → 3초 평균을 읽고 있었음
-3. thread-safety 를 API 반환 코드로만 판정      → 결과 내용 미대조   ← 이 ADR
-4. throttling 을 NPU 클럭만으로 판정            → CPU 가 꺾이고 있었음
+1. reading run_duration as NPU occupancy time      -> it included queue wait
+2. sampling NPU load with delayms=3000 still set   -> it was reading a 3-second average
+3. judging thread-safety by API return codes only  -> results never compared   <- this ADR
+4. judging throttling by NPU clock alone           -> the CPU was the one bending
 ```
 
-공통점: **지표가 무엇을 세는지 확인하지 않고 이름만 보고 믿었다.**
+What they share: **not checking what a metric counts and trusting it by its
+name.**
 
-여기서 나온 규칙이 `preflight-check.sh --with-inference` 다. **성능을 재기
-전에 세 보드가 같은 입력에 같은 답을 내는지부터 본다.** 틀린 답을 빨리 내는
-구성이 벤치마크에서 이기면 안 된다.
+The rule that came out of this is `preflight-check.sh --with-inference`.
+**Before measuring performance, check that the three boards give the same
+answer to the same input.** A configuration that produces wrong answers fast
+must not win a benchmark.
 
 ---
 
 <a id="adr-008"></a>
 
-# ADR-008. 내부 통신을 gRPC(tonic + Protocol Buffers)로 한다
+# ADR-008. Internal communication uses gRPC (tonic + Protocol Buffers)
+
+*[한국어 원문](008-grpc-tonic-protobuf.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-003](#adr-003), [ADR-012](#adr-012), [ADR-024](#adr-024), `docs/01-TECHSPEC.md` §5.3, §7 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-003](#adr-003), [ADR-012](#adr-012), [ADR-024](#adr-024), `docs/01-TECHSPEC.md` §5.3, §7 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 클라이언트↔스케줄러, 스케줄러↔노드 통신을 **gRPC** 로 한다. 스키마를
-> `.proto` 한 곳에 두고 Rust 코드를 생성한다. 관리 API 와 대시보드용
-> REST/JSON 은 별도로 둔다.
+> Client↔scheduler and scheduler↔node communication uses **gRPC**. The schema
+> lives in one place as `.proto` and Rust code is generated from it. The
+> management API and the dashboard's REST/JSON are kept separate.
 
-## 배경
+## Context
 
-이 시스템에서 오가는 것은 대부분 **큰 바이너리 덩어리**다.
+Most of what moves through this system is **a large binary blob**.
 
 ```text
-요청  raw RGB 640×640×3   = 1,228,800 byte
-응답  원시 텐서 9개 blob  = 1,218,000 byte  (want_float=0)
+request   raw RGB 640x640x3   = 1,228,800 byte
+response  9 raw tensor blobs  = 1,218,000 byte  (want_float=0)
 ```
 
-그리고 노드는 3대지만 초당 수백 건이 오간다(INT8 3노드 471 inf/s 목표).
+And although there are only three nodes, hundreds of these move per second
+(the INT8 3-node target is 471 inf/s).
 
-프로토콜 후보는 셋이었다.
+There were three protocol candidates.
 
 | | |
 |---|---|
-| REST + JSON | 어디서나 되고 디버깅이 쉽다. 바이너리는 base64 로 부풀린다 |
-| gRPC | 바이너리 그대로, 스키마 강제, 코드 생성 |
-| 직접 만든 바이너리 프로토콜 | 가장 빠를 수 있다. 전부 직접 만들어야 한다 |
+| REST + JSON | works everywhere and is easy to debug. Inflates binary with base64 |
+| gRPC | binary as-is, schema enforcement, code generation |
+| A hand-rolled binary protocol | could be fastest. Everything has to be built by hand |
 
-## 결정
+## Decision
 
-**1. 내부 RPC 는 gRPC + Protocol Buffers 로 한다.** 구현은 `tonic`.
+**1. Internal RPC is gRPC + Protocol Buffers.** Implemented with `tonic`.
 
-**2. 스키마를 `npuforge-proto` 크레이트 한 곳에 둔다.** `.proto` 에서
-빌드 시 Rust 타입을 생성한다.
+**2. The schema lives in one place, the `npuforge-proto` crate.** Rust types
+are generated from `.proto` at build time.
 
-**3. 서비스를 둘로 나눈다.**
+**3. The services are split in two.**
 
-| 서비스 | 방향 | 용도 |
+| Service | Direction | Purpose |
 |---|---|---|
-| `SchedulerService` | 클라이언트 → 스케줄러 | `Infer`, `BatchInfer`, `ListNodes` |
-| `NodeService` | 스케줄러 → 노드 | 추론 위임, 상태 조회 |
+| `SchedulerService` | client → scheduler | `Infer`, `BatchInfer`, `ListNodes` |
+| `NodeService` | scheduler → node | inference delegation, status queries |
 
-노드 등록·하트비트도 gRPC 로 오간다.
+Node registration and heartbeats also travel over gRPC.
 
-**4. 관리 API·대시보드는 REST/JSON + axum 으로 따로 둔다.** 브라우저에서
-직접 부를 것이므로 gRPC 로 두면 게이트웨이가 하나 더 필요해진다.
+**4. The management API and dashboard are separate, on REST/JSON + axum.**
+They are called directly from the browser, so putting them on gRPC would add
+another gateway.
 
-**5. 페이로드는 `bytes` 필드 하나로 받는다.** 텐서 구조는 protobuf 가
-아니라 자체 blob 형식이 기술한다 ([ADR-012](#adr-012)).
+**5. The payload arrives as a single `bytes` field.** The tensor structure is
+described not by protobuf but by our own blob format
+([ADR-012](#adr-012)).
 
-## 근거
+## Rationale
 
-### 1. base64 를 피한다
+### 1. Avoid base64
 
-REST/JSON 으로 1.23 MB 이미지를 보내려면 base64 로 인코딩해야 한다.
-**크기가 약 1.33배**가 되고, 인코딩·디코딩 CPU 가 양쪽에 붙는다.
+Sending a 1.23 MB image over REST/JSON requires base64 encoding. That makes it
+**about 1.33× larger** and adds encode/decode CPU on both ends.
 
-이 프로젝트에서 그 둘 다 치명적이다. 네트워크는 이미 aggregation 이
-포화 직전이고([ADR-014](#adr-014)), CPU 는
-지속 부하에서 이미 병목이다.
+Both are damaging in this project. The network is already close to saturation
+at aggregation
+([ADR-014](#adr-014)), and CPU is already a
+bottleneck under sustained load.
 
-### 2. 스키마가 한 곳에 있어야 노드 3대가 어긋나지 않는다
+### 2. The schema has to be in one place or three nodes drift apart
 
-세 노드는 **같은 바이너리**를 쓰지만, 스케줄러는 별도 호스트에서 돈다.
-메시지 정의가 코드에 흩어져 있으면 한쪽만 업데이트되는 사고가 난다.
+The three nodes run **the same binary**, but the scheduler runs on a separate
+host. If message definitions are scattered through the code, one side gets
+updated without the other.
 
-`.proto` 를 단일 출처로 두면 양쪽이 같은 정의에서 생성된다.
+With `.proto` as the single source, both sides are generated from the same
+definition.
 
-### 3. 타이밍 분해 필드를 구조화해서 실어야 한다
+### 3. The timing breakdown fields have to travel structured
 
-응답에 11개 시간 필드(`TimingBreakdown`)가 따라온다. 이건 프로젝트의 핵심
-산출물이라 **필드가 조용히 빠지면 안 된다.** protobuf 스키마가 그것을
-강제한다.
+Eleven timing fields (`TimingBreakdown`) come back with each response. They are
+this project's central output, so **a field must not silently disappear.** The
+protobuf schema enforces that.
 
-### 4. Rust 생태계가 준비되어 있다
+### 4. The Rust ecosystem is ready
 
-`tonic` 은 Tokio 위에서 돌고, 스트리밍·타임아웃·연결 재사용이 기본으로
-있다. 노드별 채널을 재사용해 연결 비용을 줄이는 것도 그대로 된다.
+`tonic` runs on Tokio and comes with streaming, timeouts and connection reuse
+built in. Reusing a per-node channel to reduce connection cost also works
+directly.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| REST + JSON (내부까지) | base64 1.33배 팽창 + 인코딩 CPU. 네트워크와 CPU 둘 다 이미 빠듯하다 |
-| REST + multipart/octet-stream | 팽창은 피하지만 스키마 강제가 사라진다. 타이밍 필드를 손으로 맞춰야 한다 |
-| 자체 바이너리 프로토콜 | 가장 빠를 수 있으나 재연결·스트리밍·오류 전달을 전부 직접 만들어야 한다. 그 시간에 측정을 못 한다 |
-| gRPC 를 관리 API 까지 확대 | 브라우저에서 직접 못 부른다. grpc-web 게이트웨이가 하나 더 생긴다 |
+| REST + JSON (internally too) | 1.33× base64 inflation plus encoding CPU. Both network and CPU are already tight |
+| REST + multipart/octet-stream | Avoids the inflation but loses schema enforcement. The timing fields would have to be kept in sync by hand |
+| A hand-rolled binary protocol | Could be fastest, but reconnection, streaming and error propagation all have to be built. That time is time not spent measuring |
+| Extending gRPC to the management API | Cannot be called directly from a browser. Adds a grpc-web gateway |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 바이너리를 팽창 없이 전달
-- 메시지 정의가 단일 출처
-- Mock 3노드 통합 테스트가 **실제 gRPC 를 탄다** — 프로세스만 하나일 뿐
-  전송 경로는 실장비와 같다
+- Binary carried without inflation
+- A single source for message definitions
+- The mock 3-node integration test **runs over real gRPC** — it is one process,
+  but the transport path is the same as on real hardware
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- `curl` 로 바로 못 찔러 본다. 디버깅 도구가 하나 더 필요하다
-- `.proto` 변경 시 빌드 파이프라인(`build.rs`)이 관여한다
-- 프로토콜이 둘이 된다 (gRPC + REST). 오류 표현을 양쪽에서 일치시켜야 한다
-  → [ADR-024](#adr-024) 의 `NPF-xxxx` 가 그 접착제다
+- Cannot be poked directly with `curl`. Another debugging tool is needed
+- Changing `.proto` involves the build pipeline (`build.rs`)
+- There are now two protocols (gRPC + REST). Error representation has to agree
+  across both → [ADR-024](#adr-024)'s `NPF-xxxx` is that glue
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- 메시지 크기 상한을 명시적으로 관리해야 한다. 기본 4 MB 제한에 1.23 MB
-  요청은 들어가지만, 입력 크기를 키우는 실험(S6)에서는 확인이 필요하다
+- Message size limits have to be managed explicitly. A 1.23 MB request fits
+  under the default 4 MB limit, but experiments that increase input size (S6)
+  will need to check
 
-## 뒤집힌다면
+## What would overturn this
 
-- **입력이 JPEG 으로 바뀌어 페이로드가 100 KB 급이 되면** base64 팽창의
-  절대량이 작아진다. 그래도 스키마 강제 이유는 남는다
-- **외부 공개 API 가 요구사항이 되면** gRPC 앞에 REST 게이트웨이를 두는
-  구성을 검토한다. 내부 프로토콜을 바꿀 이유는 아니다
+- **If the input becomes JPEG and payloads drop to the 100 KB class**, the
+  absolute cost of base64 inflation shrinks. The schema-enforcement reason
+  still stands
+- **If a public external API becomes a requirement**, consider putting a REST
+  gateway in front of gRPC. That is not a reason to change the internal
+  protocol
 
 ---
 
@@ -2039,188 +2063,203 @@ FP16 vs ONNX — 양자화가 아예 없는 비교 — 에서도 **일부 텐서
 
 <a id="adr-012"></a>
 
-# ADR-012. 노드는 역양자화하지 않고 정수를 보낸다 (`want_float=0`, blob v2)
+# ADR-012. The node sends integers without dequantizing (`want_float=0`, blob v2)
+
+*[한국어 원문](012-want-float-zero-blob-v2.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-12 |
-| **관련** | [ADR-011](#adr-011) (INT8 채택), [ADR-014](#adr-014) (10G aggregation), [ADR-021](#adr-021) (노드 후처리 미구현), `docs/discuss.md` §12 |
+| **Status** | accepted |
+| **Date** | 2026-08-12 |
+| **Related** | [ADR-011](#adr-011) (INT8 adopted), [ADR-014](#adr-014) (10G aggregation), [ADR-021](#adr-021) (node-side postprocessing not implemented), `docs/discuss.md` §12 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드가 결과를 `float32` 로 바꿔서 보내면 **응답이 요청의 3.96배**가 되어
-> 3노드 포화 시 10G 링크로도 부족하다. 그래서 **양자화된 정수 그대로** 보내고,
-> 받는 쪽이 되돌릴 수 있도록 `scale` 과 `zero_point` 를 응답에 동봉한다.
+> If the node converts results to `float32` before sending, **the response
+> becomes 3.96× the request**, and even a 10G link is not enough at three-node
+> saturation. So it sends **the quantized integers as they are**, with `scale`
+> and `zero_point` included in the response so the receiver can convert back.
 
-## 배경
+## Context
 
-### 양자화와 역양자화
+### Quantization and dequantization
 
-INT8 모델은 계산을 정수로 한다. 그래서 출력도 정수로 나오고, 실수로
-되돌리려면 텐서마다 딸린 두 값이 필요하다.
+An INT8 model computes in integers. Its outputs come out as integers too, and
+converting them back to reals needs two values attached to each tensor.
 
 ```text
-real = (quantized - zero_point) × scale
+real = (quantized - zero_point) x scale
 ```
 
-RKNN 은 이 변환을 **대신 해주는 옵션**을 갖고 있다.
+RKNN has **an option to do that conversion for you**.
 
 | | |
 |---|---|
-| `want_float = 1` | 런타임이 `float32` 로 바꿔서 준다. 편하다 |
-| `want_float = 0` | 모델 네이티브 타입(INT8 모델이면 int8) 그대로 준다 |
+| `want_float = 1` | the runtime converts to `float32` and hands that over. Convenient |
+| `want_float = 0` | gives the model's native type as-is (int8 for an INT8 model) |
 
-기본값은 `1` 이고, 처음에는 그대로 썼다. 편했기 때문이다.
+The default is `1`, and that is what was used at first, because it was
+convenient.
 
-### 그런데 이 프로젝트에서는 출력이 네트워크로 나간다
+### But in this project the output goes out over the network
 
-노드는 후처리(NMS)를 하지 않는다. **원시 텐서 9개를 그대로 스케줄러로
-돌려보낸다**(→ ADR-021). 그래서 출력 타입이 곧 링크 부하다.
+The node does not postprocess (no NMS). It **sends all nine raw tensors back to
+the scheduler** (→ ADR-021). So the output type is the link load.
 
 ```text
-입력                        1,228,800 byte   (640 × 640 × 3)
-출력 want_float=1 (f32)     4,872,000 byte   ← 입력의 3.96배
-출력 want_float=0 (int8)    1,218,000 byte   ← 입력의 0.99배
+input                        1,228,800 byte   (640 x 640 x 3)
+output want_float=1 (f32)    4,872,000 byte   <- 3.96x the input
+output want_float=0 (int8)   1,218,000 byte   <- 0.99x the input
 ```
 
-3노드가 포화됐을 때 스케줄러 쪽 링크에 걸리는 부하다.
+The load on the scheduler-side link at three-node saturation:
 
-| 구성 | 모델 | 3노드 TX | 3노드 RX | 10G 로 되나 |
+| Configuration | Model | 3-node TX | 3-node RX | Fits in 10G? |
 |---|---|---:|---:|---|
-| `want_float=1` | INT8 | 4.64 Gbps | **18.38 Gbps** | **불가** |
-| `want_float=1` | FP16 | 2.49 Gbps | 9.86 Gbps | 겨우 |
-| `want_float=0` | INT8 | 4.64 Gbps | 4.60 Gbps | 가능 |
-| `want_float=0` | FP16 | 2.49 Gbps | 2.46 Gbps | 가능 |
+| `want_float=1` | INT8 | 4.64 Gbps | **18.38 Gbps** | **no** |
+| `want_float=1` | FP16 | 2.49 Gbps | 9.86 Gbps | barely |
+| `want_float=0` | INT8 | 4.64 Gbps | 4.60 Gbps | yes |
+| `want_float=0` | FP16 | 2.49 Gbps | 2.46 Gbps | yes |
 
-**입력만 보고 네트워크를 계산하다가 출력을 빠뜨린 것**이 원래 오류였다.
-출력을 넣고 다시 계산하니 결론이 뒤집혔다 — 10G 를 깔아도 INT8 3노드를
-감당하지 못한다.
+The original error was **calculating the network from the input alone and
+omitting the output**. Recomputing with the output inverted the conclusion —
+even laying 10G would not carry three INT8 nodes.
 
-이 시점에서 `want_float=0` 은 "해두면 좋은 최적화"에서 **M3 를 시작하기 위한
-전제 조건**으로 승격했다. 승격 근거는 처리량이 아니라 **RX 대역폭**이었다.
+At that point `want_float=0` was promoted from "a nice optimization to have" to
+**a precondition for starting M3**. The grounds for the promotion were not
+throughput but **RX bandwidth**.
 
-## 결정
+## Decision
 
-**1. `want_float` 의 기본값을 `false` 로 바꾸고 노드 설정으로 노출한다.**
+**1. Change the default of `want_float` to `false` and expose it in node
+configuration.**
 
 ```toml
 [worker]
 want_float = false
 ```
 
-**2. 응답 blob 형식을 v2 로 올려 텐서마다 역양자화 파라미터를 싣는다.**
+**2. Bump the response blob format to v2 and carry dequantization parameters
+per tensor.**
 
 ```text
 magic    u32  "RKNT"
 version  u32  = 2
-count    u32  텐서 개수
-dtype    u32  0 = 모델 원본 dtype, 1 = float32
-텐서마다 (36 byte):
-  len  n_dims  dims×4   ← v1 에도 있던 것 (24 byte)
-  qnt_type  zero_point  scale   ← v2 에서 추가 (12 byte)
-이어서 텐서 데이터
+count    u32  number of tensors
+dtype    u32  0 = model's native dtype, 1 = float32
+per tensor (36 byte):
+  len  n_dims  dims x 4   <- present in v1 too (24 byte)
+  qnt_type  zero_point  scale   <- added in v2 (12 byte)
+followed by the tensor data
 ```
 
-이게 **선택 사항이 아닌 이유**: `scale` 과 `zero_point` 없이 int8 을 보내면
-받는 쪽이 그 바이트를 해석할 방법이 아예 없다. 숫자는 도착하는데 무슨 뜻인지
-모르는 상태가 된다. 출력을 정수로 보내기로 한 순간 파라미터 동봉은 따라오는
-의무다.
+**Why this is not optional**: send int8 without `scale` and `zero_point` and
+the receiver has no way at all to interpret those bytes. The numbers arrive and
+nobody knows what they mean. The moment the decision was made to send integers,
+carrying the parameters became an obligation that follows from it.
 
-**3. 구버전 blob 은 받지 않는다.** `decode` 가 `version != 2` 를 오류로
-떨군다. 헤더만 v1 인 채로 36바이트 기술자를 24바이트로 읽으면 조용히
-어긋난 값이 나오는데, 그게 이 프로젝트에서 가장 피하려는 실패 형태다.
+**3. Old blobs are not accepted.** `decode` rejects `version != 2` as an error.
+Reading a 36-byte descriptor as 24 bytes because only the header says v1
+produces silently misaligned values, and that is the failure mode this project
+most wants to avoid.
 
-## 근거
+## Rationale
 
-### 정확도 — 실보드에서 float32 와 일치한다
+### Accuracy — matches float32 on real hardware
 
-역양자화를 우리가 직접 하므로 런타임 결과와 같은지 확인해야 한다.
+Since we do the dequantization ourselves, it has to be checked against the
+runtime's result.
 
 ```text
-측정: 실보드 king, 텐서 9개
-(a) want_float=1 로 받은 float32
-(b) want_float=0 으로 받은 int8 을 직접 역양자화한 값
+measured: real board king, 9 tensors
+(a) the float32 received with want_float=1
+(b) the int8 received with want_float=0, dequantized by hand
 ```
 
-**최대 오차 9.5e-7.** `float32` 정밀도 한계 수준이라 사실상 동일하다.
-(`crates/npuforge-rknn/tests/real_device.rs`)
+**Maximum error 9.5e-7.** At the limit of `float32` precision, so effectively
+identical. (`crates/npuforge-rknn/tests/real_device.rs`)
 
-### 처리량 — 덤으로 15~17% 올랐다
+### Throughput — 15–17% higher as a bonus
 
 ```text
-측정 조건: king, 8스레드, 120초, governor=performance
+conditions: king, 8 threads, 120 s, governor=performance
 ```
 
-| 모델 | `want_float=0` | `want_float=1` | 이득 |
+| Model | `want_float=0` | `want_float=1` | Gain |
 |---|---:|---:|---:|
 | INT8 | **156.7 inf/s** | 133.6 inf/s | **+17.3%** |
 | FP16 | 66.9 inf/s | 57.8 inf/s | **+15.7%** |
 
-역양자화는 CPU 가 한다. 그 일을 안 하니 빨라진다.
+Dequantization is done by the CPU. Not doing that work makes it faster.
 
-> **왜 예전에는 +5.4% 였나.** 2026-08-10 의 첫 측정은 1스레드 위주 조건이라
-> +5.4% 로 나왔고, 그래서 "효과 없는 최적화" 쪽으로 분류했었다. 8스레드에서
-> 크게 벌어지는 이유는 **출력 변환이 직렬화 구간을 붙잡는 시간**이 동시
-> 스레드 수만큼 누적되기 때문이다. 같은 실험도 조건이 다르면 다른 결론이
-> 나온다는 사례로 남겨 둔다.
+> **Why was it +5.4% before.** The first measurement on 2026-08-10 was mostly a
+> single-thread condition and came out at +5.4%, which got it filed as "an
+> optimization with no effect". The reason the gap widens at 8 threads is that
+> **the time output conversion holds the serialized section** accumulates with
+> the number of concurrent threads. Kept as a case of the same experiment
+> yielding a different conclusion under different conditions.
 
-### 알고 보니 측정 도구는 처음부터 이 조건이었다
+### As it turns out, the measurement tool was on this setting all along
 
-`sustained_load_test` 는 **처음부터 `want_float=0` 을 하드코딩**하고 있었다.
-즉 문서에 확정 수치로 적혀 있던 **157.2 / 84.3 inf/s 는 이미 `want_float=0`
-기준**이었고, Rust 백엔드만 `true` 였다.
+`sustained_load_test` had **hardcoded `want_float=0` from the beginning**. So
+the **157.2 / 84.3 inf/s written into the documents as settled figures were
+already on `want_float=0`**, and only the Rust backend was on `true`.
 
-그러니까 이 전환은 성능을 올린 작업이 아니라 **소프트웨어를 측정 조건에
-맞춘 작업**이다. 반대로 말하면, 전환 전까지 실제 노드는 문서의 수치보다
-15~17% 느리게 돌고 있었고 아무도 몰랐다.
+Which means this change did not raise performance; it **brought the software in
+line with the measurement conditions**. Put the other way: until the change,
+the actual node was running 15–17% slower than the documented figures and
+nobody knew.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| `want_float=1` 유지 + 10G | 계산상 RX 18.38 Gbps. **10G 로도 안 된다.** 25G 는 이 프로젝트 예산과 취지 밖 |
-| 노드에서 후처리(NMS) 수행 | **최종적으로는 이쪽이 옳다.** 응답이 수 KB 로 줄어 RX 가 사실상 사라진다. 다만 미구현이고, 후처리를 노드에 넣으면 CPU 부하가 노드로 옮겨가 측정 조건이 또 바뀐다 → ADR-021 |
-| 응답을 압축 | 압축·해제 CPU 가 추론 경로에 들어간다. 이미 CPU 가 병목인데 거기에 얹는다 |
-| 파라미터를 blob 이 아니라 별도 필드로 | 텐서마다 다른 값이라 텐서 기술자에 붙는 것이 자연스럽다. 분리하면 순서 대응이 깨질 여지가 생긴다 |
+| Keep `want_float=1` + 10G | RX computes to 18.38 Gbps. **Even 10G does not work.** 25G is outside this project's budget and purpose |
+| Postprocess (NMS) on the node | **This is ultimately the right answer.** The response shrinks to a few KB and RX effectively disappears. But it is unimplemented, and putting postprocessing on the node shifts CPU load to the node and changes the measurement conditions again → ADR-021 |
+| Compress the response | Compression/decompression CPU enters the inference path. CPU is already the bottleneck, and this stacks on top |
+| Parameters as separate fields rather than in the blob | The values differ per tensor, so attaching them to the tensor descriptor is natural. Separating them creates room for the ordering to break |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 3노드 RX 18.38 → 4.60 Gbps. **10G aggregation 으로 M3 가 가능해졌다**
-- 처리량 INT8 +17.3% / FP16 +15.7%
-- 노드가 문서에 적힌 측정 조건과 실제로 같아졌다
+- 3-node RX 18.38 → 4.60 Gbps. **M3 became possible on 10G aggregation**
+- Throughput INT8 +17.3% / FP16 +15.7%
+- The node now actually matches the measurement conditions written in the docs
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **역양자화 책임이 받는 쪽으로 넘어갔다.** 클라이언트가 blob 을 이해해야 한다
-- 형식을 바꾸면 **세 곳을 같이 고쳐야 한다**
+- **Responsibility for dequantization moved to the receiver.** The client has to
+  understand the blob
+- Changing the format means **fixing three places together**
   - `crates/npuforge-rknn/src/blob.rs`
-  - `native/dump_output_test.c` (보드 검증 도구)
-  - `tools/model-converter/compare_detections.py` (정확도 비교)
-- v1 blob 과 호환되지 않는다 (의도한 것)
+  - `native/dump_output_test.c` (board verification tool)
+  - `tools/model-converter/compare_detections.py` (accuracy comparison)
+- Incompatible with v1 blobs (intentionally)
 
-**알려진 흠**
+**Known flaw**
 
-응답의 `result_format` 문자열이 아직 **`"rknn-tensors-v1"`** 이다. 실제 blob
-헤더는 `version = 2` 이고 기술자도 24 → 36 바이트로 바뀌었다. 형식을 문자열로
-식별하는 클라이언트가 있다면 v1 로 오인해 24바이트 단위로 읽는다.
+The response's `result_format` string is still **`"rknn-tensors-v1"`**. The
+actual blob header says `version = 2` and the descriptor changed from 24 to 36
+bytes. A client identifying the format by that string would mistake it for v1
+and read in 24-byte units.
 
-지금은 소비자가 저장소 안에만 있어서 문제가 드러나지 않는다. **이름과 실제가
-어긋난 상태이므로 외부에 공개하기 전에 정리해야 한다.**
+It does not surface today because every consumer is inside this repository.
+**The name and the reality disagree, so this has to be cleaned up before going
+public.**
 
-## 뒤집힌다면
+## What would overturn this
 
-- **노드 후처리(NMS)를 구현하면** 응답이 검출 결과 수 KB 로 줄어 blob 자체가
-  거의 필요 없어진다. 그때 이 ADR 은 ADR-021 로 대체된다
-- **입력 형식이 JPEG 으로 바뀌면** 입력 TX 가 1/10 로 줄어 링크 예산 전체를
-  다시 계산해야 한다. 다만 출력 쪽 결론은 그대로다
-- 역양자화 오차가 후처리 결과를 바꾼다는 관측이 나오면 재검증한다. 현재
-  근거는 텐서 단위 최대 오차 9.5e-7 이고, **검출 박스 단위로는 비교하지
-  않았다**
+- **Implementing node-side postprocessing (NMS)** shrinks the response to a few
+  KB of detections and makes the blob itself largely unnecessary. At that point
+  this ADR is superseded by ADR-021
+- **If the input format becomes JPEG**, input TX drops tenfold and the whole
+  link budget has to be recomputed. The output-side conclusion stands regardless
+- Revisit if an observation shows dequantization error changing postprocessing
+  results. The current basis is a per-tensor maximum error of 9.5e-7, and
+  **no comparison was made at the level of detection boxes**
 
 ---
 
@@ -2383,325 +2422,349 @@ RK3576 보드는 팬리스로 출고된다. 지속 부하를 걸면 뜨거워지
 
 <a id="adr-014"></a>
 
-# ADR-014. worker 는 2.5G 그대로 두고 aggregation 만 10G 로, 스케줄러는 별도 서버로
+# ADR-014. Leave the worker links at 2.5G, raise only aggregation to 10G, and put the scheduler on a separate server
+
+*[한국어 원문](014-10g-aggregation-separate-scheduler.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 (2026-08-20 장비 확보·실측 완료) |
-| **날짜** | 2026-08-12 (결정), 2026-08-20 (구축·실측) |
-| **대체** | "기준 네트워크 2.5GbE 로 충분" 판단을 대체함 |
-| **관련** | [ADR-003](#adr-003), [ADR-011](#adr-011), [ADR-012](#adr-012), `docs/02-HARDWARE-SETUP.md` §3.3.2 |
+| **Status** | accepted (equipment obtained and measured 2026-08-20) |
+| **Date** | 2026-08-12 (decision), 2026-08-20 (build and measurement) |
+| **Supersedes** | the judgement that "2.5GbE is sufficient as the reference network" |
+| **Related** | [ADR-003](#adr-003), [ADR-011](#adr-011), [ADR-012](#adr-012), `docs/02-HARDWARE-SETUP.md` §3.3.2 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드 세 대의 트래픽이 스케줄러 한 점에서 합쳐진다. **worker 링크(2.5G)가
-> 아니라 그 합류점이 먼저 막힌다.** 그래서 aggregation 만 10G 로 올리고,
-> 10G NIC 을 꽂을 수 있는 **별도 서버**를 스케줄러 호스트로 쓴다.
+> Traffic from three nodes converges at one point, the scheduler. **It is that
+> confluence, not the worker link (2.5G), that fills up first.** So only
+> aggregation is raised to 10G, and a **separate server** that can take a 10G
+> NIC becomes the scheduler host.
 
-## 배경
+## Context
 
-### 처음 계산은 이랬다
+### The original calculation went like this
 
 ```text
-3노드 150 FPS × 1.23 MB ≈ 184 MB/s ≈ 1.5 Gbps  → 1GbE 초과, 2.5GbE 면 충분
+3 nodes 150 FPS x 1.23 MB ~ 184 MB/s ~ 1.5 Gbps  -> exceeds 1GbE, 2.5GbE is enough
 ```
 
-이 계산으로 "기준 네트워크는 2.5GbE" 를 정했다. **두 군데가 틀렸다.**
+That calculation set "the reference network is 2.5GbE". **Two things were
+wrong.**
 
-**(a) 처리량 가정이 낡았다.** 150 FPS 는 3노드 **합계** 가정이었다. 실측은
-노드 **한 대**가 INT8 157.2 inf/s 다. 3노드면 471 inf/s 다.
+**(a) The throughput assumption was stale.** 150 FPS was assumed as the
+**total** across three nodes. Measurement says **one** node does 157.2 inf/s at
+INT8. Three nodes is 471 inf/s.
 
-**(b) 출력 방향을 보지 않았다.** 입력만 셌다. 노드는 후처리를 하지 않고
-원시 텐서를 되돌려 보내므로 응답도 링크를 쓴다. `want_float=1` 기준으로
-응답이 요청의 **3.96배**였다.
+**(b) The output direction was ignored.** Only the input was counted. The node
+does not postprocess and sends raw tensors back, so the response uses the link
+too. With `want_float=1` the response was **3.96×** the request.
 
-여기에 단위 실수까지 하나 겹쳐 있었다 — MiB/s 를 Gbps 로 옮기며 2진
-접두(÷1024)를 썼다. **네트워크 속도는 10진이다.**
+On top of that there was a unit error — converting MiB/s to Gbps used the
+binary prefix (÷1024). **Network speeds are decimal.**
 
-### 다시 계산한 값
+### The recomputed values
 
 ```text
-raw RGB 입력 한 장 = 640 × 640 × 3 = 1,228,800 byte
+one raw RGB input = 640 x 640 x 3 = 1,228,800 byte
 
-                     노드당          3노드 합계
+                     per node        3-node total
 INT8  157.2 inf/s    1.545 Gbps      4.636 Gbps
 FP16   84.3 inf/s    0.829 Gbps      2.486 Gbps
 ```
 
-**FP16 조차 3노드 합계가 2.486 Gbps 로 2.5GbE 한 링크(실효 약 2.35 Gbps)를
-넘는다.** INT8 은 두 배 가까이 넘는다.
+**Even FP16's three-node total of 2.486 Gbps exceeds a single 2.5GbE link
+(effectively about 2.35 Gbps).** INT8 exceeds it by nearly double.
 
-## 결정
+## Decision
 
-**1. worker 링크는 2.5G 그대로 둔다.** 노드당 최대 1.545 Gbps 라 충분하다.
+**1. Leave the worker links at 2.5G.** At most 1.545 Gbps per node, which fits.
 
-**2. aggregation 링크만 10G 로 올린다.**
+**2. Raise only the aggregation link to 10G.**
 
 ```text
         Benchmark / Scheduler Server
-                    │
-                  10GbE          ← 여기가 핵심
-                    │
+                    |
+                  10GbE          <- this is the point
+                    |
             2.5G / 10G Switch
-              ├── 2.5G ── king
-              ├── 2.5G ── queen
-              └── 2.5G ── jack
+              |-- 2.5G -- king
+              |-- 2.5G -- queen
+              \-- 2.5G -- jack
 ```
 
-**3. 스케줄러 호스트를 PCIe 슬롯이 있는 별도 서버로 한다.**
+**3. Make the scheduler host a separate server with a PCIe slot.**
 
-**4. 출력 축소를 함께 간다.** 10G 를 깔아도 `want_float=1` 이면 RX 가
-18.38 Gbps 라 여전히 부족하다. → [ADR-012](#adr-012)
-에서 해결했다.
+**4. Reduce the output alongside.** Even with 10G laid, `want_float=1` puts RX
+at 18.38 Gbps and it is still not enough. →
+Solved in [ADR-012](#adr-012).
 
-**5. 1GbE 는 제거하지 않고 비교 조건으로 유지한다.** "네트워크가 병목인
-조건" 과 "그렇지 않은 조건" 을 나란히 제시하는 것이 병목 분석 결과로서
-가치가 있다 (시나리오 S5·S6).
+**5. Keep 1GbE rather than removing it, as a comparison condition.** Presenting
+"the network is the bottleneck" and "it is not" side by side has value as a
+bottleneck-analysis result (scenarios S5 and S6).
 
-## 근거
+## Rationale
 
-### 왜 worker 가 아니라 aggregation 인가
+### Why aggregation rather than the workers
 
-노드는 각자 자기 링크만 쓴다. 최대 1.545 Gbps 이므로 2.5G 안에 들어간다.
-그런데 **세 노드의 트래픽이 스케줄러 앞에서 전부 합쳐진다.** 합류점의 부하는
-세 배다.
+Each node uses only its own link. At most 1.545 Gbps, which fits inside 2.5G.
+But **all three nodes' traffic converges in front of the scheduler.** The load
+at the confluence is threefold.
 
 ```text
-king  ──1.5G──┐
-queen ──1.5G──┼──► 4.6 Gbps ──► 스케줄러   ← 2.5G 로는 불가능
-jack  ──1.5G──┘
+king  --1.5G--\
+queen --1.5G---+--> 4.6 Gbps --> scheduler   <- impossible on 2.5G
+jack  --1.5G--/
 ```
 
-**노드를 늘릴수록 이 지점만 선형으로 나빠진다.** 3노드 확장 효율을 재는
-프로젝트에서 확장에 따라 먼저 막히는 곳이 있으면, **NPU 확장 효율이 아니라
-링크 포화를 측정하게 된다.**
+**Only this point degrades linearly as nodes are added.** In a project measuring
+three-node scaling efficiency, if something fills up first as you scale, **you
+end up measuring link saturation rather than NPU scaling efficiency.**
 
-### 왜 별도 서버인가 — 이유가 두 개 겹친다
+### Why a separate server — two reasons overlap
 
-**(1) 측정 조건의 대칭성.** 한 노드에서 스케줄러를 같이 돌리면 그 노드만
-CPU·네트워크 부하가 오른다. 세 노드의 조건이 달라지고 1/2/3노드 비교가
-왜곡된다. 발표에서 "동일 조건 비교" 라고 말할 수 없게 된다.
+**(1) Symmetry of the measurement conditions.** Running the scheduler on one of
+the nodes raises CPU and network load on that node alone. The three nodes'
+conditions diverge and the 1/2/3-node comparison is distorted. You could no
+longer call it a "like-for-like comparison" in a talk.
 
-**(2) PCIe 슬롯.** 10G SFP+ NIC 은 PCIe 카드다. 현재 스케줄러 호스트인
-`dealer` 는 **노트북이라 꽂을 곳이 없다.**
+**(2) The PCIe slot.** A 10G SFP+ NIC is a PCIe card. The current scheduler
+host, `dealer`, is **a laptop with nowhere to put it.**
 
-(1)만으로도 별도 호스트가 필요했고, (2)가 "아무 호스트나" 를 "PCIe 슬롯이
-있는 서버" 로 좁혔다.
+(1) alone required a separate host, and (2) narrowed "any host" to "a server
+with a PCIe slot".
 
-## 구축 결과 (2026-08-20)
+## Build result (2026-08-20)
 
-설계대로 장비를 갖추고 대역을 실측했다. **DAC/SFP+ 가 아니라 10GBASE-T(RJ45)**
-로 구성됐다 — 스위치가 NEXI NS-S25G10G-N(2.5G×4 + 10G×2, 전부 RJ45)이라
-SFP+ 계획이 RJ45 로 바뀌었다. 결론에는 영향 없다.
+The equipment was assembled as designed and the bandwidth measured. It came
+together as **10GBASE-T (RJ45) rather than DAC/SFP+** — the switch is a NEXI
+NS-S25G10G-N (2.5G×4 + 10G×2, all RJ45), so the SFP+ plan became RJ45. No
+effect on the conclusion.
 
 ```text
 server (Rocky 9.4, Xeon x2 24T / 16GB)
-  └ enp4s0 10GBASE-T ── 10G full 실측 (ethtool)
-                        │
-              NS-S25G10G-N ─┬ 2.5G ─ king  .3
-                            ├ 2.5G ─ queen .5
-                            └ 2.5G ─ jack  .4
+  \ enp4s0 10GBASE-T -- measured 10G full (ethtool)
+                        |
+              NS-S25G10G-N -+ 2.5G - king  .3
+                            + 2.5G - queen .5
+                            \ 2.5G - jack  .4
 ```
 
-| 측정 | 값 | 도구 |
+| Measurement | Value | Tool |
 |---|---:|---|
-| server 링크 협상 | 10000 Mb/s full | ethtool |
-| 단일 king→server | 2.34 Gbps | iperf3 (2.5G 실효 상한) |
-| **3노드 동시 →server** | 각 1.70, **합 5.11 Gbps** | nc |
+| Server link negotiation | 10000 Mb/s full | ethtool |
+| Single king→server | 2.34 Gbps | iperf3 (the effective 2.5G ceiling) |
+| **3 nodes concurrently →server** | 1.70 each, **5.11 Gbps total** | nc |
 
-3노드 동시에서 세 스트림이 **균등 유지**됐다 — 서버가 병목이면 합이 깎였을
-텐데 그러지 않았다. INT8 3노드 목표 RX **4.60 Gbps** 를 여유 있게 수용한다.
-(개별 1.70 이 링크 상한 2.34 보다 낮은 것은 nc/보드 CPU 한계지 스위치·서버
-한계가 아니다. 실제 M3 는 gRPC 트래픽이므로 이 값은 인프라 검증용이다.)
+With three nodes concurrent, the three streams **stayed even** — had the server
+been the bottleneck the total would have been cut, and it was not. It
+comfortably accommodates the INT8 3-node RX target of **4.60 Gbps**. (The
+individual 1.70 being below the 2.34 link ceiling is an nc/board-CPU limit, not
+a switch or server limit. Actual M3 traffic is gRPC, so this figure is for
+infrastructure verification.)
 
-부수 효과로 **스케줄러 호스트 RAM 이 3GB(dealer) → 16GB(server)** 가 되어
-ADR-003 의 스케줄러 RSS 우려도 완화됐다.
+As a side effect the **scheduler host's RAM went from 3 GB (dealer) to 16 GB
+(server)**, easing ADR-003's concern about scheduler RSS.
 
-> ⚠️ 보드가 DHCP 라 이 개편에서 IP 가 통째로 바뀌었다(`.12/.16/.33`
-> → `.3/.4/.5`). SSH 별칭이 낡아 노드를 못 찾는 [ADR-019](#adr-019)
-> 상황이 재현됐다. MAC 고정 IP 가 후속 과제다.
+> ⚠️ Because the boards use DHCP, this rework changed their IPs wholesale
+> (`.12/.16/.33` → `.3/.4/.5`). The [ADR-019](#adr-019) situation
+> recurred, with stale SSH aliases failing to find the nodes. MAC-based static
+> IPs are follow-up work.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 전부 10G (worker 포함) | 노드당 1.545 Gbps 라 낭비다. 보드의 NIC 도 2.5G 다 |
-| 25G 이상 | `want_float=1` 을 유지하려면 필요하지만, 출력을 줄이는 쪽이 싸고 옳다 (ADR-012) |
-| 스케줄러를 `king` 에서 실행 | 세 노드의 실험 조건이 깨진다. 개발·데모용으로만 허용하고 공식 수치로 쓰지 않는다 |
-| 2.5GbE 유지하고 그냥 측정 | **가장 위험한 선택.** 링크 포화를 확장 효율로 잘못 보고하게 된다 |
-| 입력을 JPEG 으로 바꿔 TX 축소 | 디코딩 비용이 노드 CPU 로 간다. 이미 CPU 가 병목인데 거기에 얹는다. S6 비교 항목으로는 유효 |
+| 10G everywhere (workers included) | Wasteful at 1.545 Gbps per node. The boards' NICs are 2.5G anyway |
+| 25G or above | Needed to keep `want_float=1`, but reducing the output is cheaper and more correct (ADR-012) |
+| Run the scheduler on `king` | Breaks the three nodes' experimental conditions. Allowed for development and demos only, never for official figures |
+| Keep 2.5GbE and just measure | **The most dangerous choice.** Link saturation would get reported as scaling efficiency |
+| Switch input to JPEG to reduce TX | The decode cost lands on node CPU. CPU is already the bottleneck and this stacks on it. Valid as an S6 comparison item |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 확장 효율 측정의 전제가 성립한다 — 링크가 먼저 막히지 않는다
-- 필요한 장비가 명확해졌다: 2.5G/10G 스위치, PCIe 서버, 10G NIC, SFP+ DAC
+- The premise for measuring scaling efficiency holds — the link does not fill
+  up first
+- The required equipment became clear: a 2.5G/10G switch, a PCIe server, a 10G
+  NIC and an SFP+ DAC
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **M3 가 장비 조달까지 한동안 막혔다.** 2026-08-12 결정 → 08-20 구축까지
-  대기했다. 코드가 아니라 하드웨어 문제였다
-- 비용이 늘었다 — 스위치·서버·NIC·케이블
+- **M3 was blocked for a while on procurement.** From the decision on
+  2026-08-12 to the build on 08-20. A hardware problem, not a code one
+- Cost went up — switch, server, NIC, cables
 
-**이 결정의 가장 큰 결과: 측정을 시작하지 않기로 한 것**
+**The biggest consequence of this decision: choosing not to start measuring**
 
-장비가 없는 채로 측정하면 숫자는 나온다. **그리고 그 숫자는 틀린다.**
-3노드에서 확장 효율이 낮게 나올 텐데 원인이 NPU 가 아니라 링크다. 이 상태로
-결과를 내면 프로젝트의 핵심 주장 자체가 무효가 된다.
+Measuring without the equipment would still produce numbers. **And those numbers
+would be wrong.** Scaling efficiency would come out low at three nodes, with the
+cause being the link rather than the NPU. Publishing results in that state would
+invalidate the project's central claim.
 
-그래서 **측정을 중단하고 대기하는 쪽을 택했다.** 이것도 결정이다.
+So **the choice was to stop measuring and wait.** That is a decision too.
 
-**새로 생긴 제약**
+**New constraints introduced**
 
-- 스케줄러 호스트가 실험 장비 목록에 정식으로 들어갔다. 사양이 바뀌면 그것도
-  측정 조건 변경이다
-- M3 시작 전에 **계산이 아니라 실측 TX/RX 를 기록해야 한다**
-  (`02-HARDWARE-SETUP.md` §3.3.3). 이 절의 원래 오류가 계산만 믿은 것이었다
+- The scheduler host formally joined the experimental equipment list. Changing
+  its specification is a change of measurement conditions
+- Before starting M3, **measured TX/RX must be recorded rather than calculated**
+  (`02-HARDWARE-SETUP.md` §3.3.3). This section's original error was trusting
+  calculation alone
 
-## 뒤집힌다면
+## What would overturn this
 
-- **입력 형식을 JPEG 으로 바꾸면** TX 가 약 1/10 로 줄어 링크 예산을 전부
-  다시 계산해야 한다. 그 경우 2.5G 로도 충분할 수 있다. 단 디코딩 CPU 비용이
-  어디로 가는지 함께 봐야 한다
-- **노드에서 후처리(NMS)를 구현하면** RX 가 사실상 사라진다. 그러면 남는 것은
-  TX 4.64 Gbps 뿐이라 요구 사양이 내려간다 → ADR-021
-- **노드를 더 늘리면** aggregation 요구가 그만큼 더 커진다. 5노드면 INT8
-  기준 7.7 Gbps 로 10G 도 여유가 없다
+- **Switching the input format to JPEG** cuts TX roughly tenfold and the whole
+  link budget has to be recomputed. 2.5G might suffice in that case — but where
+  the decode CPU cost lands has to be considered alongside
+- **Implementing node-side postprocessing (NMS)** effectively removes RX. What
+  remains is TX at 4.64 Gbps, lowering the requirement → ADR-021
+- **Adding more nodes** raises the aggregation requirement proportionally. Five
+  nodes at INT8 comes to 7.7 Gbps, leaving no headroom even at 10G
 
 ---
 
 <a id="adr-015"></a>
 
-# ADR-015. 측정 전에 preflight 로 하드 실패 검사를 하고, 통과 전에는 아무것도 재지 않는다
+# ADR-015. Run a hard-failing preflight check before measuring, and measure nothing until it passes
+
+*[한국어 원문](015-preflight-hard-fail.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-007](#adr-007), [ADR-016](#adr-016), [ADR-019](#adr-019), [ADR-028](#adr-028) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-007](#adr-007), [ADR-016](#adr-016), [ADR-019](#adr-019), [ADR-028](#adr-028) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 지금까지 측정을 망친 원인은 대부분 **측정 자체가 아니라 전제**였다.
-> 그래서 측정 직전에 전제를 기계가 검사한다. **하드 실패면 측정을 시작하지
-> 않는다.** 그리고 성능보다 **정확도를 먼저** 본다.
+> What has ruined measurements so far has mostly been **the premises, not the
+> measurement itself**. So a machine checks the premises immediately before
+> measuring. **On a hard failure, measurement does not start.** And accuracy is
+> checked **before** performance.
 
-## 배경
+## Context
 
-측정이 틀린 적이 여러 번 있는데, 원인이 전부 측정 코드 밖에 있었다.
+Measurements have been wrong several times, and the cause was always outside
+the measurement code.
 
-| 무슨 일 | 결과 |
+| What happened | Result |
 |---|---|
-| 문서의 IP 가 낡아 엉뚱한 곳을 봤다 | 노드가 죽었다고 오판, 서브넷 전체 스캔 |
-| 부하 프로파일이 다른 두 측정을 비교 | 19°C 격차로 오해 |
-| 어댑터 전류 부족으로 리셋된 보드 | 그 처리량을 성능으로 읽을 뻔했다 |
-| 컨텍스트 공유 | 오류 0건에 결과 100% 불일치 |
+| A stale IP in the docs pointed somewhere else | Misdiagnosed as a dead node; scanned the whole subnet |
+| Compared two measurements with different load profiles | A 19 °C gap was misread |
+| A board reset by insufficient adapter current | Its throughput was nearly read as performance |
+| Sharing a context | 0 errors and 100% result mismatch |
 
-**공통점: 측정을 시작하기 전에 이미 틀려 있었다.** 그리고 넷 다 실행 중에는
-아무 신호가 없다.
+**What they share: it was already wrong before measurement began.** And all four
+give no signal while running.
 
-## 결정
+## Decision
 
-**1. `scripts/preflight-check.sh` 를 만들고, 통과 전에는 측정하지 않는다.**
+**1. Create `scripts/preflight-check.sh`, and do not measure until it passes.**
 
-종료 코드로 판정한다.
+The verdict is the exit code.
 
 ```text
-0  통과 (경고는 있을 수 있다)
-1  하드 실패. 이 상태로 측정하면 결과가 무효다
-2  스크립트 사용 오류
+0  pass (warnings are possible)
+1  hard failure. Measuring in this state makes the result invalid
+2  script usage error
 ```
 
-**2. 검사 항목을 6개 군으로 나눈다.**
+**2. Divide the checks into six groups.**
 
-| 군 | 보는 것 |
+| Group | What it looks at |
 |---|---|
-| 1. 접속과 정체성 | 별칭 ↔ hostname 일치 |
-| 2. 소프트웨어 동일성 | 커널·RKNN·드라이버·모델 해시가 세 노드 동일 |
-| 3. 측정 조건 | governor, 유휴 온도, 입력 전압, 잔존 부하, NTP, 세션 수 |
-| 4. **추론 정확도** | 세 보드가 같은 입력에 같은 답을 내는가 |
-| 5. 네트워크 실측 | M3 전제값 기록 |
-| 6. 클러스터 등록 | 스케줄러에 세 노드가 붙어 있는가 |
+| 1. Connection and identity | alias ↔ hostname agreement |
+| 2. Software identity | kernel, RKNN, driver and model hashes identical across the three nodes |
+| 3. Measurement conditions | governor, idle temperature, input voltage, residual load, NTP, session count |
+| 4. **Inference accuracy** | do the three boards give the same answer to the same input |
+| 5. Network measurement | record M3's premise values |
+| 6. Cluster registration | are the three nodes attached to the scheduler |
 
-**3. 이 스크립트는 고치지 않는다. 판정만 한다.** 고치는 것은
-`fix-node-consistency.sh` 의 몫이다.
+**3. This script does not fix anything. It only judges.** Fixing is
+`fix-node-consistency.sh`'s job.
 
-**4. 빈 값과 자리표시자를 실패로 처리한다.**
+**4. Treat empty values and placeholders as failures.**
 
-**5. 검사를 새로 만들면 일부러 깨뜨려 보고 실제로 잡히는지 확인한다.**
+**5. When adding a check, break it deliberately and confirm it actually
+catches.**
 
-## 근거
+## Rationale
 
-### 정확도를 성능보다 먼저 보는 이유
+### Why accuracy comes before performance
 
-`--with-inference` 가 하는 일이다. 세 보드에 같은 입력을 주고 같은 답이
-나오는지 본다.
+That is what `--with-inference` does. It gives the three boards the same input
+and checks that the same answer comes out.
 
-이유는 [ADR-007](#adr-007) 이다. 컨텍스트 공유 구성은
-**틀린 답을 더 빨리 냈다** (2스레드에서 공유 34.8 > 전용 33.2 inf/s).
+The reason is [ADR-007](#adr-007). The shared-context
+configuration **produced wrong answers faster** (at two threads, shared 34.8 >
+dedicated 33.2 inf/s).
 
-**틀린 답을 빨리 내는 구성이 벤치마크에서 이기면 안 된다.** 성능만 재면
-그런 구성이 최적으로 보고된다.
+**A configuration that produces wrong answers fast must not win a benchmark.**
+Measure performance alone and such a configuration gets reported as optimal.
 
-### "못 읽음" 을 "일치" 로 판정한 사건
+### The incident where "could not read" was judged as "identical"
 
-`/sys/kernel/debug/rknpu/version` 은 root 만 읽을 수 있다. 권한 없이 읽으니
-세 노드 모두 빈 문자열이 나왔고, **값이 같다는 이유로 통과**시켰다.
+`/sys/kernel/debug/rknpu/version` is readable only by root. Reading it without
+permission returned an empty string on all three nodes, and it **passed on the
+grounds that the values matched**.
 
 ```text
-king  ""      ┐
-queen ""      ├─ 세 값이 같다 → 통과 ✅   ← 아무것도 검증하지 않았다
-jack  ""      ┘
+king  ""      \
+queen ""      +- the three values match -> pass OK   <- nothing was verified
+jack  ""      /
 ```
 
-지표가 무엇을 세는지 확인하지 않은 실수의 변종이다. 그래서 빈 값·`unknown`
-같은 자리표시자는 **실패**로 본다.
+A variant of the mistake of not checking what a metric counts. So empty values
+and placeholders such as `unknown` are treated as **failures**.
 
-### 별칭 ↔ hostname 검사가 1번인 이유
+### Why the alias ↔ hostname check is number 1
 
-**연결 실패보다 이쪽이 훨씬 위험하다.** 연결이 안 되면 즉시 안다. 그런데
-`npuforge-k` 가 `queen` 을 가리키고 있으면 측정은 정상적으로 끝나고 **결과가
-잘못된 노드에 귀속된다.** 조용히 틀린다.
+**This is far more dangerous than a connection failure.** A failed connection is
+known immediately. But if `npuforge-k` points at `queen`, the measurement
+finishes normally and **the result is attributed to the wrong node.** It fails
+quietly.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 체크리스트를 문서로 두고 사람이 확인 | 문서로 "조심하자" 는 통하지 않았다. 알면서 당한 것이 여러 번 |
-| 벤치 도구 안에 검사를 넣는다 | 일부는 그렇게 했다([ADR-028](#adr-028)). 다만 SSH·sudo·해시 비교는 도구 밖 영역이라 분리했다 |
-| 검사 실패를 경고로만 | 경고는 무시된다. 특히 측정을 빨리 시작하고 싶을 때 |
-| 자동으로 고친다 | 판정과 조치를 섞으면 "무엇이 틀려 있었는지" 기록이 남지 않는다 |
+| Keep the checklist in a document and have a human verify | "Let's be careful" in a document did not work. Several failures happened while knowing better |
+| Put the checks inside the bench tool | Some are ([ADR-028](#adr-028)). But SSH, sudo and hash comparison are outside the tool's domain, so they were separated |
+| Make check failures warnings only | Warnings get ignored, especially when you want to start measuring quickly |
+| Fix things automatically | Mixing judgement with remedy leaves no record of "what had been wrong" |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 전제 실패를 측정 **전에** 잡는다
-- 통과/실패가 종료 코드라 자동화에 그대로 쓰인다
-- 측정 조건이 기록된다 (`--json`)
+- Premise failures are caught **before** measurement
+- Pass/fail is an exit code, so it drops straight into automation
+- The measurement conditions get recorded (`--json`)
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 측정 시작까지 시간이 걸린다. 특히 `--with-inference` 는 실제 추론을 돌린다
-- sudo 비밀번호가 필요하다. 저장소에 넣지 않고 환경변수나 `~/.npuforge/`
-  파일로 받는다 — **이 프로젝트는 공개 예정이라 커밋 히스토리에 들어가면
-  지우는 데 히스토리 재작성이 필요하다**
+- It takes time to start measuring, especially `--with-inference`, which runs
+  real inference
+- A sudo password is needed. It is not committed to the repository but taken
+  from an environment variable or a `~/.npuforge/` file — **this project is
+  going public, and anything in the commit history would need a history rewrite
+  to remove**
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- **검사 자체가 틀릴 수 있다.** 실제로 `pgrep -f` 가 자기 자신을 세서 조용히
-  통과시킨 적이 있다 ([ADR-017](#adr-017)).
-  그래서 "일부러 깨뜨려 보기" 가 규칙에 들어갔다
+- **The check itself can be wrong.** `pgrep -f` once counted itself and passed
+  quietly ([ADR-017](#adr-017)). That is why "break
+  it deliberately" became a rule
 
-## 뒤집힌다면
+## What would overturn this
 
-검사 항목은 계속 늘어난다. **줄어드는 일은 없다.** 새로운 실패 유형을 겪을
-때마다 여기에 항목이 추가되는 것이 이 스크립트의 설계 의도다.
+The list of checks keeps growing. **It never shrinks.** Adding an entry every
+time a new failure mode is encountered is this script's design intent.
 
 ---
 

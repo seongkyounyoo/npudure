@@ -1,182 +1,197 @@
-# ADR-012. 노드는 역양자화하지 않고 정수를 보낸다 (`want_float=0`, blob v2)
+# ADR-012. The node sends integers without dequantizing (`want_float=0`, blob v2)
+
+*[한국어 원문](012-want-float-zero-blob-v2.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-12 |
-| **관련** | [ADR-011](011-int8-quantization.md) (INT8 채택), [ADR-014](014-10g-aggregation-separate-scheduler.md) (10G aggregation), [ADR-021](021-no-node-side-postprocessing.md) (노드 후처리 미구현), `docs/discuss.md` §12 |
+| **Status** | accepted |
+| **Date** | 2026-08-12 |
+| **Related** | [ADR-011](011-int8-quantization.md) (INT8 adopted), [ADR-014](014-10g-aggregation-separate-scheduler.md) (10G aggregation), [ADR-021](021-no-node-side-postprocessing.md) (node-side postprocessing not implemented), `docs/discuss.md` §12 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 노드가 결과를 `float32` 로 바꿔서 보내면 **응답이 요청의 3.96배**가 되어
-> 3노드 포화 시 10G 링크로도 부족하다. 그래서 **양자화된 정수 그대로** 보내고,
-> 받는 쪽이 되돌릴 수 있도록 `scale` 과 `zero_point` 를 응답에 동봉한다.
+> If the node converts results to `float32` before sending, **the response
+> becomes 3.96× the request**, and even a 10G link is not enough at three-node
+> saturation. So it sends **the quantized integers as they are**, with `scale`
+> and `zero_point` included in the response so the receiver can convert back.
 
-## 배경
+## Context
 
-### 양자화와 역양자화
+### Quantization and dequantization
 
-INT8 모델은 계산을 정수로 한다. 그래서 출력도 정수로 나오고, 실수로
-되돌리려면 텐서마다 딸린 두 값이 필요하다.
+An INT8 model computes in integers. Its outputs come out as integers too, and
+converting them back to reals needs two values attached to each tensor.
 
 ```text
-real = (quantized - zero_point) × scale
+real = (quantized - zero_point) x scale
 ```
 
-RKNN 은 이 변환을 **대신 해주는 옵션**을 갖고 있다.
+RKNN has **an option to do that conversion for you**.
 
 | | |
 |---|---|
-| `want_float = 1` | 런타임이 `float32` 로 바꿔서 준다. 편하다 |
-| `want_float = 0` | 모델 네이티브 타입(INT8 모델이면 int8) 그대로 준다 |
+| `want_float = 1` | the runtime converts to `float32` and hands that over. Convenient |
+| `want_float = 0` | gives the model's native type as-is (int8 for an INT8 model) |
 
-기본값은 `1` 이고, 처음에는 그대로 썼다. 편했기 때문이다.
+The default is `1`, and that is what was used at first, because it was
+convenient.
 
-### 그런데 이 프로젝트에서는 출력이 네트워크로 나간다
+### But in this project the output goes out over the network
 
-노드는 후처리(NMS)를 하지 않는다. **원시 텐서 9개를 그대로 스케줄러로
-돌려보낸다**(→ ADR-021). 그래서 출력 타입이 곧 링크 부하다.
+The node does not postprocess (no NMS). It **sends all nine raw tensors back to
+the scheduler** (→ ADR-021). So the output type is the link load.
 
 ```text
-입력                        1,228,800 byte   (640 × 640 × 3)
-출력 want_float=1 (f32)     4,872,000 byte   ← 입력의 3.96배
-출력 want_float=0 (int8)    1,218,000 byte   ← 입력의 0.99배
+input                        1,228,800 byte   (640 x 640 x 3)
+output want_float=1 (f32)    4,872,000 byte   <- 3.96x the input
+output want_float=0 (int8)   1,218,000 byte   <- 0.99x the input
 ```
 
-3노드가 포화됐을 때 스케줄러 쪽 링크에 걸리는 부하다.
+The load on the scheduler-side link at three-node saturation:
 
-| 구성 | 모델 | 3노드 TX | 3노드 RX | 10G 로 되나 |
+| Configuration | Model | 3-node TX | 3-node RX | Fits in 10G? |
 |---|---|---:|---:|---|
-| `want_float=1` | INT8 | 4.64 Gbps | **18.38 Gbps** | **불가** |
-| `want_float=1` | FP16 | 2.49 Gbps | 9.86 Gbps | 겨우 |
-| `want_float=0` | INT8 | 4.64 Gbps | 4.60 Gbps | 가능 |
-| `want_float=0` | FP16 | 2.49 Gbps | 2.46 Gbps | 가능 |
+| `want_float=1` | INT8 | 4.64 Gbps | **18.38 Gbps** | **no** |
+| `want_float=1` | FP16 | 2.49 Gbps | 9.86 Gbps | barely |
+| `want_float=0` | INT8 | 4.64 Gbps | 4.60 Gbps | yes |
+| `want_float=0` | FP16 | 2.49 Gbps | 2.46 Gbps | yes |
 
-**입력만 보고 네트워크를 계산하다가 출력을 빠뜨린 것**이 원래 오류였다.
-출력을 넣고 다시 계산하니 결론이 뒤집혔다 — 10G 를 깔아도 INT8 3노드를
-감당하지 못한다.
+The original error was **calculating the network from the input alone and
+omitting the output**. Recomputing with the output inverted the conclusion —
+even laying 10G would not carry three INT8 nodes.
 
-이 시점에서 `want_float=0` 은 "해두면 좋은 최적화"에서 **M3 를 시작하기 위한
-전제 조건**으로 승격했다. 승격 근거는 처리량이 아니라 **RX 대역폭**이었다.
+At that point `want_float=0` was promoted from "a nice optimization to have" to
+**a precondition for starting M3**. The grounds for the promotion were not
+throughput but **RX bandwidth**.
 
-## 결정
+## Decision
 
-**1. `want_float` 의 기본값을 `false` 로 바꾸고 노드 설정으로 노출한다.**
+**1. Change the default of `want_float` to `false` and expose it in node
+configuration.**
 
 ```toml
 [worker]
 want_float = false
 ```
 
-**2. 응답 blob 형식을 v2 로 올려 텐서마다 역양자화 파라미터를 싣는다.**
+**2. Bump the response blob format to v2 and carry dequantization parameters
+per tensor.**
 
 ```text
 magic    u32  "RKNT"
 version  u32  = 2
-count    u32  텐서 개수
-dtype    u32  0 = 모델 원본 dtype, 1 = float32
-텐서마다 (36 byte):
-  len  n_dims  dims×4   ← v1 에도 있던 것 (24 byte)
-  qnt_type  zero_point  scale   ← v2 에서 추가 (12 byte)
-이어서 텐서 데이터
+count    u32  number of tensors
+dtype    u32  0 = model's native dtype, 1 = float32
+per tensor (36 byte):
+  len  n_dims  dims x 4   <- present in v1 too (24 byte)
+  qnt_type  zero_point  scale   <- added in v2 (12 byte)
+followed by the tensor data
 ```
 
-이게 **선택 사항이 아닌 이유**: `scale` 과 `zero_point` 없이 int8 을 보내면
-받는 쪽이 그 바이트를 해석할 방법이 아예 없다. 숫자는 도착하는데 무슨 뜻인지
-모르는 상태가 된다. 출력을 정수로 보내기로 한 순간 파라미터 동봉은 따라오는
-의무다.
+**Why this is not optional**: send int8 without `scale` and `zero_point` and
+the receiver has no way at all to interpret those bytes. The numbers arrive and
+nobody knows what they mean. The moment the decision was made to send integers,
+carrying the parameters became an obligation that follows from it.
 
-**3. 구버전 blob 은 받지 않는다.** `decode` 가 `version != 2` 를 오류로
-떨군다. 헤더만 v1 인 채로 36바이트 기술자를 24바이트로 읽으면 조용히
-어긋난 값이 나오는데, 그게 이 프로젝트에서 가장 피하려는 실패 형태다.
+**3. Old blobs are not accepted.** `decode` rejects `version != 2` as an error.
+Reading a 36-byte descriptor as 24 bytes because only the header says v1
+produces silently misaligned values, and that is the failure mode this project
+most wants to avoid.
 
-## 근거
+## Rationale
 
-### 정확도 — 실보드에서 float32 와 일치한다
+### Accuracy — matches float32 on real hardware
 
-역양자화를 우리가 직접 하므로 런타임 결과와 같은지 확인해야 한다.
+Since we do the dequantization ourselves, it has to be checked against the
+runtime's result.
 
 ```text
-측정: 실보드 king, 텐서 9개
-(a) want_float=1 로 받은 float32
-(b) want_float=0 으로 받은 int8 을 직접 역양자화한 값
+measured: real board king, 9 tensors
+(a) the float32 received with want_float=1
+(b) the int8 received with want_float=0, dequantized by hand
 ```
 
-**최대 오차 9.5e-7.** `float32` 정밀도 한계 수준이라 사실상 동일하다.
-(`crates/npuforge-rknn/tests/real_device.rs`)
+**Maximum error 9.5e-7.** At the limit of `float32` precision, so effectively
+identical. (`crates/npuforge-rknn/tests/real_device.rs`)
 
-### 처리량 — 덤으로 15~17% 올랐다
+### Throughput — 15–17% higher as a bonus
 
 ```text
-측정 조건: king, 8스레드, 120초, governor=performance
+conditions: king, 8 threads, 120 s, governor=performance
 ```
 
-| 모델 | `want_float=0` | `want_float=1` | 이득 |
+| Model | `want_float=0` | `want_float=1` | Gain |
 |---|---:|---:|---:|
 | INT8 | **156.7 inf/s** | 133.6 inf/s | **+17.3%** |
 | FP16 | 66.9 inf/s | 57.8 inf/s | **+15.7%** |
 
-역양자화는 CPU 가 한다. 그 일을 안 하니 빨라진다.
+Dequantization is done by the CPU. Not doing that work makes it faster.
 
-> **왜 예전에는 +5.4% 였나.** 2026-08-10 의 첫 측정은 1스레드 위주 조건이라
-> +5.4% 로 나왔고, 그래서 "효과 없는 최적화" 쪽으로 분류했었다. 8스레드에서
-> 크게 벌어지는 이유는 **출력 변환이 직렬화 구간을 붙잡는 시간**이 동시
-> 스레드 수만큼 누적되기 때문이다. 같은 실험도 조건이 다르면 다른 결론이
-> 나온다는 사례로 남겨 둔다.
+> **Why was it +5.4% before.** The first measurement on 2026-08-10 was mostly a
+> single-thread condition and came out at +5.4%, which got it filed as "an
+> optimization with no effect". The reason the gap widens at 8 threads is that
+> **the time output conversion holds the serialized section** accumulates with
+> the number of concurrent threads. Kept as a case of the same experiment
+> yielding a different conclusion under different conditions.
 
-### 알고 보니 측정 도구는 처음부터 이 조건이었다
+### As it turns out, the measurement tool was on this setting all along
 
-`sustained_load_test` 는 **처음부터 `want_float=0` 을 하드코딩**하고 있었다.
-즉 문서에 확정 수치로 적혀 있던 **157.2 / 84.3 inf/s 는 이미 `want_float=0`
-기준**이었고, Rust 백엔드만 `true` 였다.
+`sustained_load_test` had **hardcoded `want_float=0` from the beginning**. So
+the **157.2 / 84.3 inf/s written into the documents as settled figures were
+already on `want_float=0`**, and only the Rust backend was on `true`.
 
-그러니까 이 전환은 성능을 올린 작업이 아니라 **소프트웨어를 측정 조건에
-맞춘 작업**이다. 반대로 말하면, 전환 전까지 실제 노드는 문서의 수치보다
-15~17% 느리게 돌고 있었고 아무도 몰랐다.
+Which means this change did not raise performance; it **brought the software in
+line with the measurement conditions**. Put the other way: until the change,
+the actual node was running 15–17% slower than the documented figures and
+nobody knew.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| `want_float=1` 유지 + 10G | 계산상 RX 18.38 Gbps. **10G 로도 안 된다.** 25G 는 이 프로젝트 예산과 취지 밖 |
-| 노드에서 후처리(NMS) 수행 | **최종적으로는 이쪽이 옳다.** 응답이 수 KB 로 줄어 RX 가 사실상 사라진다. 다만 미구현이고, 후처리를 노드에 넣으면 CPU 부하가 노드로 옮겨가 측정 조건이 또 바뀐다 → ADR-021 |
-| 응답을 압축 | 압축·해제 CPU 가 추론 경로에 들어간다. 이미 CPU 가 병목인데 거기에 얹는다 |
-| 파라미터를 blob 이 아니라 별도 필드로 | 텐서마다 다른 값이라 텐서 기술자에 붙는 것이 자연스럽다. 분리하면 순서 대응이 깨질 여지가 생긴다 |
+| Keep `want_float=1` + 10G | RX computes to 18.38 Gbps. **Even 10G does not work.** 25G is outside this project's budget and purpose |
+| Postprocess (NMS) on the node | **This is ultimately the right answer.** The response shrinks to a few KB and RX effectively disappears. But it is unimplemented, and putting postprocessing on the node shifts CPU load to the node and changes the measurement conditions again → ADR-021 |
+| Compress the response | Compression/decompression CPU enters the inference path. CPU is already the bottleneck, and this stacks on top |
+| Parameters as separate fields rather than in the blob | The values differ per tensor, so attaching them to the tensor descriptor is natural. Separating them creates room for the ordering to break |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 3노드 RX 18.38 → 4.60 Gbps. **10G aggregation 으로 M3 가 가능해졌다**
-- 처리량 INT8 +17.3% / FP16 +15.7%
-- 노드가 문서에 적힌 측정 조건과 실제로 같아졌다
+- 3-node RX 18.38 → 4.60 Gbps. **M3 became possible on 10G aggregation**
+- Throughput INT8 +17.3% / FP16 +15.7%
+- The node now actually matches the measurement conditions written in the docs
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- **역양자화 책임이 받는 쪽으로 넘어갔다.** 클라이언트가 blob 을 이해해야 한다
-- 형식을 바꾸면 **세 곳을 같이 고쳐야 한다**
+- **Responsibility for dequantization moved to the receiver.** The client has to
+  understand the blob
+- Changing the format means **fixing three places together**
   - `crates/npuforge-rknn/src/blob.rs`
-  - `native/dump_output_test.c` (보드 검증 도구)
-  - `tools/model-converter/compare_detections.py` (정확도 비교)
-- v1 blob 과 호환되지 않는다 (의도한 것)
+  - `native/dump_output_test.c` (board verification tool)
+  - `tools/model-converter/compare_detections.py` (accuracy comparison)
+- Incompatible with v1 blobs (intentionally)
 
-**알려진 흠**
+**Known flaw**
 
-응답의 `result_format` 문자열이 아직 **`"rknn-tensors-v1"`** 이다. 실제 blob
-헤더는 `version = 2` 이고 기술자도 24 → 36 바이트로 바뀌었다. 형식을 문자열로
-식별하는 클라이언트가 있다면 v1 로 오인해 24바이트 단위로 읽는다.
+The response's `result_format` string is still **`"rknn-tensors-v1"`**. The
+actual blob header says `version = 2` and the descriptor changed from 24 to 36
+bytes. A client identifying the format by that string would mistake it for v1
+and read in 24-byte units.
 
-지금은 소비자가 저장소 안에만 있어서 문제가 드러나지 않는다. **이름과 실제가
-어긋난 상태이므로 외부에 공개하기 전에 정리해야 한다.**
+It does not surface today because every consumer is inside this repository.
+**The name and the reality disagree, so this has to be cleaned up before going
+public.**
 
-## 뒤집힌다면
+## What would overturn this
 
-- **노드 후처리(NMS)를 구현하면** 응답이 검출 결과 수 KB 로 줄어 blob 자체가
-  거의 필요 없어진다. 그때 이 ADR 은 ADR-021 로 대체된다
-- **입력 형식이 JPEG 으로 바뀌면** 입력 TX 가 1/10 로 줄어 링크 예산 전체를
-  다시 계산해야 한다. 다만 출력 쪽 결론은 그대로다
-- 역양자화 오차가 후처리 결과를 바꾼다는 관측이 나오면 재검증한다. 현재
-  근거는 텐서 단위 최대 오차 9.5e-7 이고, **검출 박스 단위로는 비교하지
-  않았다**
+- **Implementing node-side postprocessing (NMS)** shrinks the response to a few
+  KB of detections and makes the blob itself largely unnecessary. At that point
+  this ADR is superseded by ADR-021
+- **If the input format becomes JPEG**, input TX drops tenfold and the whole
+  link budget has to be recomputed. The output-side conclusion stands regardless
+- Revisit if an observation shows dequantization error changing postprocessing
+  results. The current basis is a per-tensor maximum error of 9.5e-7, and
+  **no comparison was made at the level of detection boxes**

@@ -14,7 +14,8 @@ ADRS = Path(__file__).resolve().parent.parent / "adrs"
 OUT = ADRS / "ALL.md"
 DATE = sys.argv[1] if len(sys.argv) > 1 else "미상"
 
-adr_files = sorted(ADRS.glob("[0-9][0-9][0-9]-*.md"))
+adr_files = [p for p in sorted(ADRS.glob("[0-9][0-9][0-9]-*.md"))
+             if not p.name.endswith(".ko.md")]   # 한글 보조본은 묶음에 넣지 않는다
 order = [ADRS / "README.md", ADRS / "OVERVIEW.md", *adr_files, ADRS / "TEMPLATE.md"]
 
 # 파일명 → 앵커

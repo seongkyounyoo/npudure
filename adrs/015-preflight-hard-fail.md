@@ -1,127 +1,137 @@
-# ADR-015. 측정 전에 preflight 로 하드 실패 검사를 하고, 통과 전에는 아무것도 재지 않는다
+# ADR-015. Run a hard-failing preflight check before measuring, and measure nothing until it passes
+
+*[한국어 원문](015-preflight-hard-fail.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **관련** | [ADR-007](007-per-thread-rknn-context.md), [ADR-016](016-boot-id-run-invalidation.md), [ADR-019](019-ssh-alias-not-ip.md), [ADR-028](028-bench-run-validity.md) |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Related** | [ADR-007](007-per-thread-rknn-context.md), [ADR-016](016-boot-id-run-invalidation.md), [ADR-019](019-ssh-alias-not-ip.md), [ADR-028](028-bench-run-validity.md) |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 지금까지 측정을 망친 원인은 대부분 **측정 자체가 아니라 전제**였다.
-> 그래서 측정 직전에 전제를 기계가 검사한다. **하드 실패면 측정을 시작하지
-> 않는다.** 그리고 성능보다 **정확도를 먼저** 본다.
+> What has ruined measurements so far has mostly been **the premises, not the
+> measurement itself**. So a machine checks the premises immediately before
+> measuring. **On a hard failure, measurement does not start.** And accuracy is
+> checked **before** performance.
 
-## 배경
+## Context
 
-측정이 틀린 적이 여러 번 있는데, 원인이 전부 측정 코드 밖에 있었다.
+Measurements have been wrong several times, and the cause was always outside
+the measurement code.
 
-| 무슨 일 | 결과 |
+| What happened | Result |
 |---|---|
-| 문서의 IP 가 낡아 엉뚱한 곳을 봤다 | 노드가 죽었다고 오판, 서브넷 전체 스캔 |
-| 부하 프로파일이 다른 두 측정을 비교 | 19°C 격차로 오해 |
-| 어댑터 전류 부족으로 리셋된 보드 | 그 처리량을 성능으로 읽을 뻔했다 |
-| 컨텍스트 공유 | 오류 0건에 결과 100% 불일치 |
+| A stale IP in the docs pointed somewhere else | Misdiagnosed as a dead node; scanned the whole subnet |
+| Compared two measurements with different load profiles | A 19 °C gap was misread |
+| A board reset by insufficient adapter current | Its throughput was nearly read as performance |
+| Sharing a context | 0 errors and 100% result mismatch |
 
-**공통점: 측정을 시작하기 전에 이미 틀려 있었다.** 그리고 넷 다 실행 중에는
-아무 신호가 없다.
+**What they share: it was already wrong before measurement began.** And all four
+give no signal while running.
 
-## 결정
+## Decision
 
-**1. `scripts/preflight-check.sh` 를 만들고, 통과 전에는 측정하지 않는다.**
+**1. Create `scripts/preflight-check.sh`, and do not measure until it passes.**
 
-종료 코드로 판정한다.
+The verdict is the exit code.
 
 ```text
-0  통과 (경고는 있을 수 있다)
-1  하드 실패. 이 상태로 측정하면 결과가 무효다
-2  스크립트 사용 오류
+0  pass (warnings are possible)
+1  hard failure. Measuring in this state makes the result invalid
+2  script usage error
 ```
 
-**2. 검사 항목을 6개 군으로 나눈다.**
+**2. Divide the checks into six groups.**
 
-| 군 | 보는 것 |
+| Group | What it looks at |
 |---|---|
-| 1. 접속과 정체성 | 별칭 ↔ hostname 일치 |
-| 2. 소프트웨어 동일성 | 커널·RKNN·드라이버·모델 해시가 세 노드 동일 |
-| 3. 측정 조건 | governor, 유휴 온도, 입력 전압, 잔존 부하, NTP, 세션 수 |
-| 4. **추론 정확도** | 세 보드가 같은 입력에 같은 답을 내는가 |
-| 5. 네트워크 실측 | M3 전제값 기록 |
-| 6. 클러스터 등록 | 스케줄러에 세 노드가 붙어 있는가 |
+| 1. Connection and identity | alias ↔ hostname agreement |
+| 2. Software identity | kernel, RKNN, driver and model hashes identical across the three nodes |
+| 3. Measurement conditions | governor, idle temperature, input voltage, residual load, NTP, session count |
+| 4. **Inference accuracy** | do the three boards give the same answer to the same input |
+| 5. Network measurement | record M3's premise values |
+| 6. Cluster registration | are the three nodes attached to the scheduler |
 
-**3. 이 스크립트는 고치지 않는다. 판정만 한다.** 고치는 것은
-`fix-node-consistency.sh` 의 몫이다.
+**3. This script does not fix anything. It only judges.** Fixing is
+`fix-node-consistency.sh`'s job.
 
-**4. 빈 값과 자리표시자를 실패로 처리한다.**
+**4. Treat empty values and placeholders as failures.**
 
-**5. 검사를 새로 만들면 일부러 깨뜨려 보고 실제로 잡히는지 확인한다.**
+**5. When adding a check, break it deliberately and confirm it actually
+catches.**
 
-## 근거
+## Rationale
 
-### 정확도를 성능보다 먼저 보는 이유
+### Why accuracy comes before performance
 
-`--with-inference` 가 하는 일이다. 세 보드에 같은 입력을 주고 같은 답이
-나오는지 본다.
+That is what `--with-inference` does. It gives the three boards the same input
+and checks that the same answer comes out.
 
-이유는 [ADR-007](007-per-thread-rknn-context.md) 이다. 컨텍스트 공유 구성은
-**틀린 답을 더 빨리 냈다** (2스레드에서 공유 34.8 > 전용 33.2 inf/s).
+The reason is [ADR-007](007-per-thread-rknn-context.md). The shared-context
+configuration **produced wrong answers faster** (at two threads, shared 34.8 >
+dedicated 33.2 inf/s).
 
-**틀린 답을 빨리 내는 구성이 벤치마크에서 이기면 안 된다.** 성능만 재면
-그런 구성이 최적으로 보고된다.
+**A configuration that produces wrong answers fast must not win a benchmark.**
+Measure performance alone and such a configuration gets reported as optimal.
 
-### "못 읽음" 을 "일치" 로 판정한 사건
+### The incident where "could not read" was judged as "identical"
 
-`/sys/kernel/debug/rknpu/version` 은 root 만 읽을 수 있다. 권한 없이 읽으니
-세 노드 모두 빈 문자열이 나왔고, **값이 같다는 이유로 통과**시켰다.
+`/sys/kernel/debug/rknpu/version` is readable only by root. Reading it without
+permission returned an empty string on all three nodes, and it **passed on the
+grounds that the values matched**.
 
 ```text
-king  ""      ┐
-queen ""      ├─ 세 값이 같다 → 통과 ✅   ← 아무것도 검증하지 않았다
-jack  ""      ┘
+king  ""      \
+queen ""      +- the three values match -> pass OK   <- nothing was verified
+jack  ""      /
 ```
 
-지표가 무엇을 세는지 확인하지 않은 실수의 변종이다. 그래서 빈 값·`unknown`
-같은 자리표시자는 **실패**로 본다.
+A variant of the mistake of not checking what a metric counts. So empty values
+and placeholders such as `unknown` are treated as **failures**.
 
-### 별칭 ↔ hostname 검사가 1번인 이유
+### Why the alias ↔ hostname check is number 1
 
-**연결 실패보다 이쪽이 훨씬 위험하다.** 연결이 안 되면 즉시 안다. 그런데
-`npuforge-k` 가 `queen` 을 가리키고 있으면 측정은 정상적으로 끝나고 **결과가
-잘못된 노드에 귀속된다.** 조용히 틀린다.
+**This is far more dangerous than a connection failure.** A failed connection is
+known immediately. But if `npuforge-k` points at `queen`, the measurement
+finishes normally and **the result is attributed to the wrong node.** It fails
+quietly.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 체크리스트를 문서로 두고 사람이 확인 | 문서로 "조심하자" 는 통하지 않았다. 알면서 당한 것이 여러 번 |
-| 벤치 도구 안에 검사를 넣는다 | 일부는 그렇게 했다([ADR-028](028-bench-run-validity.md)). 다만 SSH·sudo·해시 비교는 도구 밖 영역이라 분리했다 |
-| 검사 실패를 경고로만 | 경고는 무시된다. 특히 측정을 빨리 시작하고 싶을 때 |
-| 자동으로 고친다 | 판정과 조치를 섞으면 "무엇이 틀려 있었는지" 기록이 남지 않는다 |
+| Keep the checklist in a document and have a human verify | "Let's be careful" in a document did not work. Several failures happened while knowing better |
+| Put the checks inside the bench tool | Some are ([ADR-028](028-bench-run-validity.md)). But SSH, sudo and hash comparison are outside the tool's domain, so they were separated |
+| Make check failures warnings only | Warnings get ignored, especially when you want to start measuring quickly |
+| Fix things automatically | Mixing judgement with remedy leaves no record of "what had been wrong" |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 전제 실패를 측정 **전에** 잡는다
-- 통과/실패가 종료 코드라 자동화에 그대로 쓰인다
-- 측정 조건이 기록된다 (`--json`)
+- Premise failures are caught **before** measurement
+- Pass/fail is an exit code, so it drops straight into automation
+- The measurement conditions get recorded (`--json`)
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 측정 시작까지 시간이 걸린다. 특히 `--with-inference` 는 실제 추론을 돌린다
-- sudo 비밀번호가 필요하다. 저장소에 넣지 않고 환경변수나 `~/.npuforge/`
-  파일로 받는다 — **이 프로젝트는 공개 예정이라 커밋 히스토리에 들어가면
-  지우는 데 히스토리 재작성이 필요하다**
+- It takes time to start measuring, especially `--with-inference`, which runs
+  real inference
+- A sudo password is needed. It is not committed to the repository but taken
+  from an environment variable or a `~/.npuforge/` file — **this project is
+  going public, and anything in the commit history would need a history rewrite
+  to remove**
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- **검사 자체가 틀릴 수 있다.** 실제로 `pgrep -f` 가 자기 자신을 세서 조용히
-  통과시킨 적이 있다 ([ADR-017](017-remote-exec-pitfalls-library.md)).
-  그래서 "일부러 깨뜨려 보기" 가 규칙에 들어갔다
+- **The check itself can be wrong.** `pgrep -f` once counted itself and passed
+  quietly ([ADR-017](017-remote-exec-pitfalls-library.md)). That is why "break
+  it deliberately" became a rule
 
-## 뒤집힌다면
+## What would overturn this
 
-검사 항목은 계속 늘어난다. **줄어드는 일은 없다.** 새로운 실패 유형을 겪을
-때마다 여기에 항목이 추가되는 것이 이 스크립트의 설계 의도다.
+The list of checks keeps growing. **It never shrinks.** Adding an entry every
+time a new failure mode is encountered is this script's design intent.

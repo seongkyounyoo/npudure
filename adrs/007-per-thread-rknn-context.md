@@ -1,198 +1,210 @@
-# ADR-007. 스레드마다 전용 RKNN 컨텍스트를 쓰고, 공유를 타입으로 막는다
+# ADR-007. A dedicated RKNN context per thread, with sharing blocked by the type system
+
+*[한국어 원문](007-per-thread-rknn-context.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-11 |
-| **대체** | `environment-matrix.md` §3.1 의 "RKNN 2.3.0 은 thread-safe 이므로 컨텍스트를 공유해도 된다" 판단을 대체함 |
-| **관련** | [ADR-020](020-worker-count-8-no-core-mask.md) (`worker_count=8`), `docs/discuss.md` §9, `docs/RESULTS.md` §4.3 |
+| **Status** | accepted |
+| **Date** | 2026-08-11 |
+| **Supersedes** | the judgement in `environment-matrix.md` §3.1 that "RKNN 2.3.0 is thread-safe, so the context may be shared" |
+| **Related** | [ADR-020](020-worker-count-8-no-core-mask.md) (`worker_count=8`), `docs/discuss.md` §9, `docs/RESULTS.md` §4.3 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 컨텍스트를 공유하면 **오류를 하나도 내지 않으면서 100% 틀린 답**을 낸다.
-> 실측으로 확인했다. 그래서 워커마다 전용 컨텍스트를 주고, 공유가 아예
-> 컴파일되지 않도록 `infer` 가 `&mut self` 를 받는다.
+> Sharing a context produces **answers that are 100% wrong while raising not a
+> single error**. Confirmed by measurement. So each worker gets its own
+> context, and `infer` takes `&mut self` so that sharing does not compile at
+> all.
 
-## 배경
+## Context
 
-### 컨텍스트가 무엇인가
+### What a context is
 
-RKNN Runtime 에서 **컨텍스트(context)** 는 모델을 메모리에 올려 만든 손잡이다.
-`.rknn` 파일을 열면 컨텍스트 하나가 나오고, 추론은 그 컨텍스트에 대고 한다.
+In the RKNN Runtime a **context** is the handle produced by loading a model
+into memory. Opening a `.rknn` file yields one context, and inference is
+performed against it.
 
-추론 한 건은 함수 **세 번** 호출이다.
+One inference is **three** function calls.
 
 ```text
-rknn_inputs_set   입력 이미지를 컨텍스트에 넣는다
-rknn_run          NPU 에서 돌린다
-rknn_outputs_get  결과를 꺼낸다
+rknn_inputs_set   put the input image into the context
+rknn_run          run it on the NPU
+rknn_outputs_get  take the result out
 ```
 
-### 정해야 했던 것
+### What had to be decided
 
-노드는 워커를 8개 돌린다(→ ADR-020). 이 8개가 동시에 추론하려면 둘 중
-하나를 골라야 한다.
+The node runs 8 workers (→ ADR-020). For those 8 to infer concurrently, one of
+two choices had to be made.
 
 | | |
 |---|---|
-| **공유** | 컨텍스트 1개를 8 워커가 같이 쓴다. 메모리가 적게 든다. 코드가 짧다 |
-| **전용** | 워커마다 컨텍스트를 1개씩 갖는다. 메모리를 더 쓴다 |
+| **Shared** | 8 workers use one context together. Less memory. Shorter code |
+| **Dedicated** | each worker holds its own context. Uses more memory |
 
-### 처음에는 공유하기로 했었다
+### Sharing was the original decision
 
-`environment-matrix.md` §3.1 에 **"RKNN Runtime 2.3.0 은 thread-safe"** 라는
-결론이 이미 적혀 있었다. 그게 맞다면 공유가 당연한 선택이다. 하나면 되는데
-여덟 개를 만들 이유가 없다.
+`environment-matrix.md` §3.1 already recorded the conclusion that **"RKNN
+Runtime 2.3.0 is thread-safe"**. If that is right, sharing is the obvious
+choice. There is no reason to make eight of something when one will do.
 
-### 그런데 의심스러웠다
+### But it was suspicious
 
-두 가지가 걸렸다.
+Two things stood out.
 
-**첫째, 호출 하나가 안전한 것과 시퀀스가 안전한 것은 다르다.**
+**First, one call being safe and a sequence being safe are different things.**
 
 ```text
-스레드 A:  inputs_set(사진A) ─────────────► outputs_get()  ← 무엇이 나오나?
-스레드 B:            inputs_set(사진B) → run()
+thread A:  inputs_set(photoA) -----------> outputs_get()  <- what comes out?
+thread B:            inputs_set(photoB) -> run()
 ```
 
-`inputs_set` 개별 호출이 thread-safe 여도, A 가 자기 입력을 넣고 결과를
-꺼내는 **사이에** B 가 끼어들면 A 는 B 의 결과를 받는다. 개별 호출의
-원자성과 **시퀀스의 원자성**은 별개다.
+Even if each individual `inputs_set` call is thread-safe, if B cuts in
+**between** A putting in its input and taking out its result, A receives B's
+result. The atomicity of individual calls and **the atomicity of a sequence**
+are separate matters.
 
-**둘째, 그 "thread-safe" 판정이 무엇을 봤는지 확인했더니 — API 반환
-코드만 세고 있었다.** 출력 내용을 대조하지 않았다. 결과가 섞여도 반환
-코드는 `ok 40 / err 0` 으로 멀쩡하게 나온다.
+**Second, checking what that "thread-safe" verdict had actually looked at — it
+was counting API return codes only.** It never compared output contents. Even
+with results getting mixed up, the return codes come back a healthy
+`ok 40 / err 0`.
 
-## 결정
+## Decision
 
-**1. 워커마다 전용 컨텍스트를 준다.** `ContextPool` 이 `worker_count` 만큼
-컨텍스트를 만들고, 세마포어로 빈 것을 하나씩 점유하게 한다.
+**1. Give each worker a dedicated context.** `ContextPool` creates
+`worker_count` contexts and a semaphore has each worker take an idle one.
 
 ```rust
 pub struct ContextPool {
-    contexts: Vec<Mutex<RknnContext>>,   // 컨텍스트마다 독립된 락
-    permits: Arc<Semaphore>,             // 빈 슬롯 수만큼 발급
+    contexts: Vec<Mutex<RknnContext>>,   // an independent lock per context
+    permits: Arc<Semaphore>,             // issued to the number of free slots
     ...
 }
 ```
 
-세마포어 허가를 먼저 받으므로, 그 뒤 `try_lock` 순회에서 **최소 하나는
-반드시 비어 있다.** 만약 못 찾으면 세마포어와 락 개수가 어긋난 것이므로
-조용히 넘어가지 않고 내부 오류를 낸다 — 그냥 두면 원인 없는 성능 저하로만
-보인다.
+Since the semaphore permit is acquired first, **at least one must be free** in
+the subsequent `try_lock` scan. If none is found, the semaphore and lock counts
+have diverged, so it raises an internal error instead of quietly moving on —
+left alone it would look only like an unexplained performance drop.
 
-**2. 공유를 컴파일러가 막게 한다.**
+**2. Let the compiler block sharing.**
 
 ```rust
-/// `&mut self` 를 받는 것이 이 타입의 동시성 계약이다.
-/// 컴파일러가 같은 컨텍스트의 동시 호출을 막는다.
+/// Taking `&mut self` is this type's concurrency contract.
+/// The compiler blocks concurrent calls on the same context.
 pub fn infer(&mut self, input: &[u8]) -> Result<Vec<u8>>
 ```
 
-`&self` 로 두면 공유 호출이 **문법적으로 가능**해진다. `&mut self` 면
-같은 컨텍스트를 두 곳에서 동시에 쓰는 코드가 아예 빌드되지 않는다.
+With `&self`, a shared call is **syntactically possible**. With `&mut self`,
+code using the same context from two places at once simply does not build.
 
-> 이게 이 ADR 에서 가장 중요한 부분이다. **주석으로 "공유하지 마시오" 라고
-> 적는 것과 타입으로 막는 것은 다르다.** 이 결함은 눈으로 못 찾기 때문에,
-> 사람의 주의력에 맡기면 언젠가 다시 들어온다.
+> This is the most important part of this ADR. **Writing "do not share" in a
+> comment and blocking it with a type are different things.** This defect
+> cannot be found by eye, so leaving it to human attention means it comes back
+> eventually.
 
-**3. 풀 생성은 전부 아니면 전무로 한다.** 컨텍스트 8개 중 하나라도 열기에
-실패하면 노드 전체를 실패시킨다. 절반만 뜬 노드가 조용히 낮은 처리량으로
-도는 것보다 명확히 죽는 편이 낫다 — 벤치마크에서 그런 노드는 "느린 노드"
-로 기록되어 결론을 오염시킨다.
+**3. Pool creation is all-or-nothing.** If any one of the 8 contexts fails to
+open, the whole node fails. A node that came up half-way and quietly runs at
+lower throughput is worse than one that dies clearly — in a benchmark such a
+node gets recorded as "the slow node" and contaminates the conclusion.
 
-## 근거
+## Rationale
 
-### 측정
+### The measurement
 
-`native/shared_context_test.c` 로 쟀다. 스레드마다 **다른 입력**을 주고,
-먼저 단독으로 추론해 기준 출력을 저장한 뒤, 동시 실행 결과가 자기 기준과
-같은지 대조한다.
+Measured with `native/shared_context_test.c`. Each thread is given **a different
+input**; a reference output is first captured by inferring alone, then the
+concurrent results are compared against each thread's own reference.
 
 ```text
-측정 조건: king, FP16, 4스레드 × 50회 = 200건
+conditions: king, FP16, 4 threads x 50 = 200 inferences
 ```
 
-| 구성 | API 오류 | **결과 불일치** |
+| Configuration | API errors | **Result mismatches** |
 |---|---:|---:|
-| 컨텍스트 공유 | 0 | **200 / 200 (100%)** |
-| 스레드별 전용 | 0 | 0 / 200 (0%) |
+| Shared context | 0 | **200 / 200 (100%)** |
+| Per-thread dedicated | 0 | 0 / 200 (0%) |
 
-**공유는 오류를 하나도 내지 않으면서 전부 틀렸다.**
+**Sharing raised not a single error and got everything wrong.**
 
-### 이 결함이 특히 나쁜 이유
+### Why this defect is especially bad
 
-- **예외도 오류 코드도 없다.** 로그에 아무것도 안 남는다
-- **단일 스레드 테스트에서는 절대 재현되지 않는다.** CI 를 통과한다
-- **처리량 지표는 오히려 좋아 보인다.** 2스레드 공유가 34.8 inf/s 로 전용
-  33.2 보다 빨랐다 — **틀린 답을 더 빨리 내고 있었다**
-- **눈으로 봐도 그럴듯하다.** 다른 프레임의 검출 결과라서 쓰레기가 아니라
-  "말이 되는 박스"가 나온다
+- **No exception and no error code.** Nothing is left in the logs
+- **It never reproduces in a single-threaded test.** It passes CI
+- **The throughput metric actually looks better.** Two threads sharing reached
+  34.8 inf/s against 33.2 dedicated — **it was producing wrong answers faster**
+- **It looks plausible to the eye.** Being detections from another frame, the
+  output is not garbage but "boxes that make sense"
 
-이대로 갔다면 **처리량 수치는 전부 유효하고 검출 결과만 조용히 틀린 상태**
-로 발표까지 갔을 가능성이 크다. 성능은 자랑하고 정확도는 아무도 확인하지
-않는 구조였다.
+Had this gone unnoticed, it would very likely have reached a public talk with
+**all throughput figures valid and only the detection results quietly wrong**.
+The structure was one where performance gets boasted about and accuracy gets
+checked by nobody.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| 컨텍스트 1개 공유 | 실측에서 100% 틀린 답. 논외 |
-| 컨텍스트 1개 + 뮤텍스로 직렬화 | 정답은 나오지만 NPU 를 한 번에 하나씩만 쓴다. 8워커의 의미가 사라진다 |
-| `rknn_dup_context` 로 복제 | 검증하지 않았다. 개별 `rknn_init` 로 이미 정답이 나오고 성능도 충분해서 우선순위가 밀렸다 |
-| 주석·문서로 "공유 금지" 명시 | 이 결함은 눈에 안 보인다. 규칙을 사람이 지키게 하면 언젠가 깨진다 |
+| One shared context | 100% wrong answers when measured. Out of the question |
+| One context + a mutex to serialize | Correct answers, but the NPU is used one at a time. The point of 8 workers disappears |
+| Duplicate with `rknn_dup_context` | Not verified. Individual `rknn_init` already gives correct answers with adequate performance, so it dropped down the priority list |
+| Stating "do not share" in comments and docs | This defect is invisible. A rule that humans have to keep gets broken eventually |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 8워커 동시 추론에서 결과 불일치 0건
-- 공유 코드가 **작성 자체가 불가능**해졌다
-- 실장비 통합 테스트 6종에 이 검증이 들어가 있다
+- Zero result mismatches under 8-worker concurrent inference
+- Sharing code became **impossible to write**
+- The check is part of six real-hardware integration tests
   (`crates/npuforge-rknn/tests/real_device.rs`)
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- 컨텍스트 8개만큼 메모리를 더 쓴다. **얼마나 더 쓰는지는 측정하지 않았다.**
-  노드 RAM 4GB 에 모델이 6.46 MB(INT8) 라 문제가 안 될 것으로 보고 넘어간
-  상태다 — 근거 있는 판단이 아니라 여유가 커 보여서 미룬 것이다
-- 풀 생성 시간이 컨텍스트 수에 비례한다 (노드 기동 시 1회)
+- Uses the memory of 8 contexts. **How much more was not measured.** With 4 GB
+  of node RAM and a 6.46 MB model (INT8) it was judged unlikely to matter and
+  left there — not a reasoned judgement, just deferred because the headroom
+  looked large
+- Pool creation time scales with context count (once at node startup)
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- `supports_concurrent_infer = true` 의 **의미가 바뀌었다.** 예전에는
-  "런타임이 알아서 해준다" 는 뜻이었고, 지금은 **"백엔드가 풀로 직렬화해
-  준다"** 는 뜻이다. 값은 같은데 근거가 다르다
-- `worker_count` 를 늘리면 컨텍스트 수가 따라 늘어난다. 메모리 여유를
-  확인하지 않고 이 값을 키우면 안 된다
+- **The meaning of `supports_concurrent_infer = true` has changed.** It used to
+  mean "the runtime handles it", and now means **"the backend serializes it
+  through a pool"**. The value is the same; the basis differs
+- Raising `worker_count` raises the context count with it. This value must not
+  be increased without checking memory headroom
 
-## 뒤집힌다면
+## What would overturn this
 
-RKNN 이 컨텍스트 내부 상태를 호출 단위로 분리한 버전을 내면 다시 볼 수 있다.
+If RKNN ships a version that separates per-call context state, it can be
+revisited.
 
-**단, 재검증 기준을 미리 못 박아 둔다.**
+**But the re-verification criteria are pinned down in advance.**
 
-- ❌ API 반환 코드로 판정하지 않는다. 그 방법이 이 결함을 놓쳤다
-- ✅ **스레드마다 다른 입력을 주고, 단독 실행 기준 출력과 바이트 단위로
-  대조한다.** 불일치 0건이어야 통과다
-- ✅ 처리량이 올라간 것은 통과 근거가 아니다. 틀린 답을 빨리 내는 구성이
-  더 빨라 보인다는 것을 이미 겪었다
+- ❌ Do not judge by API return codes. That method missed this defect
+- ✅ **Give each thread a different input and compare byte-for-byte against the
+  standalone reference output.** Zero mismatches to pass
+- ✅ Higher throughput is not grounds for passing. We have already seen that a
+  configuration producing wrong answers fast looks faster
 
-## 남긴 교훈
+## The lesson left behind
 
-이 사건은 같은 유형 실수의 **세 번째**였다.
+This incident was **the third** of the same type of mistake.
 
 ```text
-1. run_duration 을 NPU 점유시간으로 읽음        → 큐 대기가 포함된 값
-2. NPU load 를 delayms=3000 인 채로 샘플링      → 3초 평균을 읽고 있었음
-3. thread-safety 를 API 반환 코드로만 판정      → 결과 내용 미대조   ← 이 ADR
-4. throttling 을 NPU 클럭만으로 판정            → CPU 가 꺾이고 있었음
+1. reading run_duration as NPU occupancy time      -> it included queue wait
+2. sampling NPU load with delayms=3000 still set   -> it was reading a 3-second average
+3. judging thread-safety by API return codes only  -> results never compared   <- this ADR
+4. judging throttling by NPU clock alone           -> the CPU was the one bending
 ```
 
-공통점: **지표가 무엇을 세는지 확인하지 않고 이름만 보고 믿었다.**
+What they share: **not checking what a metric counts and trusting it by its
+name.**
 
-여기서 나온 규칙이 `preflight-check.sh --with-inference` 다. **성능을 재기
-전에 세 보드가 같은 입력에 같은 답을 내는지부터 본다.** 틀린 답을 빨리 내는
-구성이 벤치마크에서 이기면 안 된다.
+The rule that came out of this is `preflight-check.sh --with-inference`.
+**Before measuring performance, check that the three boards give the same
+answer to the same input.** A configuration that produces wrong answers fast
+must not win a benchmark.

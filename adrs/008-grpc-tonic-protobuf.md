@@ -1,122 +1,134 @@
-# ADR-008. 내부 통신을 gRPC(tonic + Protocol Buffers)로 한다
+# ADR-008. Internal communication uses gRPC (tonic + Protocol Buffers)
+
+*[한국어 원문](008-grpc-tonic-protobuf.ko.md)*
 
 | | |
 |---|---|
-| **상태** | 확정 |
-| **날짜** | 2026-08-06 |
-| **관련** | [ADR-003](003-central-simple-scheduler.md), [ADR-012](012-want-float-zero-blob-v2.md), [ADR-024](024-error-code-scheme.md), `docs/01-TECHSPEC.md` §5.3, §7 |
+| **Status** | accepted |
+| **Date** | 2026-08-06 |
+| **Related** | [ADR-003](003-central-simple-scheduler.md), [ADR-012](012-want-float-zero-blob-v2.md), [ADR-024](024-error-code-scheme.md), `docs/01-TECHSPEC.md` §5.3, §7 |
 
 ---
 
-## 한 줄 요약
+## In one line
 
-> 클라이언트↔스케줄러, 스케줄러↔노드 통신을 **gRPC** 로 한다. 스키마를
-> `.proto` 한 곳에 두고 Rust 코드를 생성한다. 관리 API 와 대시보드용
-> REST/JSON 은 별도로 둔다.
+> Client↔scheduler and scheduler↔node communication uses **gRPC**. The schema
+> lives in one place as `.proto` and Rust code is generated from it. The
+> management API and the dashboard's REST/JSON are kept separate.
 
-## 배경
+## Context
 
-이 시스템에서 오가는 것은 대부분 **큰 바이너리 덩어리**다.
+Most of what moves through this system is **a large binary blob**.
 
 ```text
-요청  raw RGB 640×640×3   = 1,228,800 byte
-응답  원시 텐서 9개 blob  = 1,218,000 byte  (want_float=0)
+request   raw RGB 640x640x3   = 1,228,800 byte
+response  9 raw tensor blobs  = 1,218,000 byte  (want_float=0)
 ```
 
-그리고 노드는 3대지만 초당 수백 건이 오간다(INT8 3노드 471 inf/s 목표).
+And although there are only three nodes, hundreds of these move per second
+(the INT8 3-node target is 471 inf/s).
 
-프로토콜 후보는 셋이었다.
+There were three protocol candidates.
 
 | | |
 |---|---|
-| REST + JSON | 어디서나 되고 디버깅이 쉽다. 바이너리는 base64 로 부풀린다 |
-| gRPC | 바이너리 그대로, 스키마 강제, 코드 생성 |
-| 직접 만든 바이너리 프로토콜 | 가장 빠를 수 있다. 전부 직접 만들어야 한다 |
+| REST + JSON | works everywhere and is easy to debug. Inflates binary with base64 |
+| gRPC | binary as-is, schema enforcement, code generation |
+| A hand-rolled binary protocol | could be fastest. Everything has to be built by hand |
 
-## 결정
+## Decision
 
-**1. 내부 RPC 는 gRPC + Protocol Buffers 로 한다.** 구현은 `tonic`.
+**1. Internal RPC is gRPC + Protocol Buffers.** Implemented with `tonic`.
 
-**2. 스키마를 `npuforge-proto` 크레이트 한 곳에 둔다.** `.proto` 에서
-빌드 시 Rust 타입을 생성한다.
+**2. The schema lives in one place, the `npuforge-proto` crate.** Rust types
+are generated from `.proto` at build time.
 
-**3. 서비스를 둘로 나눈다.**
+**3. The services are split in two.**
 
-| 서비스 | 방향 | 용도 |
+| Service | Direction | Purpose |
 |---|---|---|
-| `SchedulerService` | 클라이언트 → 스케줄러 | `Infer`, `BatchInfer`, `ListNodes` |
-| `NodeService` | 스케줄러 → 노드 | 추론 위임, 상태 조회 |
+| `SchedulerService` | client → scheduler | `Infer`, `BatchInfer`, `ListNodes` |
+| `NodeService` | scheduler → node | inference delegation, status queries |
 
-노드 등록·하트비트도 gRPC 로 오간다.
+Node registration and heartbeats also travel over gRPC.
 
-**4. 관리 API·대시보드는 REST/JSON + axum 으로 따로 둔다.** 브라우저에서
-직접 부를 것이므로 gRPC 로 두면 게이트웨이가 하나 더 필요해진다.
+**4. The management API and dashboard are separate, on REST/JSON + axum.**
+They are called directly from the browser, so putting them on gRPC would add
+another gateway.
 
-**5. 페이로드는 `bytes` 필드 하나로 받는다.** 텐서 구조는 protobuf 가
-아니라 자체 blob 형식이 기술한다 ([ADR-012](012-want-float-zero-blob-v2.md)).
+**5. The payload arrives as a single `bytes` field.** The tensor structure is
+described not by protobuf but by our own blob format
+([ADR-012](012-want-float-zero-blob-v2.md)).
 
-## 근거
+## Rationale
 
-### 1. base64 를 피한다
+### 1. Avoid base64
 
-REST/JSON 으로 1.23 MB 이미지를 보내려면 base64 로 인코딩해야 한다.
-**크기가 약 1.33배**가 되고, 인코딩·디코딩 CPU 가 양쪽에 붙는다.
+Sending a 1.23 MB image over REST/JSON requires base64 encoding. That makes it
+**about 1.33× larger** and adds encode/decode CPU on both ends.
 
-이 프로젝트에서 그 둘 다 치명적이다. 네트워크는 이미 aggregation 이
-포화 직전이고([ADR-014](014-10g-aggregation-separate-scheduler.md)), CPU 는
-지속 부하에서 이미 병목이다.
+Both are damaging in this project. The network is already close to saturation
+at aggregation
+([ADR-014](014-10g-aggregation-separate-scheduler.md)), and CPU is already a
+bottleneck under sustained load.
 
-### 2. 스키마가 한 곳에 있어야 노드 3대가 어긋나지 않는다
+### 2. The schema has to be in one place or three nodes drift apart
 
-세 노드는 **같은 바이너리**를 쓰지만, 스케줄러는 별도 호스트에서 돈다.
-메시지 정의가 코드에 흩어져 있으면 한쪽만 업데이트되는 사고가 난다.
+The three nodes run **the same binary**, but the scheduler runs on a separate
+host. If message definitions are scattered through the code, one side gets
+updated without the other.
 
-`.proto` 를 단일 출처로 두면 양쪽이 같은 정의에서 생성된다.
+With `.proto` as the single source, both sides are generated from the same
+definition.
 
-### 3. 타이밍 분해 필드를 구조화해서 실어야 한다
+### 3. The timing breakdown fields have to travel structured
 
-응답에 11개 시간 필드(`TimingBreakdown`)가 따라온다. 이건 프로젝트의 핵심
-산출물이라 **필드가 조용히 빠지면 안 된다.** protobuf 스키마가 그것을
-강제한다.
+Eleven timing fields (`TimingBreakdown`) come back with each response. They are
+this project's central output, so **a field must not silently disappear.** The
+protobuf schema enforces that.
 
-### 4. Rust 생태계가 준비되어 있다
+### 4. The Rust ecosystem is ready
 
-`tonic` 은 Tokio 위에서 돌고, 스트리밍·타임아웃·연결 재사용이 기본으로
-있다. 노드별 채널을 재사용해 연결 비용을 줄이는 것도 그대로 된다.
+`tonic` runs on Tokio and comes with streaming, timeouts and connection reuse
+built in. Reusing a per-node channel to reduce connection cost also works
+directly.
 
-## 대안과 버린 이유
+## Alternatives and why they were rejected
 
-| 대안 | 버린 이유 |
+| Alternative | Why rejected |
 |---|---|
-| REST + JSON (내부까지) | base64 1.33배 팽창 + 인코딩 CPU. 네트워크와 CPU 둘 다 이미 빠듯하다 |
-| REST + multipart/octet-stream | 팽창은 피하지만 스키마 강제가 사라진다. 타이밍 필드를 손으로 맞춰야 한다 |
-| 자체 바이너리 프로토콜 | 가장 빠를 수 있으나 재연결·스트리밍·오류 전달을 전부 직접 만들어야 한다. 그 시간에 측정을 못 한다 |
-| gRPC 를 관리 API 까지 확대 | 브라우저에서 직접 못 부른다. grpc-web 게이트웨이가 하나 더 생긴다 |
+| REST + JSON (internally too) | 1.33× base64 inflation plus encoding CPU. Both network and CPU are already tight |
+| REST + multipart/octet-stream | Avoids the inflation but loses schema enforcement. The timing fields would have to be kept in sync by hand |
+| A hand-rolled binary protocol | Could be fastest, but reconnection, streaming and error propagation all have to be built. That time is time not spent measuring |
+| Extending gRPC to the management API | Cannot be called directly from a browser. Adds a grpc-web gateway |
 
-## 결과
+## Consequences
 
-**얻은 것**
+**Gained**
 
-- 바이너리를 팽창 없이 전달
-- 메시지 정의가 단일 출처
-- Mock 3노드 통합 테스트가 **실제 gRPC 를 탄다** — 프로세스만 하나일 뿐
-  전송 경로는 실장비와 같다
+- Binary carried without inflation
+- A single source for message definitions
+- The mock 3-node integration test **runs over real gRPC** — it is one process,
+  but the transport path is the same as on real hardware
 
-**잃은 것 / 대가**
+**Lost / the cost**
 
-- `curl` 로 바로 못 찔러 본다. 디버깅 도구가 하나 더 필요하다
-- `.proto` 변경 시 빌드 파이프라인(`build.rs`)이 관여한다
-- 프로토콜이 둘이 된다 (gRPC + REST). 오류 표현을 양쪽에서 일치시켜야 한다
-  → [ADR-024](024-error-code-scheme.md) 의 `NPF-xxxx` 가 그 접착제다
+- Cannot be poked directly with `curl`. Another debugging tool is needed
+- Changing `.proto` involves the build pipeline (`build.rs`)
+- There are now two protocols (gRPC + REST). Error representation has to agree
+  across both → [ADR-024](024-error-code-scheme.md)'s `NPF-xxxx` is that glue
 
-**새로 생긴 제약**
+**New constraint introduced**
 
-- 메시지 크기 상한을 명시적으로 관리해야 한다. 기본 4 MB 제한에 1.23 MB
-  요청은 들어가지만, 입력 크기를 키우는 실험(S6)에서는 확인이 필요하다
+- Message size limits have to be managed explicitly. A 1.23 MB request fits
+  under the default 4 MB limit, but experiments that increase input size (S6)
+  will need to check
 
-## 뒤집힌다면
+## What would overturn this
 
-- **입력이 JPEG 으로 바뀌어 페이로드가 100 KB 급이 되면** base64 팽창의
-  절대량이 작아진다. 그래도 스키마 강제 이유는 남는다
-- **외부 공개 API 가 요구사항이 되면** gRPC 앞에 REST 게이트웨이를 두는
-  구성을 검토한다. 내부 프로토콜을 바꿀 이유는 아니다
+- **If the input becomes JPEG and payloads drop to the 100 KB class**, the
+  absolute cost of base64 inflation shrinks. The schema-enforcement reason
+  still stands
+- **If a public external API becomes a requirement**, consider putting a REST
+  gateway in front of gRPC. That is not a reason to change the internal
+  protocol
