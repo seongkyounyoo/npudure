@@ -2,17 +2,18 @@
 
 # NPUDure Architecture Decision Records (ADR)
 
-> **이 파일은 생성물이다. 직접 편집하지 않는다.**
-> `adrs/` 의 원본 31개를 읽기·인쇄·공유용으로 이어 붙인 것이다.
-> 고칠 것이 있으면 원본을 고치고 다시 만든다.
+> **This file is generated. Do not edit it directly.**
+> It concatenates the 31 source documents under `adrs/` for reading,
+> printing and sharing.
+> If something needs fixing, fix the source and regenerate.
 >
 > ```bash
 > python scripts/build-adr-bundle.py $(git log -1 --format=%cs -- adrs/)
 > ```
 >
-> - 생성 기준: **2026-09-02** (`adrs/` 최종 커밋일)
-> - 원본: `adrs/README.md`, `adrs/OVERVIEW.md`, ADR 28건, `adrs/TEMPLATE.md`
-> - 파일 간 링크는 문서 내 앵커로 바뀌어 있다
+> - Generated as of: **2026-09-02** (the last commit date for `adrs/`)
+> - Sources: `adrs/README.md`, `adrs/OVERVIEW.md`, 28 ADRs, `adrs/TEMPLATE.md`
+> - Links between files have been rewritten to in-document anchors
 
 *[한국어 원문](README.ko.md)*
 

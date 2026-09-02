@@ -1,24 +1,25 @@
 <a id="index"></a>
 
-# NPUDure 문서 묶음
+# NPUDure documentation bundle
 
-> **이 파일은 생성물이다. 직접 편집하지 않는다.**
-> `docs/` 의 원본 27개를 읽기·인쇄·검토용으로 이어 붙인 것이다.
-> 고칠 것이 있으면 원본을 고치고 다시 만든다.
+> **This file is generated. Do not edit it directly.**
+> It concatenates the 27 source documents under `docs/` for reading,
+> printing and review.
+> If something needs fixing, fix the source and regenerate.
 >
 > ```bash
 > python scripts/build-docs-bundle.py $(git log -1 --format=%cs -- docs/)
 > ```
 >
-> - 생성 기준: **2026-09-02** (`docs/` 최종 커밋일)
-> - 파일 간 링크는 문서 내 앵커로 바뀌어 있다
-> - `docs/` 밖을 가리키는 링크(`../results/...`)는 그대로다
-> - **세션 인수인계 메모(`handoff-*.md`)와 공개 준비 문서(`public/`)는 빠져 있다.**
->   연구 산출물이 아니다
+> - Generated as of: **2026-09-02** (the last commit date for `docs/`)
+> - Links between files have been rewritten to in-document anchors
+> - Links pointing outside `docs/` (`../results/...`) are left as they are
+> - **Session handoff notes (`handoff-*.md`) and launch-preparation documents
+>   (`public/`) are excluded.** They are not research output
 >
-> 아키텍처 결정 기록은 별도 묶음이다 — [`adrs/ALL.md`](../adrs/ALL.md)
+> The architecture decision records are a separate bundle — [`adrs/ALL.md`](../adrs/ALL.md)
 
-## 차례
+## Contents
 
 - [NPUDure Product Requirements Document](#00-prd)  ·  `docs/00-PRD.md`
 - [NPUDure Technical Specification](#01-techspec)  ·  `docs/01-TECHSPEC.md`
@@ -29,7 +30,7 @@
 - [NPUDure infrastructure status](#infrastructure)  ·  `docs/infrastructure.md`
 - [NPUDure Environment Matrix](#environment-matrix)  ·  `docs/environment-matrix.md`
 - [Host inventory](#hosts-readme)  ·  `docs/hosts/README.md`
-- [호스트 인벤토리 — server](#hosts-server-i7-4790-20260826)  ·  `docs/hosts/server-i7-4790-20260826.md`
+- [Host inventory — server](#hosts-server-i7-4790-20260826)  ·  `docs/hosts/server-i7-4790-20260826.md`
 - [Host inventory — Dell PowerEdge R620 (the old scheduler server)](#hosts-server-xeon-e5-2630l-20260826)  ·  `docs/hosts/server-xeon-e5-2630l-20260826.md`
 - [Experiment Ledger](#experiments-readme)  ·  `docs/experiments/README.md`
 - [S0-C — Scheduling Policy A/B (fanless)](#experiments-s0-c-policy-ab)  ·  `docs/experiments/S0_C_POLICY_AB.md`
@@ -44,7 +45,7 @@
 - [S3.9b — Node-side Residual Cost Profiling](#experiments-s3-9b-node-residual)  ·  `docs/experiments/S3_9B_NODE_RESIDUAL.md`
 - [S3 — Per-configuration Saturation](#experiments-s3-saturation)  ·  `docs/experiments/S3_SATURATION.md`
 - [NPUDure measurement results — first pass](#results)  ·  `docs/RESULTS.md`
-- [NPUDure technical discussion](#discuss)  ·  `docs/discuss.md`
+- [NPUDure Technical Discussion Log](#discuss)  ·  `docs/discuss.md`
 - [NPUDure board work log](#board-worklog)  ·  `docs/board-worklog.md`
 - [NPUDure status](#todo)  ·  `docs/TODO.md`
 
@@ -7679,27 +7680,29 @@ specification, not a unit identifier.
 
 <a id="hosts-server-i7-4790-20260826"></a>
 
-# 호스트 인벤토리 — server
+# Host inventory — server
 
-- 수집: 2026-08-26 15:26:33 KST
-- 수집기: `scripts/collect-host-info.sh`
+*[한국어 원문](hosts/server-i7-4790-20260826.ko.md)*
 
-## 시스템
+- Collected: 2026-08-26 15:26:33 KST
+- Collector: `scripts/collect-host-info.sh`
 
-| 항목 | 값 |
+## System
+
+| Item | Value |
 |---|---|
 | hostname | server |
-| 메인보드 | ASUSTeK COMPUTER INC. H81M-K |
+| Motherboard | ASUSTeK COMPUTER INC. H81M-K |
 | BIOS | 1003 (10/24/2014) |
-| 배포판 | Rocky Linux 9.4 (Blue Onyx) |
-| 커널 | 5.14.0-427.13.1.el9_4.x86_64 |
-| 아키텍처 | x86_64 |
+| Distribution | Rocky Linux 9.4 (Blue Onyx) |
+| Kernel | 5.14.0-427.13.1.el9_4.x86_64 |
+| Architecture | x86_64 |
 | glibc | 2.34 |
 | SELinux | Enforcing |
 
 ## CPU
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
 | CPU(s) | 8 |
 | Model name | Intel(R) Core(TM) i7-4790 CPU @ 3.60GHz |
@@ -7711,18 +7714,18 @@ specification, not a unit identifier.
 | CPU min MHz | 800.0000 |
 | L3 cache | 8 MiB (1 instance) |
 
-## 메모리
+## Memory
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
-| 총량 | 15 GB |
+| Total | 15 GB |
 
-| 슬롯 | 용량 | 종류 | 속도 | 제조사 |
+| Slot | Capacity | Type | Speed | Manufacturer |
 |---|---|---|---|---|
 | ChannelA-DIMM0 | 8 GB | DDR3 | 1600 MT/s | Samsung |
 | ChannelB-DIMM0 | 8 GB | DDR3 | 1600 MT/s | Samsung |
 
-## 저장장치
+## Storage
 
 ```text
 NAME  SIZE MODEL              ROTA
@@ -7732,27 +7735,28 @@ Filesystem           Size  Used Avail Use% Mounted on
 /dev/mapper/rl-root   70G  5.3G   65G   8% /
 ```
 
-## 네트워크
+## Network
 
 ```text
 enp3s0           DOWN           
 enp1s0           UP             192.168.123.9/24 fe80::f4c7:56a1:f4a6:5cfd/64 
 ```
 
-| 인터페이스 | 속도 | 드라이버 | PCI | PCIe 링크 |
+| Interface | Speed | Driver | PCI | PCIe link |
 |---|---|---|---|---|
 | `enp1s0` | 10000Mb/s | ixgbe | 0000:01:00.0 | Speed 5GT/s (downgraded), Width x4 (ok) |
 | `enp3s0` | Unknown! | r8169 | 0000:03:00.0 | Speed 2.5GT/s (ok), Width x1 (ok) |
 
-## PCIe 슬롯
+## PCIe slots
 
-| 슬롯 | 규격 | 사용 |
+| Slot | Specification | Use |
 |---|---|---|
 | PCIEX16_1 | x16 PCI Express | In Use |
 | PCIEX1_1 | x1 PCI Express | Available |
 | PCIEX1_2 | x1 PCI Express | In Use |
 
-**루트 포트 능력** — 카드가 느리면 슬롯 탓인지 카드 탓인지 여기서 갈린다.
+**Root port capability** — when a card is slow, this is where the slot and the
+card part ways as the suspect.
 
 ```text
 00:01.0
@@ -7766,7 +7770,7 @@ enp1s0           UP             192.168.123.9/24 fe80::f4c7:56a1:f4a6:5cfd/64
   LnkSta:	Speed 2.5GT/s (downgraded), Width x1 (ok)
 ```
 
-## PCI 장치
+## PCI devices
 
 ```text
 00:00.0 Host bridge: Intel Corporation 4th Gen Core Processor DRAM Controller (rev 06)
@@ -7786,17 +7790,17 @@ enp1s0           UP             192.168.123.9/24 fe80::f4c7:56a1:f4a6:5cfd/64
 03:00.0 Ethernet controller: Realtek Semiconductor Co., Ltd. RTL8111/8168/8211/8411 PCI Express Gigabit Ethernet Controller (rev 0c)
 ```
 
-## 서비스
+## Services
 
-| 항목 | 값 |
+| Item | Value |
 |---|---|
 | firewalld | active / enabled |
-| 열린 포트(영구) | 8080/tcp 9090/tcp 50051/tcp |
+| Open ports (permanent) | 8080/tcp 9090/tcp 50051/tcp |
 | chronyd | active / enabled |
-| 시각 동기 | yes |
+| Time synchronised | yes |
 
-> 시리얼·자산번호·UUID 는 수집하지 않는다. 재현에 필요한 것은
-> 모델명과 규격이지 개체 식별자가 아니다.
+> Serial numbers, asset tags and UUIDs are not collected. What reproduction
+> needs is the model name and the specification, not a unit identifier.
 
 ---
 
@@ -12582,13 +12586,21 @@ authority** (the document authority order in `00-PRD.md` §0).
 
 <a id="discuss"></a>
 
-# NPUDure technical discussion
+# NPUDure Technical Discussion Log
 
 *[한국어 원문](discuss.ko.md)*
 
-This document records the discussion at points where design judgements diverge.
-Attribution (whose opinion it is) is stated so that the grounds for a decision
-can be traced later.
+This document records technical discussions that influenced experiment design
+and interpretation.
+
+All hardware experiments, measurements, implementation changes, and final
+technical decisions were carried out and owned by the project maintainer.
+
+Claude and ChatGPT were used as discussion and review tools. Their names are
+retained only to preserve which assistant proposed or challenged a particular
+interpretation.
+
+**Experiment owner and maintainer: Seongkyoun Yoo**
 
 Raw measurements are in `benchmarks/`, settled facts in `environment-matrix.md`,
 work history in `board-worklog.md`.
@@ -12605,19 +12617,19 @@ measurement.
 The discussion is arranged chronologically. New opinions are appended at the
 end.
 
-| # | Section | Written (KST) | Author | Gist |
+| # | Section | Written (KST) | Discussion source | Gist |
 |---|---|---|---|---|
-| 1 | The NPU occupancy experiment | 08-10 (time unknown) | Claude | the first measurement and interpretation |
-| 2 | ChatGPT's response | 08-10 (time unknown) | ChatGPT | softening the claims and demanding re-verification |
-| 3 | Claude's re-examination | 08-10 (time unknown) | Claude | accepting the points and re-measuring |
-| 4 | The core_mask distribution experiment | **08-10 17:03** | Claude | control group added, `worker_count=8` settled |
-| 5 | The want_float experiment | **08-10 17:15** | Claude | output conversion removed, +5.4% |
-| 6 | Syscall decomposition | **08-10 17:26** | Claude | bottleneck settled: driver ioctl serialization |
-| 7 | The zero-copy experiment | **08-10 17:44** | Claude | the hypothesis refuted |
-| 8 | INT8 measured | **08-11 16:45** | Claude | **1.85×**. Refines the conclusions of §6 and §7 |
-| 9 | The shared context experiment | **08-11 16:45** | Claude | "0 errors" is not a correct answer |
-| 10 | Bench tool design | **08-11 17:15** | Claude | building the mistakes into the tool |
-| 11 | The CPU governor effect | **08-12 10:16** | Claude | **+7%**. Every existing figure was on `ondemand` — **a currently valid conclusion** |
+| 1 | The NPU occupancy experiment | 08-10 (time unknown) | Claude review | the first measurement and interpretation |
+| 2 | ChatGPT's response | 08-10 (time unknown) | ChatGPT review | softening the claims and demanding re-verification |
+| 3 | Claude's re-examination | 08-10 (time unknown) | Claude review | accepting the points and re-measuring |
+| 4 | The core_mask distribution experiment | **08-10 17:03** | Claude review | control group added, `worker_count=8` settled |
+| 5 | The want_float experiment | **08-10 17:15** | Claude review | output conversion removed, +5.4% |
+| 6 | Syscall decomposition | **08-10 17:26** | Claude review | bottleneck settled: driver ioctl serialization |
+| 7 | The zero-copy experiment | **08-10 17:44** | Claude review | the hypothesis refuted |
+| 8 | INT8 measured | **08-11 16:45** | Claude review | **1.85×**. Refines the conclusions of §6 and §7 |
+| 9 | The shared context experiment | **08-11 16:45** | Claude review | "0 errors" is not a correct answer |
+| 10 | Bench tool design | **08-11 17:15** | Claude review | building the mistakes into the tool |
+| 11 | The CPU governor effect | **08-12 10:16** | Claude review | **+7%**. Every existing figure was on `ondemand` — **a currently valid conclusion** |
 
 Sections 1–3 went into the first commit (`eda93a3`, 08-10 16:29) together and
 their per-section times cannot be recovered. From §4 on, the commit time is the
@@ -12629,7 +12641,7 @@ writing time.
 
 ---
 
-# The NPU occupancy experiment — Claude's results and opinion
+# The NPU occupancy experiment — Claude's interpretation
 
 > ⚠️ **This section's NPU load figure (30%) and some of its conclusions were
 > corrected by later re-measurement.** Read "Claude's re-examination" further
@@ -12806,7 +12818,7 @@ to judge NPU occupancy.**
 
 - Written: 2026-08-10 (included in the first commit `eda93a3` at 16:29; the
   per-section time is unknown)
-- Subject: `The NPU occupancy experiment — Claude's results and opinion`
+- Subject: `The NPU occupancy experiment — Claude's interpretation`
 
 ## Overall
 
@@ -13107,7 +13119,7 @@ undocumented, so verify them with a no-load baseline and extreme values.
 
 ---
 
-# The core_mask distribution experiment — Claude's results and opinion
+# The core_mask distribution experiment — Claude's interpretation
 
 - Written: **2026-08-10 17:03 KST** (commit `0e6e264`)
 - Node measured: `queen`
@@ -13236,7 +13248,7 @@ latency. If it does not, that is information too.
 
 ---
 
-# The want_float experiment — Claude's results and opinion
+# The want_float experiment — Claude's interpretation
 
 - Written: **2026-08-10 17:15 KST** (commit `e0025b4`)
 - Node measured: `queen`
@@ -13701,7 +13713,7 @@ node is the reference value.
 
 ---
 
-# INT8 measured — Claude's results and opinion
+# INT8 measured — Claude's interpretation
 
 - Written: **2026-08-11 16:45 KST** (commit `547333c`)
 - Node measured: `king`
@@ -14196,7 +14208,7 @@ same family as the remote execution pitfalls in board-worklog.md §2.21.
 
 ---
 
-# The want_float=0 switch and CPU throttling — Claude's results and opinion
+# The want_float=0 switch and CPU throttling — Claude's interpretation
 
 - Written: **2026-08-12 17:40 KST**
 - Node measured: `king`
