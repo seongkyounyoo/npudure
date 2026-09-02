@@ -1,563 +1,681 @@
-# NPUDure 기술 논의
+# NPUDure technical discussion
 
-이 문서는 설계 판단이 갈리는 지점의 논의를 기록한다. 출처(누구의 의견인지)를 명시해 나중에 어떤 근거로 결정했는지 추적할 수 있게 한다.
+*[한국어 원문](discuss.ko.md)*
 
-측정 원본은 `benchmarks/`, 확정 사실은 `environment-matrix.md`, 작업 이력은 `board-worklog.md`.
+This document records the discussion at points where design judgements diverge.
+Attribution (whose opinion it is) is stated so that the grounds for a decision
+can be traced later.
 
-**각 절에 작성 시각(KST)과 커밋 해시를 적는다.** 같은 날 여러 실험을
-하면 날짜만으로는 순서를 알 수 없고, 나중에 "이 결론이 저 측정보다
-먼저였나 나중이었나"를 판단할 수 없다.
+Raw measurements are in `benchmarks/`, settled facts in `environment-matrix.md`,
+work history in `board-worklog.md`.
+
+**Each section carries its writing time (KST) and commit hash.** With several
+experiments in one day, a date alone does not give the order, and it becomes
+impossible to judge later whether a conclusion came before or after a given
+measurement.
 
 ---
 
-## 읽는 순서
+## Reading order
 
-논의는 시간순으로 배치한다. 새 의견은 문서 끝에 덧붙인다.
+The discussion is arranged chronologically. New opinions are appended at the
+end.
 
-| # | 절 | 작성 시각 (KST) | 작성 | 요지 |
+| # | Section | Written (KST) | Author | Gist |
 |---|---|---|---|---|
-| 1 | NPU 점유율 판별 실험 | 08-10 (시각 불명) | Claude | 최초 측정과 해석 |
-| 2 | ChatGPT 답변/의견 | 08-10 (시각 불명) | ChatGPT | 표현 완화와 재검증 요구 |
-| 3 | Claude 재검토 | 08-10 (시각 불명) | Claude | 지적 수용 및 재측정 |
-| 4 | core_mask 분배 실험 | **08-10 17:03** | Claude | 대조군 추가, `worker_count=8` 확정 |
-| 5 | want_float 실험 | **08-10 17:15** | Claude | 출력 변환 제거, +5.4% |
-| 6 | syscall 분해 | **08-10 17:26** | Claude | 병목 확정: 드라이버 ioctl 직렬화 |
-| 7 | zero-copy 실험 | **08-10 17:44** | Claude | 가설 반증 |
-| 8 | INT8 실측 | **08-11 16:45** | Claude | **1.85배**. 6·7절 결론을 정교화 |
-| 9 | 공유 컨텍스트 실험 | **08-11 16:45** | Claude | "오류 0건"은 정답이 아니다 |
-| 10 | 벤치 도구 설계 | **08-11 17:15** | Claude | 실수를 도구에 박아 넣기 |
-| 11 | CPU governor 영향 | **08-12 10:16** | Claude | **+7%**. 기존 수치는 전부 `ondemand` 기준 — **현재 유효한 결론** |
+| 1 | The NPU occupancy experiment | 08-10 (time unknown) | Claude | the first measurement and interpretation |
+| 2 | ChatGPT's response | 08-10 (time unknown) | ChatGPT | softening the claims and demanding re-verification |
+| 3 | Claude's re-examination | 08-10 (time unknown) | Claude | accepting the points and re-measuring |
+| 4 | The core_mask distribution experiment | **08-10 17:03** | Claude | control group added, `worker_count=8` settled |
+| 5 | The want_float experiment | **08-10 17:15** | Claude | output conversion removed, +5.4% |
+| 6 | Syscall decomposition | **08-10 17:26** | Claude | bottleneck settled: driver ioctl serialization |
+| 7 | The zero-copy experiment | **08-10 17:44** | Claude | the hypothesis refuted |
+| 8 | INT8 measured | **08-11 16:45** | Claude | **1.85×**. Refines the conclusions of §6 and §7 |
+| 9 | The shared context experiment | **08-11 16:45** | Claude | "0 errors" is not a correct answer |
+| 10 | Bench tool design | **08-11 17:15** | Claude | building the mistakes into the tool |
+| 11 | The CPU governor effect | **08-12 10:16** | Claude | **+7%**. Every existing figure was on `ondemand` — **a currently valid conclusion** |
 
-1~3절은 최초 커밋(`eda93a3`, 08-10 16:29)에 함께 들어가 절 단위 시각을
-복원할 수 없다. 4절부터는 커밋 시각이 그대로 작성 시각이다.
+Sections 1–3 went into the first commit (`eda93a3`, 08-10 16:29) together and
+their per-section times cannot be recovered. From §4 on, the commit time is the
+writing time.
 
-**1절의 일부 수치는 3절에서 정정되었다.** 결론만 필요하면 3절을 본다.
-**6·7절의 "78 inf/s 상한" 표현은 8절에서 범위가 좁혀졌다.**
+**Some of §1's figures were corrected in §3.** For the conclusions alone, read
+§3.
+**The "78 inf/s ceiling" wording in §6 and §7 had its scope narrowed in §8.**
 
 ---
 
-# NPU 점유율 판별 실험 — Claude 결과/의견
+# The NPU occupancy experiment — Claude's results and opinion
 
-> ⚠️ **이 절의 NPU load 수치(30%)와 일부 결론은 후속 재측정으로 정정되었다.**
-> 문서 하단 「Claude 재검토」를 함께 볼 것. 원문은 판단 과정을 남기기 위해 보존한다.
+> ⚠️ **This section's NPU load figure (30%) and some of its conclusions were
+> corrected by later re-measurement.** Read "Claude's re-examination" further
+> down alongside it. The original is preserved to keep the reasoning process.
 
-- 작성: 2026-08-10 (최초 커밋 `eda93a3` 16:29 에 포함. 절 단위 시각은 불명)
-- 측정 노드: `queen` (NanoPi R76S, RK3576)
-- 모델: `yolov8n-fp16.rknn` (FP16, SHA-256 `459602ea70479c1c...`)
-- 도구: `crates/npuforge-rknn/native/npu_occupancy_test.c`
+- Written: 2026-08-10 (included in the first commit `eda93a3` at 16:29; the
+  per-section time is unknown)
+- Node measured: `queen` (NanoPi R76S, RK3576)
+- Model: `yolov8n-fp16.rknn` (FP16, SHA-256 `459602ea70479c1c...`)
+- Tool: `crates/npuforge-rknn/native/npu_occupancy_test.c`
 
-## 배경: 무엇을 판별하려 했나
+## Context: what was being decided
 
-thread-safety 시험에서 **NPU가 2코어인데 8스레드에서 처리량이 5.55배**로 올랐다. 원인 가설이 둘로 갈렸다.
+In the thread-safety trial, **throughput rose 5.55× at 8 threads on a 2-core
+NPU.** Two hypotheses for the cause diverged.
 
-| 가설 | 내용 | 최적화 방향 |
+| Hypothesis | Content | Optimization direction |
 |---|---|---|
-| **A** | NPU submission pipeline이 덜 채워져 있었다 | NPU를 더 잘 먹이기 (배칭, 큐잉) |
-| **B** | 호출당 시간의 상당 부분이 CPU 구간이고, 스레드가 이를 병렬화했다 | CPU 전처리·후처리 최적화 |
+| **A** | The NPU submission pipeline was underfed | feed the NPU better (batching, queueing) |
+| **B** | A large share of per-call time is CPU work, and threads parallelised it | optimize CPU preprocessing and postprocessing |
 
-두 가설은 이후 최적화 방향을 정반대로 이끈다. 잘못 해석하면 M7 전체가 틀어진다.
+The two lead optimization in opposite directions. Misinterpreting it derails all
+of M7.
 
-## 측정 결과
+## Measurement results
 
-### 스레드 수별
+### By thread count
 
-| 스레드 | 처리량 | NPU Core0 / Core1 | CPU | inputs_set | run | outputs_get |
+| Threads | Throughput | NPU Core0 / Core1 | CPU | inputs_set | run | outputs_get |
 |---:|---:|---|---:|---:|---:|---:|
 | 1 | 17.0 /s | **16% / 0%** | 9.8% | 17.7 ms | 28.4 ms | 12.3 ms |
 | 2 | 33.3 | **17% / 15%** | 17.2% | 17.8 | 29.6 | 12.3 |
 | 4 | 56.8 | **25% / 24%** | 26.9% | 19.1 | 40.9 | 10.3 |
 | 8 | 76.0 | **32% / 30%** | 43.0% | 24.6 | 65.9 | 12.4 |
 
-NPU 점유율은 커널 debugfs(`/sys/kernel/debug/rknpu/load`)에서 0.2초 간격으로 샘플링했다.
+NPU occupancy was sampled at 0.2-second intervals from kernel debugfs
+(`/sys/kernel/debug/rknpu/load`).
 
-### 1스레드 호출 구성
+### The composition of a single-thread call
 
 ```text
-총 58.9 ms
+total 58.9 ms
   inputs_set     17.7 ms  (30%)   CPU
-  run            28.4 ms  (48%)   NPU 제출 + 실행 + 대기
-  outputs_get    12.3 ms  (21%)   CPU (want_float=1 이므로 역양자화 포함)
+  run            28.4 ms  (48%)   NPU submission + execution + wait
+  outputs_get    12.3 ms  (21%)   CPU (dequantization included, since want_float=1)
   release         0.5 ms  ( 1%)
 ```
 
-## ⚠️ 먼저 정정: 내 지표가 틀렸다
+## ⚠️ First, a correction: my metric was wrong
 
-`RKNN_QUERY_PERF_RUN`의 `run_duration`을 "실제 NPU 점유 시간"으로 해석했으나 **큐 대기를 포함한 값**이었다. 헤더 주석의 `real inference time (us)` 표현에 오도되었다.
+I interpreted `RKNN_QUERY_PERF_RUN`'s `run_duration` as "actual NPU occupancy
+time", but it **includes queue wait**. I was misled by the header comment's
+phrase `real inference time (us)`.
 
-**증거:**
+**Evidence:**
 
-- 2코어인데 내 계산으로 `npu_cores_busy = 5.03`이 나왔다. 물리적으로 불가능하다
-- `run_duration`이 `rknn_run`의 wall time과 모든 구간에서 정확히 일치한다. 즉 같은 값이다
+- On a 2-core device my calculation gave `npu_cores_busy = 5.03`. Physically
+  impossible
+- `run_duration` matches `rknn_run`'s wall time exactly across every condition.
+  They are the same value
 
-**커널 debugfs가 신뢰할 수 있는 출처였다.** RKNN API가 보고하는 값을 검증 없이 쓰면 안 된다.
+**The kernel debugfs was the trustworthy source.** Values the RKNN API reports
+must not be used without verification.
 
-이것은 이 실험 전에 저지른 두 번째 성급한 해석이다. 첫 번째는 "5.55배니까 CPU가 병목"이었고, 그것도 틀렸다.
+This is the second hasty interpretation made before this experiment. The first
+was "5.55×, so the CPU is the bottleneck", and that was wrong too.
 
-## 결론: 두 가설 모두 부분적으로만 맞다
+## Conclusion: both hypotheses are only partly right
 
-### 가설 A가 주된 답이다
+### Hypothesis A is the main answer
 
-1스레드에서 **Core0 16%, Core1 0%** 로 NPU가 사실상 놀고 있다. 스레드를 늘리자 두 코어가 함께 동작하며 처리량이 17 → 76 inf/s(4.5배)로 올랐다.
+At 1 thread, **Core0 is at 16% and Core1 at 0%** — the NPU is effectively idle.
+Raising threads brings both cores into play and throughput goes 17 → 76 inf/s
+(4.5×).
 
-**단, NPU는 끝까지 포화되지 않는다.** 8스레드에서도 30% 수준이다.
+**But the NPU never saturates.** It stays around 30% even at 8 threads.
 
-### 그러나 CPU도 병목이 아니다
+### Yet the CPU is not the bottleneck either
 
-8스레드에서 CPU 사용률이 **43%** 다. 8코어 중 약 3.4코어만 사용한다. 여유가 있다.
+At 8 threads, CPU utilisation is **43%.** About 3.4 of 8 cores are in use. There
+is headroom.
 
-### 진짜 상한은 다른 곳에 있다
+### The real ceiling is somewhere else
 
-`run`이 28.4 → 65.9 ms로 **2.3배** 늘어난 반면, `inputs_set`(17.7→24.6)과 `outputs_get`(12.3→12.4)은 거의 변하지 않았다.
+`run` grew 28.4 → 65.9 ms, **2.3×**, while `inputs_set` (17.7→24.6) and
+`outputs_get` (12.3→12.4) barely changed.
 
 ```text
-NPU 점유율   30%   ← 바쁘지 않다
-CPU 사용률   43%   ← 바쁘지 않다
-rknn_run     66ms  ← 그런데 여기서 기다린다
+NPU occupancy   30%   <- not busy
+CPU utilisation 43%   <- not busy
+rknn_run        66ms  <- and yet it waits here
 ```
 
-**둘 다 포화가 아닌데 지연만 늘어나는 것은 큐잉 병목의 전형이다.** NPU 제출 경로 어딘가에서 직렬화가 일어나고 있다.
+**Neither saturated while latency alone grows is the classic signature of a
+queueing bottleneck.** Serialization is happening somewhere in the NPU
+submission path.
 
-후보:
+Candidates:
 
-| 후보 | 설명 |
+| Candidate | Description |
 |---|---|
-| RKNN 런타임 내부 락 | 여러 context가 하나의 제출 경로를 공유 |
-| 커널 드라이버 직렬화 | ioctl 경로 또는 IOMMU 매핑의 배타 구간 |
-| NPU 스케줄링 정책 | `CORE_AUTO`가 코어를 충분히 활용하지 못함 |
+| A lock inside the RKNN runtime | several contexts sharing one submission path |
+| Kernel driver serialization | an exclusive section in the ioctl path or IOMMU mapping |
+| NPU scheduling policy | `CORE_AUTO` not using the cores fully |
 
-## 프로젝트에 주는 의미
+## What this means for the project
 
-### 최적화 우선순위가 바뀐다
+### The optimization priorities change
 
-| 최적화 | 효과 예상 | 근거 |
+| Optimization | Expected effect | Basis |
 |---|---|---|
-| CPU 전처리 최적화 | 지연시간 개선. **처리량 상한은 못 올림** | CPU가 병목이 아님 (43%) |
-| io_uring | **무관** | 네트워크가 관여하지 않는 구간의 문제 |
-| **NPU 제출 경로 직렬화 해소** | **상한 자체를 올림** | 여기가 실제 병목 |
-| INT8 전환 | `run` 시간 단축 가능 | FP16이 NPU에서 비효율적일 수 있음 |
+| CPU preprocessing optimization | improves latency. **Cannot raise the throughput ceiling** | CPU is not the bottleneck (43%) |
+| io_uring | **irrelevant** | a problem in a section the network is not involved in |
+| **Removing NPU submission path serialization** | **raises the ceiling itself** | this is the real bottleneck |
+| Switching to INT8 | may shorten `run` time | FP16 may be inefficient on this NPU |
 
-### 프로젝트 논지와 부합한다
+### It fits the project's thesis
 
-**NPU가 70% 놀고 있다.** "6 TOPS × 3 = 18 TOPS가 아닌" 이유가 네트워크나 스케줄링이 아니라 **노드 하나 안에서 NPU를 다 쓰지 못하기 때문**일 수 있다.
+**The NPU is 70% idle.** The reason "6 TOPS × 3 ≠ 18 TOPS" may be neither the
+network nor scheduling but **failing to use the NPU fully inside a single node.**
 
-이는 벤더 스펙시트의 TOPS가 실제 처리량을 대표하지 못한다는 본 프로젝트의 문제 정의(PRD §2)를 정면으로 뒷받침한다.
+That directly supports this project's problem statement (PRD §2): that the
+vendor spec sheet's TOPS does not represent actual throughput.
 
-## 다음에 확인할 것
+## What to check next
 
-우선순위 순이다.
+In priority order.
 
-1. **`core_mask` 명시 분배** — `CORE_0`/`CORE_1`을 직접 지정하면 30% 벽이 깨지는가
-   - thread-safety 시험에서는 코어 분리가 오히려 소폭 느렸으나, 그것은 **2스레드** 조건이었다
-   - 8스레드에서는 결과가 다를 수 있다
-2. **INT8 vs FP16** — `run` 시간이 줄면 상한이 올라간다. calibration 데이터 확정 후
-3. **`want_float=0`** — `outputs_get`의 역양자화 제거. 지연시간 개선
-4. **`rknn_dup_context`** — 컨텍스트 복제가 개별 `rknn_init`보다 나은가
+1. **Explicit `core_mask` distribution** — does specifying `CORE_0`/`CORE_1`
+   directly break the 30% wall
+   - The thread-safety trial found core separation slightly slower, but that was
+     a **2-thread** condition
+   - At 8 threads the result may differ
+2. **INT8 vs FP16** — a shorter `run` raises the ceiling. After the calibration
+   data settles
+3. **`want_float=0`** — removing dequantization from `outputs_get`. A latency
+   improvement
+4. **`rknn_dup_context`** — is duplicating a context better than individual
+   `rknn_init`
 
-1번이 가장 빠르게 답이 나온다.
+Number 1 gives an answer fastest.
 
-## 측정 방법 메모
+## Notes on measurement method
 
-재현에 필요한 사항이다.
+What is needed for reproduction.
 
 ```bash
-# 빌드
+# build
 gcc -O2 -Wall -Wextra -o npu_occupancy_test npu_occupancy_test.c -lrknnrt -lpthread
 
-# 실행 (모델, 반복횟수, 스레드수)
+# run (model, iterations, threads)
 ./npu_occupancy_test yolov8n-fp16.rknn 120 8
 
-# NPU 점유율은 별도로 샘플링해야 한다 (sudo 필요)
+# NPU occupancy has to be sampled separately (needs sudo)
 sudo cat /sys/kernel/debug/rknpu/load
 ```
 
-**`RKNN_QUERY_PERF_RUN`은 `RKNN_FLAG_COLLECT_PERF_MASK` 없이 조회 가능하며 오버헤드가 없다.** `PERF_DETAIL`만 플래그를 요구하고 프레임률을 떨어뜨린다.
+**`RKNN_QUERY_PERF_RUN` can be queried without `RKNN_FLAG_COLLECT_PERF_MASK`
+and has no overhead.** Only `PERF_DETAIL` requires the flag and lowers the frame
+rate.
 
-다만 위에 적었듯 `run_duration`은 큐 대기를 포함하므로 **NPU 점유율 판단에 사용하면 안 된다.**
+But as written above, `run_duration` includes queue wait and **must not be used
+to judge NPU occupancy.**
 
 ---
 
 ---
 
-# ChatGPT 답변/의견
+# ChatGPT's response
 
-> 최신 결론은 문서 하단 「Claude 재검토 — ChatGPT 지적 반영 및 재측정」을 따른다.
-> 이 절은 재측정을 유도한 검토 의견으로 보존한다.
+> For the current conclusions, follow "Claude's re-examination — incorporating
+> ChatGPT's points and re-measuring" further down. This section is preserved as
+> the review that prompted the re-measurement.
 
-- 작성: 2026-08-10 (최초 커밋 `eda93a3` 16:29 에 포함. 절 단위 시각은 불명)
-- 대상: `NPU 점유율 판별 실험 — Claude 결과/의견`
+- Written: 2026-08-10 (included in the first commit `eda93a3` at 16:29; the
+  per-section time is unknown)
+- Subject: `The NPU occupancy experiment — Claude's results and opinion`
 
-## 총평
+## Overall
 
-`discuss.md`의 방향은 좋다. 특히 **"5.55배니까 CPU 병목"이라는 성급한 해석을 철회한 것**, 그리고 `RKNN_QUERY_PERF_RUN.run_duration`을 실제 NPU 점유시간으로 보지 말아야 한다고 정정한 부분은 중요하다.
+`discuss.md`'s direction is good. In particular, **withdrawing the hasty
+interpretation "5.55×, so the CPU is the bottleneck"**, and the correction that
+`RKNN_QUERY_PERF_RUN.run_duration` should not be read as actual NPU occupancy
+time, are important.
 
-이 논의는 남겨둘 가치가 있다. 나중에 발표에서도 "처음 세운 병목 가설을 실측으로 어떻게 수정했는가"를 보여주는 좋은 자료가 된다.
+This discussion is worth keeping. It also makes good material later for showing
+"how an initial bottleneck hypothesis was corrected by measurement".
 
-다만 몇 군데는 표현을 조금 낮추는 것이 좋다.
+That said, a few places would be better with the claims lowered slightly.
 
-## 1. "CPU도 병목이 아니다"는 아직 단정하지 않는다
+## 1. "The CPU is not the bottleneck either" is not yet settled
 
-전체 CPU 사용률 43%는 평균값이다. 특정 thread 하나가 락, 드라이버, ioctl 경로에서 막히거나 단일 코어가 포화되는 상황을 가릴 수 있다.
+A total CPU utilisation of 43% is an average. It can hide one thread blocking in
+a lock, a driver or an ioctl path, or a single core saturating.
 
-8코어 전체 평균이 낮아도 병목이 병렬화 불가능한 CPU 경로에 있으면 처리량 상한이 생긴다.
+Even with a low average across 8 cores, a bottleneck in a non-parallelisable CPU
+path creates a throughput ceiling.
 
-따라서 현재 문장의 의미는 다음 정도로 제한하는 것이 정확하다.
+So the current sentence's meaning is more accurately limited to roughly this.
 
 ```text
-CPU 전체 사용률 기준으로는 여유가 있다.
-다만 단일 코어 포화, runtime lock, ioctl/off-CPU wait 가능성은 별도로 확인해야 한다.
+There is headroom by total CPU utilisation.
+But single-core saturation, runtime locks and ioctl/off-CPU wait have to be
+checked separately.
 ```
 
-## 2. "io_uring 무관"도 너무 강하다
+## 2. "io_uring is irrelevant" is also too strong
 
-이 실험은 단일 노드 내부 RKNN 호출 병목을 본 것이다. 이 결과만으로 분산 추론 경로의 `io_uring` 가치를 판단할 수는 없다.
+This experiment looked at an RKNN call bottleneck inside a single node. That
+result alone cannot judge `io_uring`'s value on the distributed inference path.
 
-맞는 결론은 다음이다.
+The correct conclusion is:
 
 ```text
-io_uring은 이 단일 노드 RKNN scaling 문제의 직접 원인은 아니다.
-분산 transport 최적화 여부는 M2/M3의 network_* timing과 syscall 계측 후 판단한다.
+io_uring is not the direct cause of this single-node RKNN scaling problem.
+Whether to optimize the distributed transport is judged after M2/M3's
+network_* timing and syscall instrumentation.
 ```
 
-즉, 현재 관측된 8스레드 scaling 한계의 원인은 네트워크 I/O가 아니다. 그러나 NPUDure 전체에서 `io_uring`이 의미 있는지는 gRPC baseline 이후 별도 측정해야 한다.
+That is, the cause of the observed 8-thread scaling limit is not network I/O.
+But whether `io_uring` is meaningful for NPUDure as a whole has to be measured
+separately after the gRPC baseline.
 
-## 3. NPU load 30% 해석은 한 번 더 검증한다
+## 3. The NPU load 30% interpretation needs one more verification
 
-`/sys/kernel/debug/rknpu/load`가 가장 믿을 만한 출처라는 판단은 타당하다. 다만 그 값의 의미가 직전 샘플 구간 평균인지, 드라이버 내부 누적/감쇠 값인지 확인이 필요하다.
+Judging `/sys/kernel/debug/rknpu/load` the most trustworthy source is
+reasonable. But whether that value means an average over the immediately
+preceding sample window, or an accumulated/decaying value inside the driver,
+needs confirming.
 
-8스레드에서 76 inf/s가 나오는데 Core0/Core1이 30%대라는 것은 가능하지만 꽤 강한 신호다. 다음을 확인하면 해석이 더 단단해진다.
+Core0/Core1 in the 30s while 76 inf/s comes out at 8 threads is possible, but it
+is a fairly strong signal. Confirming the following would make the
+interpretation more solid.
 
-- 샘플링 주기 0.2초의 영향
-- 부하 없음 상태의 baseline
-- `watch -n`과 직접 루프 샘플링의 차이
-- read 직후 값 변화 여부
-- NPU devfreq와 load 값의 동시 기록
+- The effect of the 0.2-second sampling interval
+- The baseline with no load
+- The difference between `watch -n` and a direct sampling loop
+- Whether the value changes immediately after a read
+- Recording NPU devfreq and the load value together
 
-## 4. 실제 상한 후보는 조금 넓게 둔다
+## 4. Keep the ceiling candidates a little wider
 
-"RKNN/NPU 제출 경로 직렬화"는 유력한 가설이다. 다만 후보를 너무 좁히지는 않는 것이 좋다.
+"RKNN/NPU submission path serialization" is a strong hypothesis. But it is
+better not to narrow the candidates too far.
 
-확인할 후보:
+Candidates to check:
 
-- RKNN runtime 내부 lock
-- kernel driver ioctl 직렬화
-- IOMMU 또는 buffer mapping 비용
-- DDR 또는 memory bandwidth
-- output conversion 또는 hidden copy
-- thermal/frequency 변화
-- `CORE_AUTO` 스케줄링 한계
+- A lock inside the RKNN runtime
+- Kernel driver ioctl serialization
+- IOMMU or buffer mapping cost
+- DDR or memory bandwidth
+- Output conversion or a hidden copy
+- Thermal/frequency changes
+- `CORE_AUTO` scheduling limits
 
-특히 `inputs_set`이 17~25ms인 것은 생각보다 크다. 100KB JPEG 네트워크 전송보다 훨씬 큰 시간이다. 실제 모델 입력 tensor 크기, copy 횟수, cache behavior, zero-copy input 가능 여부도 봐야 한다.
+`inputs_set` at 17–25 ms is larger than expected. It is far more time than a
+100KB JPEG network transfer. The actual model input tensor size, copy count,
+cache behaviour and whether zero-copy input is possible should be looked at too.
 
-## 5. 다음 실험 제안
+## 5. Suggested next experiments
 
-우선순위는 다음과 같다.
+In priority order.
 
-1. `CORE_AUTO` vs `CORE_0`/`CORE_1` 명시 분배를 2스레드뿐 아니라 4/8스레드에서 다시 측정
-2. `want_float=0`으로 `outputs_get` 비용 제거 후 처리량 변화 확인
-3. `perf top`/`perf record`로 user/kernel hot path 확인
-4. `strace -c` 또는 `perf stat`으로 ioctl/syscall 수 확인
-5. per-core CPU 사용률과 off-CPU time 확인
-6. INT8 모델 생성 후 FP16과 같은 실험 반복
+1. Re-measure `CORE_AUTO` vs explicit `CORE_0`/`CORE_1` distribution at 4 and 8
+   threads, not just 2
+2. Remove the `outputs_get` cost with `want_float=0` and check the throughput
+   change
+3. Check the user/kernel hot paths with `perf top`/`perf record`
+4. Check ioctl/syscall counts with `strace -c` or `perf stat`
+5. Check per-core CPU utilisation and off-CPU time
+6. Repeat the same experiment after generating an INT8 model
 
-## 정리 의견
+## Summary opinion
 
-현재 문서의 방향은 맞다. 다만 최종 결론은 조금 강하므로 다음 정도로 정리하는 것이 더 안전하다.
+The document's direction is right. But the final conclusions are a little
+strong, so summarising them roughly as follows would be safer.
 
 ```text
-현재 실험은 8스레드 처리량 증가가 단순 CPU 전처리 병렬화만으로 설명되지 않음을 보였다.
-1스레드에서는 NPU가 충분히 사용되지 않았고, 다중 스레드에서 NPU submission pipeline이 더 채워진다.
-그러나 8스레드에서도 NPU/CPU 전체가 포화되지 않았으므로, RKNN runtime 또는 kernel driver 제출 경로의 직렬화/큐잉 가능성이 높다.
-이 문제는 io_uring과는 별개의 단일 노드 내부 병목이며, 분산 transport 최적화 여부는 gRPC baseline 이후 TimingBreakdown으로 따로 판단한다.
+The current experiment showed that the 8-thread throughput increase is not
+explained by CPU preprocessing parallelisation alone.
+At 1 thread the NPU was not sufficiently used, and with multiple threads the NPU
+submission pipeline gets fuller.
+But since neither the NPU nor the CPU is saturated even at 8 threads,
+serialization or queueing in the RKNN runtime or kernel driver submission path
+is likely.
+This is a single-node internal bottleneck separate from io_uring, and whether to
+optimize the distributed transport is judged separately with TimingBreakdown
+after the gRPC baseline.
 ```
 
 ---
 
 ---
 
-# Claude 재검토 — ChatGPT 지적 반영 및 재측정
+# Claude's re-examination — incorporating ChatGPT's points and re-measuring
 
-- 작성: 2026-08-10 (최초 커밋 `eda93a3` 16:29 에 포함. 절 단위 시각은 불명)
-- 대상: 위 `ChatGPT 답변/의견` 5개 항목
-- 재측정 도구: 동일 (`npu_occupancy_test.c`) + 샘플링 절차 수정
+- Written: 2026-08-10 (included in the first commit `eda93a3` at 16:29; the
+  per-section time is unknown)
+- Subject: the 5 items in `ChatGPT's response` above
+- Re-measurement tool: the same (`npu_occupancy_test.c`) + a corrected sampling
+  procedure
 
-## 요약
+## Summary
 
-**지적 5개 중 3개를 실측으로 확인했고, 그 결과 앞선 수치가 과소평가였음이 드러났다.**
+**Three of the five points were confirmed by measurement, and doing so revealed
+that the earlier figures were underestimates.**
 
-가장 큰 것은 3번(NPU load 재검증)이다. 측정 방법 자체에 결함이 있었다.
+The biggest is number 3 (re-verifying NPU load). The measurement method itself
+was flawed.
 
-## 지적 3 확인: `delayms = 3000` — 측정 방법 결함
+## Point 3 confirmed: `delayms = 3000` — a measurement method flaw
 
-`/sys/kernel/debug/rknpu/` 아래에 `delayms` 파일이 있고 값이 **3000**이었다.
+There is a `delayms` file under `/sys/kernel/debug/rknpu/`, and its value was
+**3000**.
 
-**NPU load가 3초 창(window)으로 평균되는데 0.2초 간격으로 샘플링했다.** 같은 값을 15회씩 중복해서 읽었고, 부하 종료 후의 0% 구간까지 평균에 섞였다.
+**NPU load is averaged over a 3-second window and I was sampling at 0.2-second
+intervals.** The same value was read 15 times over, and the 0% section after the
+load ended got mixed into the average.
 
-`delayms`는 쓰기 가능하다. **100ms로 낮추고**, 워밍업 4초 후 정상 구간만 샘플링해 재측정했다.
+`delayms` is writable. I **lowered it to 100 ms** and re-measured, sampling only
+the steady section after a 4-second warmup.
 
 ```bash
 sudo sh -c 'echo 100 > /sys/kernel/debug/rknpu/delayms'
 ```
 
-무부하 baseline은 0%로, 값이 누적/감쇠되지 않음을 확인했다.
+The no-load baseline confirmed 0%, showing the value does not accumulate or
+decay.
 
-### 재측정 결과
+### Re-measured results
 
-| 스레드 | 처리량 | Core0 avg/max | Core1 avg/max | CPU (cpu0~3 / cpu4~7) |
+| Threads | Throughput | Core0 avg/max | Core1 avg/max | CPU (cpu0–3 / cpu4–7) |
 |---:|---:|---|---|---|
 | 1 | 16.7 /s | 18.9% / 39% | **0.5% / 1%** | 3,1,2,2 / **30,23**,6,7 |
 | 2 | 36.0 | 23.4% / 48% | 16.0% / 33% | 3,2,3,3 / 28,36,40,19 |
 | 4 | 55.6 | 29.6% / 62% | 26.9% / 54% | 18,8,7,4 / 48,45,46,48 |
 | 8 | 75.0 | **38.9% / 86%** | **37.0% / 81%** | 47,43,44,42 / 48,49,42,46 |
 
-**앞선 30%는 과소평가였다.** 실제 평균은 38.9%, **순간 최대는 86%** 다.
+**The earlier 30% was an underestimate.** The real average is 38.9%, and the
+**instantaneous maximum is 86%.**
 
-## 지적 1 확인: "CPU도 병목이 아니다"는 부정확했다
+## Point 1 confirmed: "the CPU is not the bottleneck either" was inaccurate
 
-전체 평균 43%가 **코어별 불균형을 가리고 있었다.**
-
-```text
-1스레드  cpu4=30%, cpu5=23%      big 코어 일부만 사용, little 은 유휴
-8스레드  전 코어 42~49%          고르게 분산
-```
-
-`cpu0~3`이 little(A53 2.016GHz), `cpu4~7`이 big(A72 2.208GHz)이다. 1스레드에서 big 코어 하나가 30%를 쓰는 것은 단일 스레드 기준으로 작지 않은 부하다.
-
-**정정된 표현:**
+The 43% overall average **was hiding per-core imbalance.**
 
 ```text
-CPU 전체 사용률 기준으로는 여유가 있다 (8스레드에서 최대 49%).
-단일 코어 포화는 관측되지 않았다.
-다만 runtime lock, ioctl 직렬화, off-CPU wait 는 별도 계측이 필요하다.
+1 thread  cpu4=30%, cpu5=23%      only some big cores in use, the little ones idle
+8 threads all cores 42-49%        evenly spread
 ```
 
-`perf record` / `strace -c` / off-CPU 분석은 아직 하지 않았다.
+`cpu0–3` are little (A53 2.016 GHz) and `cpu4–7` are big (A72 2.208 GHz). One
+big core at 30% on a single thread is not a small load in single-thread terms.
 
-## 지적 2 수용: "io_uring 무관"은 범위를 넘은 표현
-
-이 실험은 **단일 노드 내부 RKNN 호출 경로**를 본 것이다. 분산 transport의 가치를 판단할 근거가 아니다.
-
-**정정된 표현:**
+**Corrected wording:**
 
 ```text
-이 단일 노드 RKNN scaling 한계의 직접 원인은 네트워크 I/O 가 아니다.
-NPUDure 전체에서 io_uring 이 의미 있는지는 gRPC baseline 이후
-TimingBreakdown 과 syscall 계측으로 별도 판단한다.
+There is headroom by total CPU utilisation (at most 49% at 8 threads).
+Single-core saturation was not observed.
+But runtime locks, ioctl serialization and off-CPU wait need separate
+instrumentation.
 ```
 
-앞 절 「최적화 우선순위」 표의 `io_uring — 무관` 항목은 이 문장으로 대체한다.
+`perf record` / `strace -c` / off-CPU analysis have not been done yet.
 
-## 지적 4 수용: 상한 후보를 넓힌다
+## Point 2 accepted: "io_uring is irrelevant" overstepped
 
-특히 **`inputs_set` 17~25ms** 가 크다는 지적이 타당하다. 입력 텐서가 640×640×3 = 1,228,800 bytes 인데 17ms 면 약 70MB/s 다. 단순 memcpy 라기엔 느리므로 포맷 변환이나 다중 복사가 의심된다.
+This experiment looked at **the RKNN call path inside a single node.** It is not
+grounds for judging the value of the distributed transport.
 
-확인할 후보 (좁히지 않는다):
+**Corrected wording:**
 
-| 후보 | 확인 방법 |
+```text
+The direct cause of this single-node RKNN scaling limit is not network I/O.
+Whether io_uring is meaningful for NPUDure as a whole is judged separately after
+the gRPC baseline, with TimingBreakdown and syscall instrumentation.
+```
+
+The `io_uring — irrelevant` entry in the previous section's "optimization
+priorities" table is replaced by that sentence.
+
+## Point 4 accepted: widen the ceiling candidates
+
+The point that **`inputs_set` at 17–25 ms** is large is well taken. The input
+tensor is 640×640×3 = 1,228,800 bytes, and 17 ms works out at about 70 MB/s.
+That is slow for a plain memcpy, so a format conversion or multiple copies are
+suspected.
+
+Candidates to check (not narrowed):
+
+| Candidate | How to check |
 |---|---|
-| RKNN runtime 내부 lock | `perf record`, off-CPU 분석 |
-| kernel driver ioctl 직렬화 | `strace -c`, ioctl 횟수·소요시간 |
-| IOMMU / buffer mapping 비용 | `perf`, 드라이버 trace |
-| DDR / memory bandwidth | `inputs_set` 처리율 대비 이론 대역폭 |
-| output conversion / hidden copy | `want_float=0` 비교 |
-| thermal / frequency 변화 | devfreq `cur_freq` 동시 기록 (이번엔 950MHz 고정 확인) |
-| `CORE_AUTO` 스케줄링 한계 | `core_mask` 명시 분배 비교 |
+| A lock inside the RKNN runtime | `perf record`, off-CPU analysis |
+| Kernel driver ioctl serialization | `strace -c`, ioctl count and duration |
+| IOMMU / buffer mapping cost | `perf`, driver traces |
+| DDR / memory bandwidth | `inputs_set` throughput against theoretical bandwidth |
+| Output conversion / hidden copy | comparison with `want_float=0` |
+| Thermal / frequency changes | recording devfreq `cur_freq` alongside (confirmed pinned at 950 MHz this time) |
+| `CORE_AUTO` scheduling limits | comparison with explicit `core_mask` distribution |
 
-## 수정된 결론
+## The corrected conclusion
 
 ```text
-8스레드 처리량 증가는 CPU 전처리 병렬화만으로 설명되지 않는다.
+The 8-thread throughput increase is not explained by CPU preprocessing
+parallelisation alone.
 
-1스레드에서 NPU Core1 이 0.5% 로 사실상 미사용이었고,
-스레드를 늘리자 두 코어가 균등하게 38~39% 까지 올라갔다.
-순간 최대는 86% 로 포화에 근접하나 평균은 40% 미만이다.
+At 1 thread NPU Core1 was effectively unused at 0.5%, and raising threads brought
+both cores up evenly to 38-39%.
+The instantaneous maximum reaches 86%, close to saturation, but the average is
+under 40%.
 
-즉 NPU 를 연속적으로 먹이지 못하고 간헐적으로 비는 구간이 있다.
-CPU 는 전체 49% 이하이고 단일 코어 포화도 없다.
+That is, the NPU cannot be fed continuously and there are intermittent gaps.
+The CPU is at or below 49% overall with no single-core saturation.
 
-따라서 RKNN runtime 또는 kernel driver 제출 경로의
-직렬화·큐잉 가능성이 높으나, lock/off-CPU 계측 전까지 확정하지 않는다.
+So serialization or queueing in the RKNN runtime or kernel driver submission path
+is likely, but it is not settled until lock/off-CPU instrumentation is done.
 
-이는 단일 노드 내부 병목이며 io_uring 과는 별개 문제다.
-분산 transport 최적화 여부는 gRPC baseline 이후 별도 판단한다.
+This is a single-node internal bottleneck, a separate matter from io_uring.
+Whether to optimize the distributed transport is judged separately after the gRPC
+baseline.
 ```
 
-## 운영에 반영할 것
+## To reflect in operations
 
-**`delayms` 는 재부팅 시 3000 으로 돌아간다.** NPU load 를 telemetry 로 쓰려면 측정 전 설정이 필요하다.
+**`delayms` reverts to 3000 on reboot.** Using NPU load as telemetry requires
+setting it before measuring.
 
-`preflight-check.sh` 에 추가할 항목:
+To add to `preflight-check.sh`:
 
 ```bash
 sudo sh -c 'echo 100 > /sys/kernel/debug/rknpu/delayms'
-# 확인
-[ "$(sudo cat /sys/kernel/debug/rknpu/delayms)" = "100" ] || 중단
+# confirm
+[ "$(sudo cat /sys/kernel/debug/rknpu/delayms)" = "100" ] || abort
 ```
 
-그리고 NPU load 샘플링 규칙:
+And the NPU load sampling rules:
 
-- 샘플 간격은 `delayms` 이상으로 둔다 (중복 읽기 방지)
-- 워밍업 구간과 종료 직후 구간을 평균에서 제외한다
-- 평균과 함께 **최대값을 기록한다** (평균만 보면 순간 포화를 놓친다)
+- Sample at intervals of at least `delayms` (preventing duplicate reads)
+- Exclude the warmup section and the section right after the end from the average
+- **Record the maximum alongside the average** (the average alone misses
+  instantaneous saturation)
 
-## 아직 하지 않은 검증
+## Verifications not yet done
 
-ChatGPT 제안 중 미실시 항목이다.
+The unperformed items among ChatGPT's suggestions.
 
-- [x] `CORE_AUTO` vs `CORE_0`/`CORE_1` 명시 분배 (4/8스레드) — 4절 참조
-- [x] `want_float=0` 으로 `outputs_get` 비용 제거 — 5절 참조
-- [x] `perf` 는 커널 버전 불일치로 불가. `time` + `strace -c` 로 대체 — 6절
-- [x] `strace -c` 로 ioctl 수 확인 — 추론당 80회, 6절
-- [x] off-CPU 분석 — 8스레드에서 블록 58ms/호출, 6절
-- [ ] INT8 모델로 동일 실험 반복 (calibration 데이터 확정 후)
+- [x] `CORE_AUTO` vs explicit `CORE_0`/`CORE_1` distribution (4/8 threads) — see
+  §4
+- [x] Removing the `outputs_get` cost with `want_float=0` — see §5
+- [x] `perf` was impossible due to a kernel version mismatch. Substituted `time`
+  + `strace -c` — §6
+- [x] ioctl count checked with `strace -c` — 80 per inference, §6
+- [x] Off-CPU analysis — 58 ms blocked per call at 8 threads, §6
+- [ ] Repeat the same experiment with an INT8 model (after the calibration data
+  settles)
 
-## 메타: 같은 실수를 두 번 했다
+## Meta: the same mistake twice
 
-이번 건에서 성급한 해석이 세 번 있었다.
+There were three hasty interpretations in this episode.
 
-| # | 잘못된 판단 | 원인 |
+| # | The wrong judgement | Cause |
 |---|---|---|
-| 1 | "5.55배니까 CPU 병목" | 대안 가설을 배제하지 않음 |
-| 2 | "`run_duration` = NPU 점유시간" | API 주석을 검증 없이 신뢰 |
-| 3 | "NPU load 30%" | 측정 도구의 샘플링 특성 미확인 |
+| 1 | "5.55×, so the CPU is the bottleneck" | did not exclude the alternative hypothesis |
+| 2 | "`run_duration` = NPU occupancy time" | trusted an API comment without verification |
+| 3 | "NPU load 30%" | did not check the measurement tool's sampling characteristics |
 
-공통점은 **측정값이 무엇을 의미하는지 확인하기 전에 결론을 냈다는 것**이다.
+What they share is **reaching a conclusion before confirming what the measured
+value means.**
 
-2번은 자체 모순(2코어인데 5.03)으로 잡았고, 3번은 외부 지적으로 잡았다. 1번은 실측으로 잡았다.
+Number 2 was caught by self-contradiction (5.03 on a 2-core device), number 3 by
+an external review. Number 1 was caught by measurement.
 
-교훈: **새 측정 지표를 쓸 때는 값의 의미·갱신 주기·경계 조건을 먼저 확인한다.** 특히 커널이 노출하는 값은 문서가 없는 경우가 많으므로 무부하 baseline과 극단값으로 검증한다.
+The lesson: **when using a new metric, first confirm the value's meaning, update
+period and boundary conditions.** Values the kernel exposes are often
+undocumented, so verify them with a no-load baseline and extreme values.
 
 ---
 
-# core_mask 분배 실험 — Claude 결과/의견
+# The core_mask distribution experiment — Claude's results and opinion
 
-- 작성: **2026-08-10 17:03 KST** (커밋 `0e6e264`)
-- 측정 노드: `queen`
-- 모델: `yolov8n-fp16.rknn` (FP16)
-- 원본: `benchmarks/results/2026-08-10-coremask/coremask-queen.txt`
-- 조건: 스레드당 200회, `delayms=100`, 워밍업 4초 후 샘플링
+- Written: **2026-08-10 17:03 KST** (commit `0e6e264`)
+- Node measured: `queen`
+- Model: `yolov8n-fp16.rknn` (FP16)
+- Raw data: `benchmarks/results/2026-08-10-coremask/coremask-queen.txt`
+- Conditions: 200 iterations per thread, `delayms=100`, sampled after a
+  4-second warmup
 
-## 확인하려던 것
+## What was being checked
 
-앞 절에서 "`CORE_AUTO`가 코어를 충분히 활용하지 못한다"를 병목 후보로 두었다. 이를 검증한다.
+The previous section listed "`CORE_AUTO` not using the cores fully" as a
+bottleneck candidate. This verifies it.
 
-**대조군을 추가했다.** 이전까지는 Core1 점유율이 38%라는 숫자만 봤을 뿐, 그것이 실제 처리량 기여로 이어지는지 확인한 적이 없다. 모든 스레드를 코어 하나에 고정한 `CORE_0_ONLY`와 비교하면 판정할 수 있다.
+**A control group was added.** Until now we had only seen the number, Core1's
+38% occupancy, without ever confirming that it translated into actual
+throughput. Comparing against `CORE_0_ONLY`, which pins every thread to one
+core, settles it.
 
-| mode | 설정 | 의도 |
+| mode | Setting | Intent |
 |---|---|---|
-| 0 | `CORE_AUTO` | 런타임이 선택 (현재 기본값) |
-| 1 | `ALTERNATE` | 스레드를 `CORE_0`/`CORE_1`에 번갈아 고정 |
-| 2 | `CORE_0_1` | 모든 스레드가 두 코어를 함께 사용 |
-| 3 | **`CORE_0_ONLY`** | **전부 코어 0에 고정 — 대조군** |
+| 0 | `CORE_AUTO` | the runtime chooses (the current default) |
+| 1 | `ALTERNATE` | threads pinned alternately to `CORE_0`/`CORE_1` |
+| 2 | `CORE_0_1` | every thread uses both cores together |
+| 3 | **`CORE_0_ONLY`** | **all pinned to core 0 — the control group** |
 
-## 결과
+## Results
 
-처리량 (inf/s)
+Throughput (inf/s)
 
-| 스레드 | AUTO | ALTERNATE | CORE_0_1 | **CORE_0_ONLY** |
+| Threads | AUTO | ALTERNATE | CORE_0_1 | **CORE_0_ONLY** |
 |---:|---:|---:|---:|---:|
 | 1 | 16.7 | 16.7 | **18.2** | 16.5 |
 | 2 | 36.2 | 36.5 | 36.4 | **26.4** |
 | 4 | 52.4 | **57.1** | 48.5 | **38.5** |
 | 8 | 72.9 | **73.0** | 64.5 | **48.2** |
 
-`run` 시간 (µs) 및 NPU 점유율 (평균/최대 %)
+`run` time (µs) and NPU occupancy (average/maximum %)
 
-| 스레드 | mode | run | Core0 | Core1 |
+| Threads | mode | run | Core0 | Core1 |
 |---:|---|---:|---|---|
 | 8 | AUTO | 69,046 | 39/85 | 37/78 |
 | 8 | ALTERNATE | 66,314 | 38/81 | 38/81 |
 | 8 | CORE_0_1 | 83,175 | 38/80 | 29/60 |
 | 8 | **CORE_0_ONLY** | **120,608** | 46/96 | **0/1** |
 
-## 발견 1: 두 번째 코어는 실제로 기여한다
+## Finding 1: the second core does contribute
 
-8스레드에서 **단일 코어 48.2 → 두 코어 73.0 inf/s, 1.51배**다.
+At 8 threads, **one core gives 48.2 and two give 73.0 inf/s, 1.51×.**
 
-Core1의 38% 점유율은 장식이 아니라 실제 처리량이었다. 이전 절에서 확인하지 못한 부분을 대조군이 채웠다.
+Core1's 38% occupancy was not decoration but real throughput. The control group
+filled in what the previous section could not confirm.
 
-**다만 2배가 아니라 1.51배다.** 코어를 두 배로 늘려도 처리량은 절반만 는다. 코어 밖에 공유 자원이 있다는 뜻이며, 앞 절의 "제출 경로 직렬화" 가설과 부합한다.
+**But it is 1.51×, not 2×.** Doubling the cores raises throughput by only half.
+That means there is a shared resource outside the cores, consistent with the
+previous section's "submission path serialization" hypothesis.
 
-`CORE_0_ONLY`의 `run`이 120.6ms로 폭증하는 것도 같은 현상이다. 코어 하나에 8스레드가 몰리니 대기가 그대로 쌓인다.
+`CORE_0_ONLY`'s `run` exploding to 120.6 ms is the same phenomenon. Eight
+threads piled onto one core, and the wait accumulates directly.
 
-## 발견 2: 명시 분배는 이득이 거의 없다
-
-```text
-4스레드   52.4 -> 57.1   +9.0%
-8스레드   72.9 -> 73.0   +0.1%
-```
-
-4스레드에서만 개선되고 8스레드에서는 차이가 없다.
-
-게다가 4스레드 개선분을 뜯어보면 `outputs_get`이 13.6 → 10.0ms로 줄어든 것이 대부분이다. 코어 분배 효과인지 측정 노이즈인지 분리되지 않는다.
-
-**`AUTO`의 분배는 이미 균등하다** (8스레드에서 39%/37%). 런타임 스케줄러가 제 역할을 하고 있어 수동 개입의 여지가 없다.
-
-## 발견 3: `CORE_0_1`은 오히려 손해다
+## Finding 2: explicit distribution brings almost no gain
 
 ```text
-8스레드   72.9 -> 64.5   -11.5%
+4 threads   52.4 -> 57.1   +9.0%
+8 threads   72.9 -> 73.0   +0.1%
 ```
 
-모든 스레드에 두 코어를 열어주면 더 느려진다. 컨텍스트마다 코어를 오가며 스케줄링 오버헤드나 캐시 무효화가 발생하는 것으로 보인다.
+It improves only at 4 threads and there is no difference at 8.
 
-**예외는 1스레드다.** 여기서만 16.7 → 18.2(+9%)로 이득이고 `run`이 29.7 → 23.7ms로 줄었다.
+And unpacking the 4-thread improvement, most of it is `outputs_get` falling from
+13.6 to 10.0 ms. Whether that is a core-distribution effect or measurement noise
+is not separated.
 
-단일 요청은 두 코어를 함께 쓰는 것이 유리하다. **지연시간이 중요한 워크로드에서 쓸 수 있는 카드**이며, deadline 요청 처리 시 고려할 만하다.
+**`AUTO`'s distribution is already even** (39%/37% at 8 threads). The runtime
+scheduler is doing its job, leaving no room for manual intervention.
 
-## 결론
+## Finding 3: `CORE_0_1` is actually a loss
+
+```text
+8 threads   72.9 -> 64.5   -11.5%
+```
+
+Opening both cores to every thread makes it slower. Scheduling overhead or cache
+invalidation from contexts moving between cores appears to be the cause.
+
+**The exception is 1 thread.** Only there is it a gain, 16.7 → 18.2 (+9%), with
+`run` falling from 29.7 to 23.7 ms.
+
+A single request benefits from using both cores together. **It is a card
+available for latency-sensitive workloads** and worth considering when handling
+deadline requests.
+
+## Conclusion
 
 ```toml
 [worker]
-worker_count = 8      # 4보다 27% 높음
-                      # core_mask 는 설정하지 않는다 (CORE_AUTO)
+worker_count = 8      # 27% higher than 4
+                      # core_mask is not set (CORE_AUTO)
 ```
 
-`ALTERNATE`의 4스레드 이득(+9%)은 8스레드에서 사라진다. **8스레드로 가는 편이 코어를 수동 배정하는 것보다 낫고, 코드도 단순해진다** — `rknn_set_core_mask` 호출 자체가 불필요하다.
+`ALTERNATE`'s 4-thread gain (+9%) vanishes at 8 threads. **Going to 8 threads
+beats manual core assignment, and the code is simpler** — the
+`rknn_set_core_mask` call becomes unnecessary.
 
-## 병목 후보가 좁혀졌다
+## The bottleneck candidates have narrowed
 
-| 후보 | 판정 |
+| Candidate | Verdict |
 |---|---|
-| ~~`CORE_AUTO` 스케줄링 한계~~ | **배제** — 이미 균등 분배, 수동 개입 무의미 |
-| ~~두 번째 코어 미사용~~ | **배제** — 1.51배 기여 확인 |
-| **코어 밖 공유 자원 직렬화** | **유력** — 2코어인데 1.51배에 그침 |
+| ~~`CORE_AUTO` scheduling limits~~ | **excluded** — already evenly distributed, manual intervention pointless |
+| ~~The second core unused~~ | **excluded** — a 1.51× contribution confirmed |
+| **Serialization on a shared resource outside the cores** | **leading** — 2 cores giving only 1.51× |
 
-앞 절 §4의 후보 목록에서 `CORE_AUTO` 항목이 제거된다. 남은 것:
+The `CORE_AUTO` entry is removed from the previous section §4's candidate list.
+What remains:
 
-- RKNN runtime 내부 lock
-- kernel driver ioctl 직렬화
-- IOMMU / buffer mapping 비용
+- A lock inside the RKNN runtime
+- Kernel driver ioctl serialization
+- IOMMU / buffer mapping cost
 - DDR / memory bandwidth
-- output conversion / hidden copy
+- Output conversion / hidden copy
 
-## 다음
+## Next
 
-`want_float=0` 이 답이 빠르다. `outputs_get` 이 모든 조건에서 12~15ms로 일정한데, 이것이 역양자화 비용이라면 제거만으로 지연이 줄어든다. 줄지 않으면 그것도 정보다.
+`want_float=0` gives an answer fastest. `outputs_get` is a steady 12–15 ms under
+every condition; if that is dequantization cost, removing it alone reduces
+latency. If it does not, that is information too.
 
 ---
 
-# want_float 실험 — Claude 결과/의견
+# The want_float experiment — Claude's results and opinion
 
-- 작성: **2026-08-10 17:15 KST** (커밋 `e0025b4`)
-- 측정 노드: `queen`
-- 모델: `yolov8n-fp16.rknn` (FP16)
-- 원본: `benchmarks/results/2026-08-10-wantfloat/wantfloat-queen.txt`
-- 조건: 스레드당 250회, `CORE_AUTO`
+- Written: **2026-08-10 17:15 KST** (commit `e0025b4`)
+- Node measured: `queen`
+- Model: `yolov8n-fp16.rknn` (FP16)
+- Raw data: `benchmarks/results/2026-08-10-wantfloat/wantfloat-queen.txt`
+- Conditions: 250 iterations per thread, `CORE_AUTO`
 
-## 확인하려던 것
+## What was being checked
 
-앞선 측정에서 `outputs_get` 이 모든 조건에서 12~15ms로 **거의 변하지 않았다.** 스레드를 8배로 늘려도 그대로였다. 두 가지 해석이 가능했다.
+In earlier measurements, `outputs_get` **barely changed** across every
+condition, staying at 12–15 ms. It stayed the same even at 8× the threads. Two
+interpretations were possible.
 
-| 해석 | `want_float=0` 에서 예상되는 결과 |
+| Interpretation | Expected result with `want_float=0` |
 |---|---|
-| 역양자화 CPU 비용이 지배적 | `outputs_get` 크게 감소, 처리량 증가 |
-| 커널·드라이버 전송 비용이 지배적 | `outputs_get` 소폭 감소, 처리량 변화 없음 |
+| Dequantization CPU cost dominates | `outputs_get` falls sharply, throughput rises |
+| Kernel/driver transfer cost dominates | `outputs_get` falls slightly, throughput unchanged |
 
-`rknn_output.want_float` 를 0으로 두면 모델 네이티브 출력을 그대로 받는다.
+Setting `rknn_output.want_float` to 0 gives the model's native output as-is.
 
-## 결과
+## Results
 
-| 스레드 | wf | 처리량 | total | inputs_set | run | **outputs_get** | out bytes |
+| Threads | wf | Throughput | total | inputs_set | run | **outputs_get** | out bytes |
 |---:|---:|---:|---:|---:|---:|---:|---:|
 | 1 | 1 | 16.6 | 60,116 | 17,828 | 29,343 | **12,424** | 1,638,400 |
 | 1 | **0** | **17.6** | 56,704 | 19,826 | 28,897 | **7,620** | **819,200** |
@@ -568,963 +686,1063 @@ worker_count = 8      # 4보다 27% 높음
 | 8 | 1 | 73.5 | 108,341 | 23,781 | 68,664 | **15,041** | 1,638,400 |
 | 8 | **0** | **77.5** | 102,422 | 27,036 | 66,442 | **8,625** | **819,200** |
 
-시간 단위는 µs, 호출당 평균이다.
+Times are in µs, averaged per call.
 
-## 발견 1: 출력이 정확히 절반이다
+## Finding 1: the output is exactly half
 
 ```text
 want_float=1   1,638,400 bytes   FP32
-want_float=0     819,200 bytes   FP16 (모델 네이티브)
+want_float=0     819,200 bytes   FP16 (the model's native type)
 ```
 
-FP16 모델이므로 네이티브 출력이 FP16(2바이트)인데 `want_float=1` 이 FP32(4바이트)로 확장하고 있었다. **역양자화가 아니라 정밀도 확장이다.**
+Being an FP16 model, the native output is FP16 (2 bytes) and `want_float=1` was
+widening it to FP32 (4 bytes). **It is precision widening, not dequantization.**
 
-INT8 모델이라면 1바이트 → 4바이트로 4배 차이가 나므로 효과가 더 클 것으로 예상된다. calibration 데이터 확정 후 재측정한다.
+With an INT8 model the difference would be 1 byte → 4 bytes, so a fourfold gap,
+and the effect is expected to be larger. To be re-measured after the calibration
+data settles.
 
-## 발견 2: `outputs_get` 은 확실히 줄어든다
+## Finding 2: `outputs_get` does clearly fall
 
 ```text
-1스레드   12,424 -> 7,620    -39%
-2스레드   10,071 -> 6,783    -33%
-4스레드   11,614 -> 8,965    -23%
-8스레드   15,041 -> 8,625    -43%
+1 thread    12,424 -> 7,620    -39%
+2 threads   10,071 -> 6,783    -33%
+4 threads   11,614 -> 8,965    -23%
+8 threads   15,041 -> 8,625    -43%
 ```
 
-**8스레드에서 6.4ms 절감**되며, 스레드가 늘어도 `outputs_get` 이 8.6ms 근처에서 안정된다. `want_float=1` 일 때는 15ms까지 증가했다.
+**6.4 ms saved at 8 threads**, and `outputs_get` stabilises near 8.6 ms as
+threads increase. With `want_float=1` it grew to 15 ms.
 
-## 발견 3: 그런데 처리량 이득은 작다
+## Finding 3: and yet the throughput gain is small
 
 ```text
-1스레드   16.6 -> 17.6   +6.0%
-2스레드   36.6 -> 36.9   +0.8%
-4스레드   55.9 -> 56.9   +1.8%
-8스레드   73.5 -> 77.5   +5.4%
+1 thread    16.6 -> 17.6   +6.0%
+2 threads   36.6 -> 36.9   +0.8%
+4 threads   55.9 -> 56.9   +1.8%
+8 threads   73.5 -> 77.5   +5.4%
 ```
 
-**호출당 6.4ms를 줄였는데 처리량은 5.4% 늘었다.** 8스레드 기준으로 호출당 총 108ms 중 6% 감소인데, 처리량 증가도 비슷한 수준이다.
+**6.4 ms per call was removed and throughput rose 5.4%.** At 8 threads that is a
+6% reduction of the 108 ms per call, and the throughput increase is about the
+same.
 
-CPU 작업을 제거해도 그만큼만 이득이고 배수 효과가 없다. **시스템이 CPU 바운드가 아니라는 증거다.**
+Removing CPU work gains only that much, with no multiplier effect. **Evidence
+that the system is not CPU-bound.**
 
-## 발견 4: `inputs_set` 이 일관되게 증가한다
+## Finding 4: `inputs_set` rises consistently
 
-예상하지 못한 관측이다.
+An unexpected observation.
 
 ```text
-1스레드   17,828 -> 19,826   +2,000
-2스레드   17,604 -> 19,370   +1,766
-4스레드   18,361 -> 19,491   +1,130
-8스레드   23,781 -> 27,036   +3,255
+1 thread    17,828 -> 19,826   +2,000
+2 threads   17,604 -> 19,370   +1,766
+4 threads   18,361 -> 19,491   +1,130
+8 threads   23,781 -> 27,036   +3,255
 ```
 
-`want_float` 는 출력 경로 설정인데 입력 시간이 늘어난다. 인과관계가 없어야 한다.
+`want_float` is an output-path setting and the input time rises. There should be
+no causal link.
 
-**추정: 메모리 할당자 거동 차이.** `want_float=1` 은 1.6MB 출력 버퍼를 할당·해제하고, `want_float=0` 은 0.8MB를 쓴다. `rknn_outputs_release` 가 해제한 블록을 다음 반복의 `rknn_inputs_set` 이 재사용하는데, 크기가 달라 재사용률이 떨어졌을 수 있다.
+**Presumption: allocator behaviour.** `want_float=1` allocates and frees a
+1.6 MB output buffer while `want_float=0` uses 0.8 MB. The block freed by
+`rknn_outputs_release` gets reused by the next iteration's `rknn_inputs_set`,
+and the differing size may have lowered the reuse rate.
 
-**확인 필요.** 버퍼 풀을 도입하면(`01-TECHSPEC.md` §15.1-4) 이 변동이 사라지는지 보면 판별된다.
+**Needs confirming.** Introducing a buffer pool (`01-TECHSPEC.md` §15.1-4) and
+seeing whether this variation disappears would settle it.
 
-## 결론
+## Conclusion
 
-**`want_float=0` 을 채택한다.**
+**Adopt `want_float=0`.**
 
-- 8스레드에서 처리량 +5.4%, `outputs_get` -43%
-- 출력 전송량 절반 → 노드→스케줄러 네트워크 부하도 절반
-- YOLOv8 후처리는 어차피 CPU에서 수행하므로 FP16을 직접 다루면 된다
+- +5.4% throughput at 8 threads, `outputs_get` −43%
+- Output transfer volume halved → node→scheduler network load also halved
+- YOLOv8 postprocessing happens on the CPU anyway, so handling FP16 directly is
+  fine
 
-`npuforge-rknn` 구현 시 `want_float=0` 을 기본으로 하고, 후처리 코드가 모델 네이티브 타입을 처리하도록 작성한다. 출력 타입은 `RKNN_QUERY_OUTPUT_ATTR` 로 조회해 분기한다.
+The `npuforge-rknn` implementation defaults to `want_float=0`, with the
+postprocessing code written to handle the model's native type. The output type is
+queried with `RKNN_QUERY_OUTPUT_ATTR` and branched on.
 
-## 병목 판정: 두 번째 해석이 맞다
+## Bottleneck verdict: the second interpretation is right
 
-앞의 두 가설 중 **"커널·드라이버 전송 비용이 지배적"** 쪽이다.
+Of the two hypotheses above, it is **"kernel/driver transfer cost dominates".**
 
-역양자화를 완전히 제거해도 `outputs_get` 이 8.6ms 남는다. 그리고 처리량 이득이 제거한 시간에 비례할 뿐 배수가 아니다.
+Even with dequantization fully removed, `outputs_get` leaves 8.6 ms. And the
+throughput gain is merely proportional to the time removed, not a multiple.
 
-즉 **출력 경로도 같은 공유 자원을 통과한다.** `run` 이 66ms로 여전히 지배적이고 여기가 손대지 못한 구간이다.
+That is, **the output path passes through the same shared resource.** `run`
+remains dominant at 66 ms, and that is the section left untouched.
 
-이로써 후보가 더 좁혀진다.
+The candidates narrow further.
 
-| 후보 | 판정 |
+| Candidate | Verdict |
 |---|---|
-| ~~`CORE_AUTO` 스케줄링 한계~~ | 배제 (§4) |
-| ~~두 번째 코어 미사용~~ | 배제 (§4) |
-| ~~output conversion 비용~~ | **배제** — 제거해도 +5.4% |
-| **RKNN runtime lock** | 유력 |
-| **kernel driver ioctl 직렬화** | 유력 |
-| IOMMU / buffer mapping | 가능 |
-| DDR / memory bandwidth | 가능 (발견 4와 관련 가능성) |
+| ~~`CORE_AUTO` scheduling limits~~ | excluded (§4) |
+| ~~The second core unused~~ | excluded (§4) |
+| ~~Output conversion cost~~ | **excluded** — removing it gives +5.4% |
+| **A lock inside the RKNN runtime** | leading |
+| **Kernel driver ioctl serialization** | leading |
+| IOMMU / buffer mapping | possible |
+| DDR / memory bandwidth | possible (potentially related to finding 4) |
 
-## 다음
+## Next
 
-`perf record` 와 `strace -c` 로 hot path 와 ioctl 횟수를 본다. 지금까지는 블랙박스 밖에서 입출력만 재었으나, 남은 후보들은 그 안을 봐야 구분된다.
+Look at the hot path and ioctl count with `perf record` and `strace -c`. So far
+we have measured inputs and outputs from outside the black box, but the
+remaining candidates require looking inside it.
 
-`rknn_run` 이 66ms인데 NPU 점유율이 40%라는 것은 **26ms 이상이 NPU 밖에서 소비된다**는 뜻이다. 그 시간이 어디로 가는지가 다음 질문이다.
+`rknn_run` being 66 ms with NPU occupancy at 40% means **over 26 ms is consumed
+outside the NPU.** Where that time goes is the next question.
 
 ---
 
-# syscall 분해 — 병목 확정: 드라이버 ioctl 직렬화
+# Syscall decomposition — the bottleneck settled: driver ioctl serialization
 
-> ⚠️ **이 절의 "78 inf/s 는 드라이버 특성" 표현은 8절에서 범위가 좁혀졌다.**
-> 추론당 ioctl 횟수는 INT8 에서도 76회로 같은데 처리량은 1.85배다.
-> 상한을 정하는 것은 ioctl **횟수**가 아니라 직렬화 구간에서 한 건이
-> 붙잡고 있는 **시간**이다. 애플리케이션 최적화로 못 넘는다는 결론 자체는
-> 유효하다 — 양자화는 애플리케이션 최적화가 아니라 모델 변경이다.
+> ⚠️ **This section's "78 inf/s is a driver characteristic" wording had its scope
+> narrowed in §8.** Ioctls per inference are the same 76 on INT8, and throughput
+> is 1.85×. What sets the ceiling is not the ioctl **count** but the **time** one
+> inference holds the serialized section. The conclusion that application
+> optimization cannot exceed it stands — quantization is a model change, not an
+> application optimization.
 
-- 작성: **2026-08-10 17:26 KST** (커밋 `3656401`)
-- 측정 노드: `queen`
-- 원본: `benchmarks/results/2026-08-10-syscall/`
+- Written: **2026-08-10 17:26 KST** (commit `3656401`)
+- Node measured: `queen`
+- Raw data: `benchmarks/results/2026-08-10-syscall/`
 
-## 확인하려던 것
+## What was being checked
 
-`rknn_run` 이 66ms 인데 NPU 점유율은 40% 다. **26ms 이상이 NPU 밖에서 소비된다.** 그 시간의 정체를 찾는다.
+`rknn_run` is 66 ms while NPU occupancy is 40%. **Over 26 ms is consumed outside
+the NPU.** Find out what that time is.
 
-`perf` 는 사용할 수 없었다. 보드 커널이 BSP 6.1.141 인데 Ubuntu 저장소의 `linux-tools` 는 6.8.0 용이라 버전이 맞지 않는다. 대신 다음 두 가지를 썼다.
+`perf` could not be used. The board's kernel is BSP 6.1.141 while the Ubuntu
+repository's `linux-tools` is for 6.8.0, and the versions do not match. Two
+things were used instead.
 
-1. bash 내장 `time` — user/sys 분해. 오버헤드 없음
-2. `strace -f -c` — syscall 횟수와 소요시간
+1. The bash builtin `time` — a user/sys split. No overhead
+2. `strace -f -c` — syscall counts and durations
 
-## 측정 1: 블록 시간이 지배적이다
+## Measurement 1: blocked time dominates
 
-| 스레드 | real | user | sys | on-CPU 비율 |
+| Threads | real | user | sys | on-CPU share |
 |---:|---:|---:|---:|---:|
 | 1 | 14.75 | 6.40 | 1.87 | 56% |
 | 2 | 13.88 | 12.94 | 2.88 | 57% |
 | 4 | 17.90 | 28.76 | 5.23 | 47% |
 | 8 | 25.85 | 74.13 | 9.56 | **40%** |
 
-8스레드 호출당 (총 99.9ms):
+Per call at 8 threads (99.9 ms total):
 
 ```text
-37.1 ms   유저스페이스 CPU   librknnrt 내부 (주로 inputs_set)
- 4.8 ms   커널 CPU           ioctl 처리 자체
-58.0 ms   블록               자면서 대기
+37.1 ms   userspace CPU   inside librknnrt (mostly inputs_set)
+ 4.8 ms   kernel CPU      the ioctl handling itself
+58.0 ms   blocked         asleep, waiting
 ```
 
-**커널 CPU 가 4.8ms 뿐이라는 것이 중요하다.** ioctl 처리에 CPU 를 태우는 것이 아니다. 스레드가 **자면서 기다린다.**
+**That kernel CPU is only 4.8 ms matters.** It is not burning CPU on ioctl
+handling. The threads **sleep and wait.**
 
-그런데 NPU 점유율은 40% 다. **NPU 연산을 기다리는 것이 아니다.**
+And NPU occupancy is 40%. **They are not waiting on NPU computation.**
 
-## 측정 2: ioctl 이 직렬화된다
+## Measurement 2: ioctls serialize
 
-`strace -f -c`, 30회/스레드.
+`strace -f -c`, 30 iterations per thread.
 
-| | 1 스레드 | 8 스레드 | |
+| | 1 thread | 8 threads | |
 |---|---:|---:|---|
-| ioctl 호출 수 | 2,419 | 19,072 | |
-| **추론당 ioctl** | **80.6** | **79.5** | 동일 |
-| **ioctl 당 소요** | **69 µs** | **374 µs** | **5.4배** |
-| futex 호출 | 3 | 395 | 무시 가능 |
+| ioctl calls | 2,419 | 19,072 | |
+| **ioctls per inference** | **80.6** | **79.5** | identical |
+| **Duration per ioctl** | **69 µs** | **374 µs** | **5.4×** |
+| futex calls | 3 | 395 | negligible |
 
-두 가지가 결정적이다.
+Two things are decisive.
 
-**첫째, 추론당 ioctl 횟수가 스레드 수와 무관하게 ~80 으로 일정하다.** 일이 늘어난 것이 아니다.
+**First, ioctls per inference stay at ~80 regardless of thread count.** The
+amount of work has not grown.
 
-**둘째, 개당 지연이 5.4배로 늘어난다.** 같은 일을 하는데 8스레드에서 훨씬 오래 걸린다. 드라이버 내부에 배타 구간이 있다는 뜻이다.
+**Second, per-call latency grows 5.4×.** The same work takes far longer at 8
+threads. That means an exclusive section inside the driver.
 
-**셋째, futex 가 395회뿐이다.** 유저스페이스 락 경합이라면 수만 건이 나왔어야 한다. **librknnrt 내부 락이 아니다.**
+**Third, futex is only 395 calls.** Userspace lock contention would have given
+tens of thousands. **It is not a lock inside librknnrt.**
 
-## 결론: 커널 드라이버 ioctl 직렬화
+## Conclusion: kernel driver ioctl serialization
 
 ```text
-80 ioctl × 374 µs ≈ 30 ms
+80 ioctls x 374 us ~ 30 ms
 ```
 
-블록 시간 58ms 의 절반 이상을 설명한다. 나머지는 실제 NPU 연산 대기와 스케줄링 지연으로 보인다.
+That explains over half of the 58 ms blocked time. The rest appears to be actual
+NPU computation wait and scheduling delay.
 
-병목 후보 목록이 정리되었다.
+The bottleneck candidate list is now settled.
 
-| 후보 | 판정 |
+| Candidate | Verdict |
 |---|---|
-| ~~`CORE_AUTO` 스케줄링 한계~~ | 배제 (§4) |
-| ~~두 번째 코어 미사용~~ | 배제 (§4) |
-| ~~output conversion 비용~~ | 배제 (§5) |
-| ~~RKNN runtime 내부 lock~~ | **배제** — futex 395회 |
-| **kernel driver ioctl 직렬화** | **확정** |
-| IOMMU / buffer mapping | ioctl 의 내용일 가능성 높음 |
+| ~~`CORE_AUTO` scheduling limits~~ | excluded (§4) |
+| ~~The second core unused~~ | excluded (§4) |
+| ~~Output conversion cost~~ | excluded (§5) |
+| ~~A lock inside the RKNN runtime~~ | **excluded** — 395 futex calls |
+| **Kernel driver ioctl serialization** | **settled** |
+| IOMMU / buffer mapping | likely what the ioctls contain |
 
-## 진짜 문제는 ioctl 이 80회라는 것이다
+## The real problem is that there are 80 ioctls
 
-직렬화 자체는 드라이버 구현이므로 우리가 고칠 수 없다. 그러나 **호출 횟수는 줄일 수 있다.**
+The serialization itself is the driver's implementation and not something we can
+fix. But **the call count can be reduced.**
 
-추론 한 건에 ioctl 80회는 과다하다. `rknn_inputs_set` / `rknn_outputs_get` 이 매 호출마다 버퍼를 할당·매핑·해제하는 것으로 추정된다.
+Eighty ioctls for one inference is excessive. `rknn_inputs_set` /
+`rknn_outputs_get` are presumed to allocate, map and free buffers on every call.
 
-RKNN 은 이를 피하는 **zero-copy 메모리 API** 를 제공한다. 헤더에서 확인했다.
+RKNN provides a **zero-copy memory API** to avoid this. Confirmed in the
+headers.
 
 ```c
-rknn_create_mem(ctx, size)              /* 버퍼를 한 번 할당 */
-rknn_set_io_mem(ctx, mem, attr)         /* context 에 바인딩 */
+rknn_create_mem(ctx, size)              /* allocate the buffer once */
+rknn_set_io_mem(ctx, mem, attr)         /* bind it to the context */
 rknn_destroy_mem(ctx, mem)
-RKNN_QUERY_NATIVE_INPUT_ATTR  = 8       /* 네이티브 레이아웃 조회 */
+RKNN_QUERY_NATIVE_INPUT_ATTR  = 8       /* query the native layout */
 RKNN_QUERY_NATIVE_OUTPUT_ATTR = 9
 RKNN_FLAG_MEM_ALLOC_OUTSIDE   = 0x10
 ```
 
-버퍼를 한 번 할당해 재사용하면 per-call 매핑 ioctl 이 사라질 수 있다.
+Allocating the buffer once and reusing it could eliminate the per-call mapping
+ioctls.
 
-**이것이 현재 가장 유망한 최적화다.** 그리고 `01-TECHSPEC.md` §15.1-6 의 "등록 버퍼 또는 Zero-Copy 검토" 항목과 정확히 일치한다. 다만 문서는 이를 네트워크 경로 최적화로 상정했는데, **실제로 필요한 곳은 NPU 입출력 경로였다.**
+**This is currently the most promising optimization.** And it matches exactly
+`01-TECHSPEC.md` §15.1-6's "consider registered buffers or zero-copy". Except
+the document assumed that as a network path optimization, whereas **the place it
+is actually needed is the NPU input/output path.**
 
-## 프로젝트에 주는 의미
+## What this means for the project
 
-이 결과는 발표 서사에 직접 쓰인다.
-
-```text
-6 TOPS × 3 = 18 TOPS 가 되지 않는 이유를 찾다 보니
-네트워크도 스케줄링도 아니고,
-노드 하나 안에서 NPU 에 데이터를 넣고 빼는 경로가 병목이었다.
-
-추론 한 건에 커널 ioctl 이 80회 발생하고,
-동시 실행 시 그 지연이 5.4배로 늘어난다.
-NPU 는 40% 만 일하고 나머지 시간은 대기다.
-```
-
-io_uring 논의와도 연결된다. **네트워크 I/O 를 최적화해도 이 구간은 건드리지 못한다.** 최적화 대상을 데이터로 골라야 한다는 앞선 판단(§3, §5)이 여기서 확인된다.
-
-## 다음
-
-zero-copy 메모리 API 로 ioctl 횟수가 줄어드는지 측정한다.
+This result goes straight into the talk's narrative.
 
 ```text
-현재  rknn_inputs_set -> rknn_run -> rknn_outputs_get -> rknn_outputs_release
-      추론당 ioctl 80회
+Looking for why 6 TOPS x 3 does not become 18 TOPS,
+it was neither the network nor scheduling
+but the path for getting data into and out of the NPU inside a single node.
 
-목표  rknn_create_mem (1회) -> rknn_set_io_mem (1회)
-      -> [rknn_run 반복]
-      -> rknn_destroy_mem (1회)
-      추론당 ioctl 횟수 감소 기대
+One inference produces 80 kernel ioctls,
+and under concurrency their latency grows 5.4x.
+The NPU works only 40% of the time and the rest is waiting.
 ```
 
-측정 항목: 추론당 ioctl 횟수, ioctl 당 지연, 처리량, on-CPU 비율.
+It also connects to the io_uring discussion. **Optimizing network I/O does not
+touch this section.** The earlier judgement (§3, §5) that the optimization target
+has to be chosen from data is confirmed here.
+
+## Next
+
+Measure whether the zero-copy memory API reduces the ioctl count.
+
+```text
+now    rknn_inputs_set -> rknn_run -> rknn_outputs_get -> rknn_outputs_release
+       80 ioctls per inference
+
+goal   rknn_create_mem (once) -> rknn_set_io_mem (once)
+       -> [rknn_run repeated]
+       -> rknn_destroy_mem (once)
+       expecting fewer ioctls per inference
+```
+
+Measured items: ioctls per inference, latency per ioctl, throughput, on-CPU
+share.
 
 ---
 
-# zero-copy 실험 — 가설 반증
+# The zero-copy experiment — the hypothesis refuted
 
-> ⚠️ **이 절의 "78 inf/s 는 드라이버 특성" 표현은 8절에서 범위가 좁혀졌다.**
-> 추론당 ioctl 횟수는 INT8 에서도 76회로 같은데 처리량은 1.85배다.
-> 상한을 정하는 것은 ioctl **횟수**가 아니라 직렬화 구간에서 한 건이
-> 붙잡고 있는 **시간**이다. 애플리케이션 최적화로 못 넘는다는 결론 자체는
-> 유효하다 — 양자화는 애플리케이션 최적화가 아니라 모델 변경이다.
+> ⚠️ **This section's "78 inf/s is a driver characteristic" wording had its scope
+> narrowed in §8.** Ioctls per inference are the same 76 on INT8, and throughput
+> is 1.85×. What sets the ceiling is not the ioctl **count** but the **time** one
+> inference holds the serialized section. The conclusion that application
+> optimization cannot exceed it stands — quantization is a model change, not an
+> application optimization.
 
-- 작성: **2026-08-10 17:44 KST** (커밋 `7a0379b`)
-- 측정 노드: `queen`
-- 도구: `crates/npuforge-rknn/native/zerocopy_test.c`
-- 원본: `benchmarks/results/2026-08-10-zerocopy/`
+- Written: **2026-08-10 17:44 KST** (commit `7a0379b`)
+- Node measured: `queen`
+- Tool: `crates/npuforge-rknn/native/zerocopy_test.c`
+- Raw data: `benchmarks/results/2026-08-10-zerocopy/`
 
-## 가설
+## The hypothesis
 
-§6에서 추론당 ioctl 이 약 80회이고 8스레드에서 개당 지연이 5.4배로 늘어남을 확인했다. 직렬화는 드라이버 구현이므로 고칠 수 없으나 **호출 횟수는 줄일 수 있다**고 보았다.
+§6 confirmed about 80 ioctls per inference with per-call latency growing 5.4× at
+8 threads. The serialization is the driver's implementation and cannot be fixed,
+but **the call count can be reduced.**
 
-`rknn_inputs_set` / `rknn_outputs_get` 이 매 호출마다 버퍼를 할당·매핑·해제한다면, zero-copy 메모리 API 로 버퍼를 재사용해 per-call 매핑 ioctl 을 없앨 수 있다.
+If `rknn_inputs_set` / `rknn_outputs_get` allocate, map and free a buffer on
+every call, the zero-copy memory API could reuse the buffer and eliminate the
+per-call mapping ioctls.
 
 ```c
-rknn_create_mem(ctx, size)          /* 1회 */
-rknn_set_io_mem(ctx, mem, attr)     /* 1회 */
-  -> [ memcpy + rknn_mem_sync + rknn_run 반복 ]
-rknn_destroy_mem(ctx, mem)          /* 1회 */
+rknn_create_mem(ctx, size)          /* once */
+rknn_set_io_mem(ctx, mem, attr)     /* once */
+  -> [ memcpy + rknn_mem_sync + rknn_run repeated ]
+rknn_destroy_mem(ctx, mem)          /* once */
 ```
 
-## 결과: ioctl 이 줄지 않았다
+## Result: the ioctls did not fall
 
-| | 추론당 ioctl | ioctl 당 지연 | 8스레드 처리량 |
+| | ioctls per inference | Latency per ioctl | 8-thread throughput |
 |---|---:|---:|---:|
 | NORMAL | 79.7 | 54 µs | 78.5 inf/s |
 | ZEROCOPY | **89.8** | 56 µs | 77.1 inf/s |
 
-**오히려 10회 늘었다.** 내가 추가한 `rknn_mem_sync`(입력 1 + 출력 9 = 10회)가 그 자체로 ioctl 이기 때문이다.
+**They went up by 10.** The `rknn_mem_sync` calls I added (1 input + 9 outputs =
+10) are themselves ioctls.
 
-CPU 사용량도 줄지 않았다.
+CPU usage did not fall either.
 
-| | real | user | sys | 처리량 |
+| | real | user | sys | Throughput |
 |---|---:|---:|---:|---:|
 | NORMAL | 15.91 | 44.59 | 5.77 | 78.7 |
 | ZEROCOPY | 16.38 | 46.48 | 6.64 | 76.7 |
 
-## 구간 시간은 극적으로 이동했다
+## The section times shifted dramatically
 
-1스레드 기준이다.
+At 1 thread.
 
-| 구간 | NORMAL | ZEROCOPY |
+| Section | NORMAL | ZEROCOPY |
 |---|---:|---:|
 | prepare | 20,208 µs | **1,025 µs** |
 | run | 28,152 | **58,560** |
 | fetch | 8,233 | **778** |
-| **총합** | **56,593** | **60,364** |
+| **total** | **56,593** | **60,364** |
 
-`prepare` 와 `fetch` 는 95% 가까이 사라졌으나 `run` 이 2배로 늘어 **총합은 오히려 나빠졌다.**
+`prepare` and `fetch` nearly vanished, by close to 95%, but `run` doubled and
+**the total actually got worse.**
 
-일이 없어진 것이 아니라 `rknn_run` 안으로 옮겨갔을 뿐이다.
+The work did not disappear; it moved inside `rknn_run`.
 
-## 결론: 80회의 ioctl 은 추론 제출에 내재한다
+## Conclusion: the 80 ioctls are intrinsic to inference submission
 
-버퍼 관리 방식과 무관하다. `rknn_run` 자체가 드라이버와 약 80회 주고받는다.
+They are unrelated to buffer management. `rknn_run` itself exchanges about 80
+round trips with the driver.
 
-YOLOv8n 이 여러 레이어로 구성되고 드라이버가 태스크 단위로 제출한다면 자연스러운 수치다. **애플리케이션 계층에서 줄일 수 있는 대상이 아니다.**
+If YOLOv8n consists of many layers and the driver submits per task, that is a
+natural figure. **It is not something the application layer can reduce.**
 
-따라서 §6에서 확인한 처리량 상한(약 78 inf/s)은 **드라이버와 하드웨어의 성질**이며 우리가 우회할 수 없다.
+So the throughput ceiling confirmed in §6 (about 78 inf/s) is **a property of the
+driver and hardware** and cannot be worked around.
 
-## ⚠️ 이 실험의 공정성 한계
+## ⚠️ A fairness limit in this experiment
 
-**두 경로가 같은 일을 하지 않았다.**
+**The two paths were not doing the same work.**
 
 ```text
-native_in_bytes = 2,457,600 = 640 × 640 × 3 × 2   ← FP16
-모델 입력(uint8)  = 1,228,800
+native_in_bytes = 2,457,600 = 640 x 640 x 3 x 2   <- FP16
+model input (uint8) = 1,228,800
 ```
 
-네이티브 입력이 **FP16** 이다. NORMAL 경로의 `rknn_inputs_set` 은 uint8 → FP16 변환과 정규화를 수행한다. 그것이 `prepare` 20ms 의 내용이다.
+The native input is **FP16.** The NORMAL path's `rknn_inputs_set` performs the
+uint8 → FP16 conversion and normalisation. That is what `prepare`'s 20 ms
+contains.
 
-ZEROCOPY 경로에서는 그 변환을 하지 않고 더미 데이터를 `memset` 했다. **변환 비용을 측정에서 제외한 셈이다.**
+The ZEROCOPY path did not do that conversion and `memset` dummy data instead.
+**The conversion cost was excluded from the measurement.**
 
-즉 실제 애플리케이션이라면 그 변환을 직접 해야 하므로, `prepare` 1ms 는 달성 불가능한 수치다.
+That is, a real application would have to do that conversion itself, so
+`prepare` at 1 ms is unachievable.
 
-**그럼에도 결론은 유지된다.** ioctl 횟수와 CPU 사용량이 줄지 않았고, 총 시간도 개선되지 않았기 때문이다. 변환을 추가하면 더 나빠질 뿐이다.
+**The conclusion holds regardless.** The ioctl count and CPU usage did not fall,
+and the total time did not improve. Adding the conversion only makes it worse.
 
-## 그래도 남는 가치
+## What still has value
 
-zero-copy 자체는 버릴 카드가 아니다. 다음 조건에서는 유효할 수 있다.
+Zero-copy itself is not a card to discard. It may be valid under the following
+condition.
 
-**입력을 애플리케이션이 이미 네이티브 형식으로 만들 수 있을 때.** JPEG 디코딩과 리사이즈를 직접 수행하는 파이프라인에서는 그 출력을 곧바로 FP16 으로 쓰면 중간 변환이 사라진다. 다만 처리량 상한은 여전히 드라이버가 정한다.
+**When the application can already produce the input in the native format.** In
+a pipeline doing its own JPEG decoding and resizing, using that output directly
+as FP16 removes the intermediate conversion. But the throughput ceiling is still
+set by the driver.
 
-**INT8 모델에서 재검토.** 네이티브 입력이 int8 이면 uint8 입력과 크기가 같아 변환이 단순해진다. calibration 데이터 확정 후 다시 측정한다.
+**Revisit on an INT8 model.** With a native input of int8, it is the same size as
+a uint8 input and the conversion becomes simple. To be re-measured after the
+calibration data settles.
 
-## 최적화 후보 정리
+## The optimization candidates, summarised
 
-| 후보 | 판정 |
+| Candidate | Verdict |
 |---|---|
-| ~~`CORE_AUTO` 스케줄링~~ | 배제 (§4) |
-| ~~두 번째 코어 미사용~~ | 배제 (§4) |
-| ~~output conversion~~ | 배제 (§5) |
-| ~~RKNN runtime lock~~ | 배제 (§6) |
-| ~~zero-copy 로 ioctl 감소~~ | **배제 (§7)** |
-| kernel driver ioctl 직렬화 | 확정. **우회 불가** |
-| INT8 전환 | **미검증. 남은 유일한 큰 카드** |
+| ~~`CORE_AUTO` scheduling~~ | excluded (§4) |
+| ~~The second core unused~~ | excluded (§4) |
+| ~~Output conversion~~ | excluded (§5) |
+| ~~A lock inside the RKNN runtime~~ | excluded (§6) |
+| ~~Reducing ioctls with zero-copy~~ | **excluded (§7)** |
+| Kernel driver ioctl serialization | settled. **Cannot be worked around** |
+| Switching to INT8 | **unverified. The only big card left** |
 
-## 프로젝트에 주는 의미
+## What this means for the project
 
-**노드 하나의 처리량 상한은 약 78 inf/s 이며, 이는 드라이버 특성이다.**
+**A single node's throughput ceiling is about 78 inf/s, and that is a driver
+characteristic.**
 
-애플리케이션 최적화로 넘을 수 없다는 것이 세 번의 실험(§4 core_mask, §5 want_float, §7 zero-copy)으로 확인되었다. 각각 +0.1%, +5.4%, -1.8% 였다.
+That application optimization cannot exceed it was confirmed by three
+experiments (§4 core_mask, §5 want_float, §7 zero-copy). They were +0.1%, +5.4%
+and −1.8% respectively.
 
-이 사실은 확장 효율 측정에 직접 영향을 준다. **노드당 상한이 고정되어 있으므로 3노드 확장 효율은 스케줄링과 네트워크만으로 결정된다.** 노드 내부 최적화 여지가 거의 없다는 것이 오히려 실험 조건을 단순하게 만든다.
+This directly affects scaling efficiency measurement. **With the per-node ceiling
+fixed, three-node scaling efficiency is determined by scheduling and the network
+alone.** That there is almost no room for node-internal optimization actually
+simplifies the experimental conditions.
 
-발표 서사에도 쓰인다.
+It goes into the talk's narrative too.
 
 ```text
-NPU 를 더 잘 쓰려고 세 가지를 시도했다.
-코어 수동 배정, 출력 변환 제거, zero-copy 버퍼 재사용.
-각각 +0.1%, +5.4%, -1.8% 였다.
+Three things were tried to use the NPU better.
+Manual core assignment, removing output conversion, zero-copy buffer reuse.
+They were +0.1%, +5.4% and -1.8%.
 
-추론 한 건에 커널 ioctl 이 80회 발생하고 그것이 직렬화되는데,
-그 횟수는 애플리케이션이 줄일 수 없었다.
+One inference produces 80 kernel ioctls and those serialize,
+and the application could not reduce that count.
 
-TOPS 수치가 말해주지 않는 것은 연산 능력이 아니라
-그 연산기에 데이터를 넣고 빼는 경로의 비용이다.
+What the TOPS figure does not tell you is not computational capability
+but the cost of the path for getting data into and out of that compute unit.
 ```
 
-## 다음
+## Next
 
-**INT8 모델**이 남은 유일한 큰 변수다. FP16 대비 다음이 달라진다.
+**The INT8 model** is the only big variable left. Against FP16, the following
+change.
 
-- NPU 연산 시간 (`run` 의 실제 계산 부분)
-- 네이티브 입력이 int8 이면 변환 비용 감소
-- 출력 크기 4분의 1
+- NPU computation time (the actual computation part of `run`)
+- Reduced conversion cost if the native input is int8
+- A quarter of the output size
 
-calibration 데이터가 확정되어야 진행할 수 있다. 그전까지는 노드당 78 inf/s 를 기준값으로 삼는다.
+It cannot proceed until the calibration data settles. Until then, 78 inf/s per
+node is the reference value.
 
 ---
 
-# INT8 실측 — Claude 결과/의견
+# INT8 measured — Claude's results and opinion
 
-- 작성: **2026-08-11 16:45 KST** (커밋 `547333c`)
-- 측정 노드: `king`
-- 도구: `crates/npuforge-rknn/native/sustained_load_test.c`
-- 정확도 원본: `results/accuracy/README.md`
+- Written: **2026-08-11 16:45 KST** (commit `547333c`)
+- Node measured: `king`
+- Tool: `crates/npuforge-rknn/native/sustained_load_test.c`
+- Accuracy raw data: `results/accuracy/README.md`
 
-7절 끝에서 "INT8 이 남은 유일한 큰 변수"라고 적었다. 측정했다.
+The end of §7 said "INT8 is the only big variable left". It was measured.
 
-## 결과
+## Results
 
-`king`, `sustained_load_test`, 8스레드 고정, 120초.
+`king`, `sustained_load_test`, fixed at 8 threads, 120 s.
 
-| 모델 | 처리량 | 평균 지연 | 모델 크기 |
+| Model | Throughput | Mean latency | Model size |
 |---|---:|---:|---:|
 | FP16 | 79.0 inf/s | 100.9 ms | 9.65 MB |
 | **INT8** | **146.2 inf/s** | **54.6 ms** | 6.46 MB |
-| 배율 | **1.85×** | -46% | -33% |
+| Ratio | **1.85×** | −46% | −33% |
 
-> 이 수치는 CPU governor 가 `ondemand` 인 상태에서 측정했다.
-> `performance` 로 바꾸면 FP16 84.3 / INT8 157.2 inf/s 다(11절).
-> **배율 1.86× 는 그대로다.**
+> These figures were measured with the CPU governor at `ondemand`.
+> Switching to `performance` gives FP16 84.3 / INT8 157.2 inf/s (§11).
+> **The 1.86× ratio is unchanged.**
 
-애플리케이션 최적화 세 가지(+0.1%, +5.4%, -1.8%)와 자릿수가 다르다.
+It is an order of magnitude different from the three application optimizations
+(+0.1%, +5.4%, −1.8%).
 
-## 6·7절 결론과 충돌한다
+## It conflicts with §6 and §7's conclusions
 
-6절은 "추론 한 건에 ioctl 약 80회가 발생하고 그것이 직렬화된다"를 근거로
-**노드 상한 78 inf/s 를 드라이버 특성으로 규정**했다. 7절은 그 표현을
-그대로 이어받았다.
+§6 defined **the node ceiling of 78 inf/s as a driver characteristic**, on the
+grounds that "one inference produces about 80 ioctls and those serialize". §7
+carried that wording forward.
 
-그런데 INT8 이 1.85배라면, ioctl 횟수가 상한을 정하는 것이 아니다.
-확인했다.
-
-```text
-strace -c -f -e trace=ioctl, 1스레드 20초
-
-              추론    처리량      평균 지연   ioctl 총계   추론당 ioctl
-FP16          315    15.7 inf/s   63.3 ms      24,079      76.4
-INT8          718    35.8 inf/s   27.8 ms      54,707      76.2
-```
-
-**추론당 ioctl 횟수는 76.4 vs 76.2 로 사실상 같다.** 그런데 처리량은
-2.28배다(1스레드 기준). 즉 상한을 정하는 것은 ioctl **횟수**가 아니라
-직렬화 구간에서 **한 건이 붙잡고 있는 시간**이다.
-
-## 수정된 모형
-
-두 진술은 모순되지 않는다. 합치면 이렇게 된다.
+But if INT8 is 1.85×, the ioctl count is not what sets the ceiling. Confirmed.
 
 ```text
-처리량 ≈ 1 / (직렬화되는 구간의 건당 소요시간)
+strace -c -f -e trace=ioctl, 1 thread, 20 s
 
-  - 직렬화가 일어난다는 것        → 6절이 맞다 (ioctl, futex 395회뿐)
-  - 8스레드에서 지연이 5.4배로
-    늘어나는 것                   → 6절이 맞다 (직렬화의 증거)
-  - 그 시간의 크기를 줄이면
-    상한이 올라간다               → 8절 (INT8 이 실제 연산량을 줄인다)
+              inferences  throughput   mean latency   total ioctls   per inference
+FP16          315         15.7 inf/s   63.3 ms        24,079         76.4
+INT8          718         35.8 inf/s   27.8 ms        54,707         76.2
 ```
 
-**애플리케이션 계층에서 못 넘는다는 것**과 **넘을 방법이 없다는 것**은
-다르다. core_mask·want_float·zero-copy 는 ioctl 횟수도 건당 연산량도
-줄이지 못했다. 양자화는 연산량을 줄인다.
+**Ioctls per inference are effectively the same, 76.4 vs 76.2.** And throughput
+is 2.28× (at 1 thread). That is, what sets the ceiling is not the ioctl **count**
+but **the time one inference holds the serialized section.**
 
-## 표현 정정
+## The corrected model
 
-6·7절의 다음 문장을 좁힌다.
+The two statements are not contradictory. Combined:
 
-| 기존 | 정정 |
+```text
+throughput ~ 1 / (time per inference in the serialized section)
+
+  - that serialization occurs           -> §6 is right (ioctls, only 395 futex calls)
+  - that latency grows 5.4x
+    at 8 threads                        -> §6 is right (evidence of serialization)
+  - reducing the size of that time
+    raises the ceiling                  -> §8 (INT8 reduces the actual computation)
+```
+
+**"Cannot be exceeded at the application layer"** and **"there is no way to
+exceed it"** are different things. core_mask, want_float and zero-copy reduced
+neither the ioctl count nor the per-call computation. Quantization reduces the
+computation.
+
+## Corrected wording
+
+The following sentences in §6 and §7 are narrowed.
+
+| Previously | Corrected |
 |---|---|
-| "노드 상한 78 inf/s 는 드라이버 특성이다" | "**FP16 기준** 노드 상한은 약 78 inf/s 이고, 이 값은 애플리케이션 최적화로 못 넘는다" |
-| "애플리케이션 최적화로 넘을 수 없다" | 유지. 단 **양자화는 애플리케이션 최적화가 아니라 모델 변경**이다 |
+| "The node ceiling of 78 inf/s is a driver characteristic" | "**On FP16**, the node ceiling is about 78 inf/s, and that value cannot be exceeded by application optimization" |
+| "Cannot be exceeded by application optimization" | Stands. But **quantization is a model change, not an application optimization** |
 
-## 발표 서사 갱신
+## The talk narrative, updated
 
-7절의 서사에 한 줄이 더 붙는다. 이 편이 더 정직하고 더 유용하다.
+One more line attaches to §7's narrative. This version is both more honest and
+more useful.
 
 ```text
-NPU 를 더 잘 쓰려고 세 가지를 시도했다.
-코어 수동 배정, 출력 변환 제거, zero-copy 버퍼 재사용.
-각각 +0.1%, +5.4%, -1.8% 였다.
+Three things were tried to use the NPU better.
+Manual core assignment, removing output conversion, zero-copy buffer reuse.
+They were +0.1%, +5.4% and -1.8%.
 
-추론 한 건에 커널 ioctl 이 76회 발생하고 그것이 직렬화된다.
-그 횟수는 애플리케이션이 줄일 수 없었다.
+One inference produces 76 kernel ioctls and those serialize.
+The application could not reduce that count.
 
-그런데 INT8 양자화는 1.85배였다.
-ioctl 횟수는 76회로 똑같았다.
+And then INT8 quantization was 1.85x.
+The ioctl count was the same 76.
 
-줄여야 할 것은 호출 횟수가 아니라
-한 번의 호출이 붙잡고 있는 시간이었다.
+What had to be reduced was not the number of calls
+but the time one call holds on.
 ```
 
-## 정확도 대가
+## The accuracy cost
 
-무손실은 아니다. 실보드 검출 수준 비교(`results/accuracy/README.md`).
+It is not lossless. A detection-level comparison on a real board
+(`results/accuracy/README.md`).
 
-| 비교 | box cosine | 검출 셀 | 클래스 |
+| Comparison | box cosine | Detection cells | Classes |
 |---|---|---|---|
 | FP16 vs ONNX | 0.99999 | 10/10 | 100% |
 | INT8 vs FP16 | 0.997 | 10/10 | 100% |
 
-최고 검출의 셀이 한 칸 이동하고 점수가 -5.5% 였다. **검출 집합과 클래스는
-동일하다.** 1.85배를 이 정도 대가로 얻는다면 쓸 만하다.
+The top detection's cell moved by one and its score was −5.5%. **The detection
+set and classes are identical.** Getting 1.85× for that price is worth it.
 
-### 정확도 검증에서 걸린 함정
+### The trap hit during accuracy verification
 
-**원시 텐서 코사인 유사도가 이 모델에서는 오해를 부른다.** FP16 vs ONNX
-에서도 일부 텐서가 0.16 까지 떨어진다. 양자화 문제가 아니다.
+**Raw tensor cosine similarity misleads on this model.** Even FP16 vs ONNX drops
+to 0.16 on some tensors. It is not a quantization problem.
 
-YOLOv8n 출력 9개 중 텐서 2/5/8 은 클래스 점수 80개의 합이다. RKNN 의
-sigmoid 는 정확히 0 을 내지 않고 하한 0.001831 이 있어서, 80배 증폭된
-0.1465 오프셋이 생긴다(실측 하한과 정확히 일치). 배경 셀이 대부분이라
-이 오프셋이 코사인을 지배한다. **모든 셀에 같은 값이 더해지므로 순위는
-바뀌지 않고 검출은 그대로다.**
+Of YOLOv8n's 9 outputs, tensors 2/5/8 are the sum of 80 class scores. RKNN's
+sigmoid does not output exactly 0 but has a floor of 0.001831, so amplified 80×
+it creates a 0.1465 offset (matching the measured floor exactly). Most cells are
+background, so this offset dominates the cosine. **The same value is added to
+every cell, so the ranking does not change and the detections are unaffected.**
 
-수락 기준을 검출 수준으로 바꿨다. `compare_detections.py`.
+The acceptance criterion was changed to the detection level.
+`compare_detections.py`.
 
-**INT8 변환은 바이트 재현성이 없다.** 같은 ONNX·같은 calibration 목록으로
-3회 변환하니 해시가 매번 달랐다(파일 크기는 같고 1.8% 바이트 상이).
-다만 추론 결과는 완전히 동일하다(9개 텐서 전부 cosine 1.000000, 오차 0.0).
-차이는 직렬화·레이아웃에 있고 수치 계산에는 없다.
+**INT8 conversion is not byte-reproducible.** Converting three times from the
+same ONNX with the same calibration list gave a different hash each time (same
+file size, 1.8% of bytes differing). But the inference results are completely
+identical (all 9 tensors at cosine 1.000000, error 0.0). The difference is in
+serialization and layout, not in numerical computation.
 
-→ 모델은 한 번만 변환해 같은 파일을 세 노드에 배포한다. `model.toml` 의
-  `sha256` 은 배포 무결성을 보장하지 변환 레시피의 동일성을 보장하지 않는다.
+→ The model is converted once and the same file deployed to all three nodes.
+  `model.toml`'s `sha256` guarantees deployment integrity, not identity of the
+  conversion recipe.
 
-## 다음에 확인할 것
+## What to check next
 
-- **INT8 + `want_float=0`.** 5절에서 FP16 기준 +5.4% 였다. INT8 은 출력이
-  int8 이라 역양자화 비용이 상대적으로 더 클 수 있어 이득이 더 클지 모른다.
-- **INT8 의 열 거동.** 연산량이 줄면 발열도 줄어드는지. 8스레드 지속
-  부하에서 FP16 대비 온도를 비교한다. 팬리스 조건에서는 이쪽이 더 중요할
-  수 있다.
-- **3노드 확장 효율에 미치는 영향.** 노드당 상한이 올라가면 네트워크가
-  상대적으로 더 빨리 병목이 된다.
+- **INT8 + `want_float=0`.** §5 gave +5.4% on FP16. With INT8 the output is int8,
+  so the dequantization cost may be relatively larger and the gain bigger.
+- **INT8's thermal behaviour.** Whether less computation means less heat. Compare
+  temperatures against FP16 under sustained 8-thread load. Under fanless
+  conditions this may matter more.
+- **The effect on three-node scaling efficiency.** As the per-node ceiling rises,
+  the network becomes a bottleneck relatively sooner.
 
-  > ⚠️ 여기 처음 적은 1.43 / 4.3 Gbps 는 **틀렸다.** MiB/s 를 Gbps 로
-  > 옮기며 2진 접두(÷1024)를 썼다. 네트워크 속도는 10진이다.
-  > 올바른 값: `1,228,800 × 157.2 × 8 = 1.545 Gbps/node`, 3노드 4.636 Gbps.
-  > FP16 도 3노드 2.486 Gbps 로 2.5GbE 한 링크를 넘는다.
-  > `RESULTS.md` §8.1 참조.
+  > ⚠️ The 1.43 / 4.3 Gbps first written here is **wrong.** Converting MiB/s to
+  > Gbps used the binary prefix (÷1024). Network speeds are decimal.
+  > The correct values: `1,228,800 × 157.2 × 8 = 1.545 Gbps/node`, 4.636 Gbps
+  > across three nodes.
+  > FP16 too, at 2.486 Gbps across three nodes, exceeds a single 2.5GbE link.
+  > See `RESULTS.md` §8.1.
 
-  **S2 확장성 실험의 설계를 다시 봐야 한다.**
+  **The S2 scalability experiment's design has to be re-examined.**
 
 ---
 
-# 공유 컨텍스트 실험 — "오류 0건"은 "정답"이 아니다
+# The shared context experiment — "0 errors" is not "correct"
 
-- 작성: **2026-08-11 16:45 KST** (커밋 `547333c`, 측정은 `d228cda` 16:33)
-- 측정 노드: `king`
-- 도구: `crates/npuforge-rknn/native/shared_context_test.c`
+- Written: **2026-08-11 16:45 KST** (commit `547333c`; the measurement is
+  `d228cda` at 16:33)
+- Node measured: `king`
+- Tool: `crates/npuforge-rknn/native/shared_context_test.c`
 
-`npuforge-rknn` 백엔드를 구현하면서 컨텍스트를 공유할지 스레드마다 둘지
-정해야 했다. `environment-matrix.md` §3.1 은 "RKNN Runtime 2.3.0 은
-thread-safe" 로 결론이 나 있었다. 그대로 믿으면 컨텍스트 하나로 끝난다.
+While implementing the `npuforge-rknn` backend, a choice was needed between
+sharing a context and one per thread. `environment-matrix.md` §3.1 had concluded
+that "RKNN Runtime 2.3.0 is thread-safe". Believing that outright, one context
+would do.
 
-## 의심한 이유
+## Why it was suspected
 
-추론 한 건은 세 번의 호출이다.
+One inference is three calls.
 
 ```text
-rknn_inputs_set  →  rknn_run  →  rknn_outputs_get
+rknn_inputs_set  ->  rknn_run  ->  rknn_outputs_get
 ```
 
-**개별 호출이 thread-safe 라는 것과 이 시퀀스가 원자적이라는 것은 다르다.**
-스레드가 사이에 끼어들면 입력과 출력의 짝이 어긋날 수 있다.
+**Individual calls being thread-safe and this sequence being atomic are different
+things.** A thread cutting in between can mismatch input with output.
 
-그리고 §3.1 의 측정을 다시 보니 **API 반환 코드만 셌다.** 출력 내용을
-대조하지 않았다. 결과가 섞여도 `ok / err` 는 `40 / 0` 으로 나온다.
+And re-reading §3.1's measurement, **it counted only API return codes.** It never
+compared output contents. Even with results mixed up, `ok / err` comes back
+`40 / 0`.
 
-## 측정
+## The measurement
 
-`native/shared_context_test.c`. 스레드마다 다른 입력을 주고, 먼저 단독으로
-추론해 기준 출력을 저장한 뒤, 동시 실행 결과가 자기 기준과 같은지 대조한다.
+`native/shared_context_test.c`. Each thread is given a different input; a
+reference output is first captured by inferring alone, then the concurrent
+results are compared against each thread's own reference.
 
-`king`, FP16, 4스레드 × 50회.
+`king`, FP16, 4 threads × 50.
 
-| 구성 | API 오류 | **결과 불일치** |
+| Configuration | API errors | **Result mismatches** |
 |---|---:|---:|
-| 컨텍스트 공유 | 0 | **200 / 200 (100%)** |
-| 스레드별 전용 컨텍스트 | 0 | 0 / 200 (0%) |
+| Shared context | 0 | **200 / 200 (100%)** |
+| Per-thread dedicated context | 0 | 0 / 200 (0%) |
 
-**공유 컨텍스트는 오류 하나 없이 100% 틀린 답을 낸다.**
+**A shared context produces 100% wrong answers without a single error.**
 
-## 무엇이 위험했나
+## What was dangerous
 
-이 결함은 다음 성질을 전부 갖는다.
+This defect has every one of the following properties.
 
-- 예외도 오류 코드도 남기지 않는다
-- 단일 스레드 테스트에서는 절대 재현되지 않는다
-- 처리량 지표는 오히려 좋아 보인다 (§3.1 에서 2스레드 공유가 34.8 inf/s 로
-  전용 33.2 보다 빨랐다 — **틀린 답을 더 빨리 내고 있었다**)
-- 검출 결과를 육안으로 봐도 "그럴듯한" 박스가 나온다. 다른 프레임의 결과이지
-  쓰레기가 아니기 때문이다
+- It leaves no exception and no error code
+- It never reproduces in a single-threaded test
+- The throughput metric actually looks better (in §3.1, two threads sharing gave
+  34.8 inf/s against 33.2 dedicated — **it was producing wrong answers faster**)
+- Even by eye the detections look "plausible" — being results from another frame,
+  they are not garbage
 
-만약 이대로 벤치마크를 돌렸다면, **처리량 수치는 전부 유효하고 검출 결과만
-조용히 틀린 상태**로 발표까지 갔을 가능성이 크다.
+Had the benchmarks been run in that state, it would very likely have reached the
+talk **with all throughput figures valid and only the detections quietly wrong.**
 
-## 반영
+## What was done
 
-- `environment-matrix.md` §3.1 에 정정 블록을 넣었다. "context 공유" 행의
-  처리량 수치는 성능 비교에서 제외한다.
-- `RknnContext::infer` 가 `&mut self` 를 받는다. **컴파일러가 동시 호출을
-  막는다.** 주석으로 규칙을 적어 두는 것과 타입으로 막는 것은 다르다.
-- `ContextPool` 이 `worker_count` 만큼 컨텍스트를 만들어 하나씩 점유한다.
-- `supports_concurrent_infer = true` 는 유지하되 근거가 바뀌었다.
-  "런타임이 알아서 해준다" 가 아니라 **"백엔드가 풀로 직렬화한다"** 이다.
+- A correction block was added to `environment-matrix.md` §3.1. The throughput
+  figures in the "shared context" row are excluded from performance comparison.
+- `RknnContext::infer` takes `&mut self`. **The compiler blocks concurrent
+  calls.** Writing a rule in a comment and blocking it with a type are different
+  things.
+- `ContextPool` creates `worker_count` contexts and occupies them one at a time.
+- `supports_concurrent_infer = true` stays but its basis changed. Not "the
+  runtime handles it" but **"the backend serializes through a pool"**.
 
-## 이 프로젝트에 주는 의미
+## What this means for the project
 
-같은 실수를 세 번째로 했다. 3절 「메타」에 두 번을 적어 두었다.
+The same mistake for the third time. §3's "Meta" records two of them.
 
 ```text
-1. RKNN_QUERY_PERF_RUN.run_duration 을 NPU 점유시간으로 읽었다
-   → 큐 대기가 포함된 값이었다
-2. NPU load 를 delayms=3000 인 채로 0.2초 간격 샘플링했다
-   → 3초 평균을 읽고 있었다
-3. thread-safety 를 API 반환 코드로만 판정했다
-   → 결과 내용을 대조하지 않았다
-4. throttling 을 NPU 클럭만으로 판정했다  (12절)
-   → 같은 로그에 있던 CPU 클럭이 63~70% 떨어지고 있었다
+1. read RKNN_QUERY_PERF_RUN.run_duration as NPU occupancy time
+   -> it included queue wait
+2. sampled NPU load at 0.2 s intervals with delayms=3000
+   -> it was reading a 3-second average
+3. judged thread-safety by API return codes alone
+   -> never compared results
+4. judged throttling by NPU clock alone  (§12)
+   -> the CPU clocks in the same log were falling 63-70%
 ```
 
-공통점이 분명하다. **지표가 무엇을 세는지 확인하지 않고 이름만 보고 믿었다.**
+The commonality is clear. **A metric was trusted by its name without checking
+what it counts.**
 
-`preflight-check.sh` 에 넣을 항목이 하나 늘었다.
-**성능 측정 전에 정확도부터 확인한다.** 틀린 답을 빨리 내는 구성이
-벤치마크에서 이기는 것을 막아야 한다.
+One more item for `preflight-check.sh`.
+**Check accuracy before measuring performance.** A configuration that produces
+wrong answers fast must be stopped from winning a benchmark.
 
 ---
 
-# 벤치 도구 설계 — 실수를 도구에 박아 넣기
+# Bench tool design — building the mistakes into the tool
 
-- 작성: **2026-08-11 17:15 KST** (구현 커밋 `b2cae0d`, 17:12)
-- 대상: `crates/npuforge-bench/`
-- 검증: Mock 3노드 종단 실행
+- Written: **2026-08-11 17:15 KST** (implementation commit `b2cae0d`, 17:12)
+- Subject: `crates/npuforge-bench/`
+- Verification: an end-to-end Mock 3-node run
 
-## 왜 이 절을 남기나
+## Why this section exists
 
-`npuforge-bench` 는 새 측정 결과가 아니라 **도구**다. 그런데 이 도구의
-설계 근거가 전부 앞 절들의 실패에서 나왔으므로 여기에 남긴다.
+`npuforge-bench` is not a new measurement result but **a tool.** But its design
+rationale comes entirely from the failures in the preceding sections, so it is
+recorded here.
 
-지금까지 나온 측정 실수를 모아 보면 성격이 세 가지다.
+Collecting the measurement mistakes so far, they are of three kinds.
 
 ```text
-A. 지표가 무엇을 세는지 확인하지 않았다
-   - run_duration 을 NPU 점유시간으로 읽음 (3절)
-   - delayms=3000 인 채로 0.2초 샘플링 (3절)
-   - thread-safety 를 API 반환 코드로만 판정 (9절)
+A. did not check what a metric counts
+   - read run_duration as NPU occupancy time (§3)
+   - sampled at 0.2 s with delayms=3000 (§3)
+   - judged thread-safety by API return codes alone (§9)
 
-B. 조건이 달라진 것을 모르고 값을 비교했다
-   - 부하 프로파일이 다른 두 측정을 비교해 19°C 격차로 오해
+B. compared values without noticing a condition had changed
+   - compared two measurements with different load profiles and misread a 19 C gap
      (board-worklog.md §2.19)
-   - 문서의 IP 가 낡아 노드를 사망으로 오판 (§2.20)
+   - a stale IP in the docs led to misdiagnosing a node as dead (§2.20)
 
-C. 무효한 데이터를 유효한 것으로 취급할 뻔했다
-   - 어댑터 용량 부족으로 리셋된 보드의 처리량 (§2.17.2)
+C. nearly treated invalid data as valid
+   - the throughput of a board reset by insufficient adapter capacity (§2.17.2)
 ```
 
-**주석으로 "조심하자"고 적어 두는 것은 통하지 않았다.** 세 번 다 알고
-있으면서 당했다. 그래서 도구가 강제하게 했다.
+**Writing "let's be careful" in a comment did not work.** All three happened
+while knowing better. So the tool enforces it.
 
-## 도구에 박아 넣은 규칙
+## The rules built into the tool
 
-| 과거 실수 | 도구가 하는 일 |
+| Past mistake | What the tool does |
 |---|---|
-| 첫 추론 지연이 튄다 | 예열 요청을 집계에서 제외 |
-| 리셋된 보드를 "성능 저하"로 읽음 | `boot_id` 변화 → run 무효 |
-| 표본 20건으로 p99 를 냄 | 성공 100건 미만이면 무효 |
-| — | 실패를 처리량·노드 몫에서 제외 |
-| — | 조건(동시성·시드·정책·노드 수)을 결과에 동봉 |
-| — | 백분위는 nearest-rank, 보간 금지 |
+| The first inference's latency spikes | Warmup requests excluded from aggregation |
+| A reset board read as "degraded performance" | A change in `boot_id` → run invalid |
+| p99 computed from 20 samples | Fewer than 100 successes → invalid |
+| — | Failures excluded from throughput and per-node shares |
+| — | Conditions (concurrency, seed, policy, node count) carried with the result |
+| — | Percentiles are nearest-rank; interpolation forbidden |
 
-### 실패를 처리량에 넣지 않는 이유
+### Why failures do not go into throughput
 
-넣으면 **노드가 전부 죽었을 때 처리량이 가장 높아진다.** 실패는 즉시
-반환되므로 초당 건수가 폭증한다. S4 장애 대응 실험에서 이 지표를 그대로
-보면 "장애 시 성능 향상"이라는 결과가 나온다.
+Include them and **throughput is highest when every node is dead.** Failures
+return immediately, so requests per second explode. Read this metric as-is in the
+S4 failure-handling experiment and the result reads "performance improves during
+an outage".
 
-노드 몫도 같다. 실패 요청의 `node_id` 는 비어 있는데, 이것을 세면 죽은
-노드가 "많이 처리한" 것으로 잡힌다.
+Per-node shares are the same. A failed request's `node_id` is empty, and counting
+that makes a dead node look like it "processed a lot".
 
-### 백분위를 보간하지 않는 이유
+### Why percentiles are not interpolated
 
-선형 보간은 표본이 적을 때 **실제로 관측되지 않은 값**을 만든다.
-1~10 에서 p95 를 보간하면 9.55 가 나오는데, 그런 지연을 겪은 요청은 없다.
-발표 자료에 "p95 = 9.55ms" 라고 적으면 그것은 측정값이 아니라 계산물이다.
+Linear interpolation invents **values never actually observed** when samples are
+few. Interpolating p95 over 1–10 gives 9.55, and no request experienced that
+latency. Writing "p95 = 9.55 ms" in a presentation makes it a computation, not a
+measurement.
 
-nearest-rank 로 고정하고 정의를 모듈 문서에 박았다.
+It is fixed to nearest-rank and the definition is pinned in the module
+documentation.
 
-### 무효 경고를 숫자보다 먼저 출력하는 이유
+### Why the invalidity warning prints before the numbers
 
 ```text
-!!!!!! 이 run 은 무효다 !!!!!!
-  - 오류율 100.00% 가 허용치 1.00% 를 넘었다
-  - 성공 표본 0건은 최소 100건에 못 미친다
-아래 수치를 인용하지 말 것.
+!!!!!! THIS RUN IS INVALID !!!!!!
+  - error rate 100.00% exceeds the 1.00% allowance
+  - 0 successful samples is below the minimum of 100
+Do not quote the figures below.
 
-요청 : 200 (성공 0 / 실패 200, ...)
+requests : 200 (0 succeeded / 200 failed, ...)
 ```
 
-숫자를 먼저 보여주면 사람은 그것부터 믿는다. 경고를 아래에 두면 스크롤
-없이 보이는 첫 화면이 숫자가 되고, 그 숫자가 표에 옮겨 적힌다.
+Show the numbers first and people believe them first. Put the warning below and
+the first screenful without scrolling is the numbers, and those numbers get
+copied into a table.
 
-무효 run 을 **삭제하지는 않는다.** 사유와 함께 남아야 원인을 추적할 수
-있고, 재부팅이 반복되면 그 자체가 발견이다.
+Invalid runs are **not deleted.** They have to remain with their reason for the
+cause to be traceable, and repeated reboots are themselves a finding.
 
-## 구현 중에 잡은 문제 하나
+## One problem caught during implementation
 
-처음에는 노드 상태를 하트비트 RPC 로 조회하려 했다. 스케줄러에 노드
-목록 API 가 없었기 때문이다.
+The first approach queried node state via the heartbeat RPC, because the
+scheduler had no node listing API.
 
-**그런데 그것이 스케줄러의 노드 상태를 덮어쓴다.** 하트비트는 관측값을
-기록하는 호출이고, 벤치가 빈 `health` 를 보내면 스케줄러가 그것을 실제
-관측으로 받아들여 온도·큐 깊이를 0 으로 만든다. **측정 직전에 측정
-대상의 상태를 오염시키는** 셈이다.
+**But that overwrites the scheduler's node state.** A heartbeat is a call that
+records observations, and a bench sending an empty `health` has the scheduler
+accept it as a real observation and zero out temperature and queue depth. It
+**contaminates the state of the thing being measured, immediately before
+measuring it.**
 
-읽기 전용 `ListNodes` RPC 를 따로 만들었다. 이것도 A 유형(부작용을
-확인하지 않고 API 를 씀)의 변종이다.
+A read-only `ListNodes` RPC was added separately. This too is a variant of type A
+(using an API without checking its side effects).
 
-정책 이름도 스케줄러가 보고한 값을 우선하게 했다. `--policy round-robin`
-으로 손으로 적으면 틀리고, **틀린 정책 이름이 붙은 결과는 S3 정책 비교
-실험을 통째로 망친다.**
+The policy name was also made to prefer the value the scheduler reports. Typing
+`--policy round-robin` by hand goes wrong, and **a result labelled with the wrong
+policy name ruins the whole S3 policy comparison.**
 
-## 도구가 보장하지 않는 것
+## What the tool does not guarantee
 
-닫힌 모델(closed loop) 부하다. 동시성 N 을 고정하고 응답을 받은 뒤 다음
-요청을 보낸다.
+The load is a closed loop. Concurrency N is fixed and the next request is sent
+after the response arrives.
 
-이 방식은 **coordinated omission** 에 취약하다. 시스템이 느려지면
-클라이언트도 덩달아 천천히 보내므로 지연 분포가 낙관적으로 나온다.
-실제로 느린 요청이 뒤이을 요청의 발사 시각을 미루는데, 그 미뤄진 시간은
-어느 요청의 지연에도 계상되지 않는다.
+That approach is vulnerable to **coordinated omission.** When the system slows
+down the client slows down with it, so the latency distribution comes out
+optimistic. A slow request delays the launch time of subsequent requests, and
+that delay is not charged to any request's latency.
 
-**절대 지연을 SLA 처럼 인용하지 않는다.** 구성 간 비교에만 쓴다.
-이 문장을 결과 파일의 `caveats` 에 넣어 결과만 떼어 봐도 알 수 있게 했다.
+**Never quote absolute latency as an SLA.** Use it only for comparison between
+configurations. That sentence goes into the result file's `caveats` so it is
+visible even when the results are read in isolation.
 
-열린 모델(목표 RPS 고정)을 쓰지 않은 이유는 노드 큐가 유한하기 때문이다.
-RPS 를 올리면 금방 `NPF-1303` 거절로 끝나 지연 분포를 볼 수 없다.
-두 모델 다 필요하면 M7 에서 추가한다.
+An open model (fixed target RPS) was not used because the node queue is finite.
+Raising RPS quickly ends in `NPF-1303` rejections and the latency distribution
+cannot be seen. If both models are needed, they are added in M7.
 
-## Mock 3노드 확인 결과
+## The Mock 3-node results
 
 ```text
-요청 : 395 (성공 395 / 실패 0)
-처리량: 23.3 inf/s  (17.0초)
-재시도: 31건
+requests : 395 (395 succeeded / 0 failed)
+throughput: 23.3 inf/s  (17.0 s)
+retries: 31
 
-지연 (왕복, ms)
+latency (round trip, ms)
   min 23.7  p50 45.1  p90 256.9  p95 302.8  p99 3092.9  max 3214.4
 
-노드별 분배
-  mock-01     160건   40.5%   p50    30.3 ms  p99  3059.0 ms
-  mock-02     157건   39.7%   p50   220.8 ms  p99  3178.3 ms
-  mock-03      78건   19.7%   p50    30.0 ms  p99    75.1 ms
+per-node distribution
+  mock-01     160   40.5%   p50    30.3 ms  p99  3059.0 ms
+  mock-02     157   39.7%   p50   220.8 ms  p99  3178.3 ms
+  mock-03      78   19.7%   p50    30.0 ms  p99    75.1 ms
 ```
 
-**p99 가 3.09초인 것은 버그가 아니다.** Mock 노드의
-`queue_timeout_ms = 3000` 에 걸린 요청이 `NPF-1303` 으로 거절되고
-스케줄러가 다른 노드로 재시도해 성공한 것이다(재시도 31건). 동시성 6 에
-`worker_count = 1` 인 Mock 이라 큐가 쌓인다.
+**A p99 of 3.09 seconds is not a bug.** Requests hitting the Mock nodes'
+`queue_timeout_ms = 3000` were rejected with `NPF-1303`, and the scheduler
+retried them on another node and succeeded (31 retries). With concurrency 6 and
+`worker_count = 1` on the Mock, the queues build up.
 
-즉 이 수치는 **재시도 경로가 실제로 동작한다는 증거**다. 실장비에서는
-`worker_count = 8` 이므로 다른 그림이 나온다.
+That is, these figures are **evidence the retry path actually works.** On real
+hardware `worker_count = 8` gives a different picture.
 
-종료 코드로 야간 자동 실행을 지원한다.
+Exit codes support unattended overnight runs.
 
 ```text
-0  유효
-3  무효   ← 스크립트가 이것으로 재실행 여부를 판단한다
-2  인자 오류
-1  실행 실패
+0  valid
+3  invalid   <- the script uses this to decide whether to re-run
+2  argument error
+1  execution failure
 ```
 
-## 다음
+## Next
 
-M3 실장비 측정(1/2/3노드 확장 효율)은 **10G aggregation 구성이 있어야** 시작한다.
+The M3 real-hardware measurement (1/2/3-node scaling efficiency) starts **only
+once the 10G aggregation setup exists.**
 
-8절에서 계산했듯 INT8 노드 하나가 **1.545 Gbps** 를 요구한다(8절의 1.43 은
-2진 접두를 쓴 오류로 정정되었다). 현재 관리망
-1GbE 로는 **노드 한 대분도 받지 못한다.** 지금 측정하면 네트워크 병목을
-확장 효율로 잘못 보고하게 된다 — B 유형 실수를 그대로 반복하는 것이다.
+As §8 calculated, a single INT8 node demands **1.545 Gbps** (the 1.43 in §8 was
+corrected as a binary-prefix error). The current 1GbE management network
+**cannot even take one node's worth.** Measuring now would misreport a network
+bottleneck as scaling efficiency — repeating a type B mistake exactly.
 
-스위치 도착 전까지는 Prometheus 메트릭, `preflight-check.sh`,
-`dealer` NTP 서버 구성을 진행한다.
+Until the switch arrives, work proceeds on Prometheus metrics,
+`preflight-check.sh` and configuring `dealer` as an NTP server.
 
 ---
 
-# CPU governor 영향 — 기존 수치는 전부 `ondemand` 기준이었다
+# The CPU governor effect — every existing figure was on `ondemand`
 
-- 작성: **2026-08-12 10:16 KST**
-- 측정 노드: `king` (동일 조건 재측정)
-- 계기: `preflight-check.sh` 가 `ondemand` 를 하드 실패로 막았고, 그래서 바꿨다
+- Written: **2026-08-12 10:16 KST**
+- Node measured: `king` (re-measured under identical conditions)
+- Trigger: `preflight-check.sh` blocked `ondemand` as a hard failure, so it was
+  changed
 
-## 결과
+## Results
 
-같은 도구·같은 조건(8스레드, 120초, `king`)에서 governor 만 바꿨다.
+The same tool and conditions (8 threads, 120 s, `king`) with only the governor
+changed.
 
-| 모델 | `ondemand` | `performance` | 변화 |
+| Model | `ondemand` | `performance` | Change |
 |---|---:|---:|---:|
 | FP16 | 79.0 inf/s | **84.3 inf/s** | **+6.7%** |
 | INT8 | 146.2 inf/s | **157.2 inf/s** | **+7.5%** |
 
-평균 지연도 함께 줄었다 (FP16 100.9 → 94.5 ms, INT8 54.6 → 50.8 ms).
+Mean latency fell alongside (FP16 100.9 → 94.5 ms, INT8 54.6 → 50.8 ms).
 
-## 왜 CPU governor 가 NPU 처리량을 바꾸나
+## Why the CPU governor changes NPU throughput
 
-추론 한 건은 NPU 실행만이 아니다.
+One inference is not just NPU execution.
 
 ```text
-입력 설정(CPU) → NPU 실행 → 출력 취득·역양자화(CPU)
+set input (CPU) -> NPU execution -> get output and dequantize (CPU)
 ```
 
-3절에서 8스레드가 2스레드보다 빠른 이유로 이미 확인한 구조다. 한 스레드가
-CPU 구간에 있는 동안 다른 스레드가 NPU 를 점유하는 파이프라이닝이 일어난다.
-**그 CPU 구간의 속도가 전체 처리량에 직접 반영된다.**
+The structure was already confirmed in §3 as the reason 8 threads beat 2:
+pipelining occurs, with one thread in its CPU section while another occupies the
+NPU. **That CPU section's speed feeds directly into total throughput.**
 
-`ondemand` 는 부하에 따라 주파수를 올리는데, NPU 대기 중에는 CPU 사용률이
-낮아 보여 주파수가 내려간다. 그 상태에서 다음 요청의 CPU 구간이 시작되면
-느린 클럭으로 시작한다. 관측된 유휴 클럭이 1008~1800MHz 로 흔들린 것이
-이것이다(최대는 A53 2016 / A72 2208MHz).
+`ondemand` raises frequency with load, but while waiting on the NPU the CPU looks
+lightly used and the frequency comes down. The next request's CPU section then
+starts at a slow clock. The observed idle clock wobbling between 1008 and
+1800 MHz is this (the maxima are A53 2016 / A72 2208 MHz).
 
-## 이 결과가 뜻하는 것
+## What this result means
 
-**8절까지의 모든 처리량 수치는 `ondemand` 기준이다.** 앞으로 나올 수치와
-직접 비교하면 안 된다. 문서의 확정 수치를 `performance` 기준으로 갱신했다.
+**Every throughput figure up to §8 is on `ondemand`.** They must not be compared
+directly with figures from here on. The documents' settled figures were updated
+to `performance`.
 
-다만 **결론은 바뀌지 않는다.**
+But **the conclusions do not change.**
 
-| 결론 | 근거 |
+| Conclusion | Basis |
 |---|---|
-| INT8 이 FP16 대비 1.85배 | `performance` 에서 157.2/84.3 = **1.86배**. 그대로다 |
-| 애플리케이션 최적화 3종이 무의미 | governor 는 애플리케이션 최적화가 아니다 |
-| 상한은 직렬화 구간의 건당 시간 | CPU 구간이 그 시간의 일부라는 것이 오히려 보강된다 |
+| INT8 is 1.85× FP16 | on `performance`, 157.2/84.3 = **1.86×**. Unchanged |
+| The three application optimizations are meaningless | the governor is not an application optimization |
+| The ceiling is the per-call time in the serialized section | reinforced, if anything, by the CPU section being part of that time |
 
-8절에서 "상한을 정하는 것은 ioctl 횟수가 아니라 한 건이 붙잡고 있는
-시간"이라고 썼는데, 이번 결과가 그 시간에 **CPU 전후처리도 포함된다**는
-것을 보여준다. ioctl 횟수는 governor 와 무관하게 76회로 같을 것이다.
+§8 wrote that "what sets the ceiling is not the ioctl count but the time one call
+holds on", and this result shows **that time includes the CPU work either side.**
+The ioctl count will be the same 76 regardless of governor.
 
-## 조치
+## Actions taken
 
-`scripts/set-cpu-governor.sh` 로 세 노드를 `performance` 로 고정하고
-systemd 유닛으로 영구화했다.
+`scripts/set-cpu-governor.sh` fixes all three nodes to `performance` and makes it
+permanent with a systemd unit.
 
-재부팅 유지를 실제로 확인했다. `jack` 을 재부팅해 `boot_id` 가
-`6caea6bd → 83d2981f` 로 바뀐 뒤에도 governor 가 유지되었다.
+Survival across reboot was actually confirmed. After rebooting `jack` and its
+`boot_id` changing from `6caea6bd` to `83d2981f`, the governor held.
 
-`cpufrequtils` 패키지를 쓰지 않았다. 설치하면 세 노드의 패키지 목록이
-달라져 환경 일치가 깨진다.
+The `cpufrequtils` package was not used. Installing it would make the three
+nodes' package lists differ and break environment matching.
 
-## 유휴 온도는 거의 안 올랐다
+## Idle temperature barely rose
 
-| 노드 | `ondemand` | `performance` |
+| Node | `ondemand` | `performance` |
 |---|---:|---:|
-| king | 36.1°C | 37.0°C |
-| queen | 35.2°C | 36.1°C |
+| king | 36.1 °C | 37.0 °C |
+| queen | 35.2 °C | 36.1 °C |
 
-클럭은 항상 최대지만 유휴 코어는 여전히 halt 상태라 발열이 늘지 않는다.
-**팬리스 S0 측정에 부담을 주지 않는다.**
+The clock is always at maximum but idle cores still halt, so heat output does not
+rise. **It does not burden the fanless S0 measurement.**
 
-## 남은 함정 하나
+## One remaining pitfall
 
-`set-cpu-governor.sh` 를 만들 때 ssh 안에서 heredoc 과 sudo 를 중첩했다가
-**유닛 파일이 아예 생기지 않았는데 종료 코드는 0** 이었다. 스크립트는
-"적용 실패"를 보고했지만, 값 확인 단계를 넣지 않았다면 "영구화 완료"로
-넘어갔을 것이다.
+While writing `set-cpu-governor.sh`, nesting a heredoc and sudo inside ssh meant
+**the unit file was never created and yet the exit code was 0.** The script
+reported "apply failed", but without a value-confirmation step it would have gone
+through as "made permanent".
 
-유닛 파일을 로컬에서 만들어 `scp` 로 전송하는 방식으로 바꿨다.
-board-worklog.md §2.21 의 원격 실행 함정과 같은 계열이다.
+It was changed to create the unit file locally and transfer it with `scp`. The
+same family as the remote execution pitfalls in board-worklog.md §2.21.
 
 ---
 
-# want_float=0 전환과 CPU throttling — Claude 결과/의견
+# The want_float=0 switch and CPU throttling — Claude's results and opinion
 
-- 작성: **2026-08-12 17:40 KST**
-- 측정 노드: `king`
-- 계기: 네트워크 계산에서 `want_float=0` 이 M3 전제 조건으로 승격됨
+- Written: **2026-08-12 17:40 KST**
+- Node measured: `king`
+- Trigger: the network calculation promoted `want_float=0` to an M3 precondition
 
-## 1. want_float=0 의 처리량 효과 (미측정이었던 것)
+## 1. want_float=0's throughput effect (previously unmeasured)
 
-5절의 `+5.4%` 는 FP16 에서 잰 값이라 INT8 에 옮길 수 없다고 적어 두었다.
-측정했다. `king`, 8스레드, 120초.
+§5's `+5.4%` was measured on FP16 and, as noted, could not be carried across to
+INT8. It was measured. `king`, 8 threads, 120 s.
 
-| 모델 | `want_float=0` | `want_float=1` | 이득 |
+| Model | `want_float=0` | `want_float=1` | Gain |
 |---|---:|---:|---:|
 | INT8 | **156.7 inf/s** | 133.6 inf/s | **+17.3%** |
 | FP16 | 66.9 inf/s | 57.8 inf/s | **+15.7%** |
 
-5절의 +5.4% 보다 훨씬 크다. 5절은 1스레드 위주 조건이었고, 여기서는
-8스레드 동시 실행이라 출력 변환이 직렬화 구간을 더 오래 붙잡는다.
+Far larger than §5's +5.4%. §5 was a mostly single-thread condition; here, with 8
+threads concurrent, output conversion holds the serialized section longer.
 
-**네트워크와 처리량이 같은 방향을 가리킨다.** 출력이 4분의 1이 되고
-처리량이 15~17% 오른다. `want_float=0` 을 안 쓸 이유가 없다.
+**The network and throughput point the same way.** The output becomes a quarter
+and throughput rises 15–17%. There is no reason not to use `want_float=0`.
 
-> 그리고 이제야 알았는데, **`sustained_load_test` 는 처음부터
-> `want_float=0` 을 하드코딩하고 있었다.** 즉 문서의 157.2 / 84.3 은
-> 이미 `want_float=0` 기준이었다. Rust 백엔드만 `true` 였으므로,
-> 이번 전환은 **소프트웨어를 측정 조건에 맞춘 것**이다.
+> And only now do I realise that **`sustained_load_test` had hardcoded
+> `want_float=0` from the beginning.** So the documents' 157.2 / 84.3 were
+> already on `want_float=0`. Only the Rust backend was on `true`, so this switch
+> **brought the software in line with the measurement conditions.**
 
-## 2. 그런데 더 큰 것이 나왔다 — CPU 가 열로 꺾인다
+## 2. But something bigger came out — the CPU bends from heat
 
-FP16 을 다시 재는데 값이 84.3 이 아니라 66.9 로 나왔다. INT8 은
-156.7 로 일치했다. FP16 만 다른 것이 이상해 확인했다.
+Re-measuring FP16 gave 66.9 rather than 84.3. INT8 matched at 156.7. FP16 alone
+differing was odd, so it was checked.
 
-**원인은 측정 순서였다.** FP16 측정이 INT8 측정 두 번 뒤에 붙어 있었다.
+**The cause was measurement order.** The FP16 measurement was appended after two
+INT8 measurements.
 
-| 시작 온도 | FP16 처리량 |
+| Starting temperature | FP16 throughput |
 |---|---:|
-| 53.6°C (냉각 후) | **81.6 inf/s** |
-| 71.2°C (연속 측정 중) | 66.9 inf/s |
+| 53.6 °C (after cooling) | **81.6 inf/s** |
+| 71.2 °C (mid continuous measurement) | 66.9 inf/s |
 
-**-18%.** 그래서 부하 중 클럭을 직접 관찰했다. governor 는 `performance` 다.
+**−18%.** So the clocks were observed directly under load. The governor is
+`performance`.
 
 ```text
-        NPU온도   npu_clk   cpu4(A72)   cpu0(A53)
- +15s   86.8°C    950 MHz   2208 MHz    2016 MHz
- +30s   90.4°C    950 MHz   1416 MHz    1200 MHz
- +45s   89.5°C    950 MHz   1008 MHz     816 MHz
- +60s   87.8°C    950 MHz    816 MHz     600 MHz
-+120s   87.8°C    950 MHz    816 MHz     600 MHz
+        NPU temp   npu_clk   cpu4(A72)   cpu0(A53)
+ +15s   86.8 C     950 MHz   2208 MHz    2016 MHz
+ +30s   90.4 C     950 MHz   1416 MHz    1200 MHz
+ +45s   89.5 C     950 MHz   1008 MHz     816 MHz
+ +60s   87.8 C     950 MHz    816 MHz     600 MHz
++120s   87.8 C     950 MHz    816 MHz     600 MHz
 ```
 
-**NPU 클럭은 950 MHz 에서 한 번도 안 떨어진다. CPU 가 63~70% 떨어진다.**
+**The NPU clock never drops from 950 MHz. The CPU falls 63–70%.**
 
-300초 지속 측정에서 처리량이 이렇게 수렴한다.
+Over a 300-second sustained measurement, throughput converges like this.
 
 ```text
- +10s  81.6 inf/s   ← 시작
+ +10s  81.6 inf/s   <- start
 +120s  63.6
-+300s  59.7         ← 정상 상태
-평균   71.3 inf/s
++300s  59.7         <- steady state
+mean   71.3 inf/s
 ```
 
-**시작 대비 -27%.**
+**−27% against the start.**
 
-## 3. 이것이 뒤집는 것
+## 3. What this overturns
 
-### 3.1 "throttling 없음" 은 틀렸다
+### 3.1 "No throttling" was wrong
 
-`RESULTS.md` §2.3 과 `environment-matrix.md` §9.0 에 이렇게 적혀 있다.
+`RESULTS.md` §2.3 and `environment-matrix.md` §9.0 say this.
 
-> throttling 없음 — 928 샘플 전부 NPU 950MHz, 한 번도 안 떨어짐
+> No throttling — all 928 samples at NPU 950 MHz, never dropping once
 
-**NPU 클럭만 봤다.** CPU 클럭도 같은 로그에 기록되어 있었는데 판정에
-쓰지 않았다. 추론 한 건은 `입력 설정(CPU) → NPU → 출력 취득(CPU)` 이고
-CPU 구간이 처리량에 직접 반영된다는 것을 11절에서 이미 확인했으면서도,
-throttling 판정은 NPU 만으로 했다.
+**Only the NPU clock was looked at.** The CPU clocks were recorded in the same
+log and were not used in the verdict. Despite §11 already confirming that one
+inference is `set input (CPU) → NPU → get output (CPU)` and that the CPU sections
+feed directly into throughput, the throttling verdict was made on the NPU alone.
 
-**이것이 같은 유형의 네 번째 실수다.** 3절 「메타」 목록에 추가한다.
+**This is the fourth mistake of the same type.** Added to §3's "Meta" list.
 
 ```text
-1. run_duration 을 NPU 점유시간으로 읽음      → 큐 대기 포함
-2. NPU load 를 delayms=3000 인 채로 샘플링    → 3초 평균
-3. thread-safety 를 API 반환 코드로만 판정    → 결과 미대조
-4. throttling 을 NPU 클럭만으로 판정          → CPU 가 꺾이고 있었다
+1. read run_duration as NPU occupancy time     -> queue wait included
+2. sampled NPU load with delayms=3000          -> a 3-second average
+3. judged thread-safety by API return codes    -> results never compared
+4. judged throttling by NPU clock alone        -> the CPU was bending
 ```
 
-### 3.2 CPU governor 결론의 범위가 좁아진다
+### 3.2 The CPU governor conclusion narrows in scope
 
-11절의 **+7%** 는 120초 측정이다. 그 구간은 아직 CPU 가 완전히 강등되기
-전이다. **지속 부하에서는 `performance` 가 더 유리하다고 단정할 수 없다.**
+§11's **+7%** is a 120-second measurement. That window is before the CPU is fully
+downgraded. **It cannot be asserted that `performance` is favourable under
+sustained load.**
 
-`performance` 는 유휴에도 최대 클럭을 유지하므로 부하 시작 시점의 열
-여유가 적다. 더 빨리 뜨거워지고 더 일찍 강등될 수 있다.
+`performance` holds the maximum clock even at idle, so it has less thermal
+headroom at the start of load. It may heat up faster and be downgraded earlier.
 
-**측정하지 않았다.** `ondemand` 와 `performance` 를 동일한 300초 조건에서
-비교해야 한다. 그전까지 11절의 +7% 는 **"짧은 측정에서의 이득"** 으로만
-읽는다.
+**Not measured.** `ondemand` and `performance` have to be compared under
+identical 300-second conditions. Until then §11's +7% is read only as **"a gain
+in short measurements".**
 
-### 3.3 Peak vs Sustained 격차가 이 프로젝트의 핵심 수치가 된다
+### 3.3 The peak vs sustained gap becomes one of this project's central figures
 
-지금까지 "Peak vs Sustained 약 10%" 로 적어 두었다. 이번 측정은
-**300초에 -27%** 다. 원인이 NPU 가 아니라 **CPU thermal throttling** 이라는
-것까지 짚었다.
+Until now it was recorded as "peak vs sustained, about 10%". This measurement is
+**−27% over 300 seconds.** And it pins the cause on **CPU thermal throttling**
+rather than the NPU.
 
-> 벤더가 공개하는 TOPS 는 순간 성능이다. 팬리스 엣지에서 실제로 무엇이
-> 먼저 무너지는가 — **NPU 가 아니라 그 앞뒤를 처리하는 CPU 였다.**
+> The TOPS a vendor publishes is instantaneous performance. What actually
+> collapses first at the fanless edge — **it was the CPU handling either side,
+> not the NPU.**
 
-발표 서사로서 이쪽이 훨씬 낫다. S0 을 제대로 돌리면 확정 수치가 된다.
+That is a far better narrative for the talk. Running S0 properly makes it a
+settled figure.
 
-## 4. 조치
+## 4. Actions
 
-**한 것**
+**Done**
 
-- `want_float` 을 노드 설정(`[worker] want_float`)으로 노출하고 기본값을
-  `false` 로 바꿨다. Rust 백엔드가 측정 도구와 같은 조건이 되었다
-- blob 형식을 **v2** 로 올려 텐서마다 `qnt_type`·`zero_point`·`scale` 을
-  싣는다. 이것 없이 int8 을 보내면 받는 쪽이 해석할 수 없다
-- 실보드에서 역양자화가 float32 와 일치함을 확인했다
-  (텐서 9개, **최대 오차 9.5e-7** — float32 정밀도 한계)
+- `want_float` exposed as node configuration (`[worker] want_float`) with the
+  default changed to `false`. The Rust backend now matches the measurement tool's
+  conditions
+- The blob format bumped to **v2**, carrying `qnt_type`, `zero_point` and `scale`
+  per tensor. Without those, sending int8 leaves the receiver unable to interpret
+  it
+- Dequantization confirmed on a real board to match float32 (9 tensors,
+  **maximum error 9.5e-7** — the limit of float32 precision)
 
-**해야 할 것**
+**To do**
 
-- `ondemand` vs `performance` 를 동일한 300초 조건에서 비교
-- S0 를 30분으로 돌려 정상 상태 처리량과 강등 시점을 확정
-- 열 판정에 **CPU 클럭을 포함**하도록 `run-thermal-comparison.sh` 수정
-- `RESULTS.md` §2.3 과 `environment-matrix.md` §9.0 의 "throttling 없음"
-  표현 정정 (이번 커밋에 포함)
+- Compare `ondemand` vs `performance` under identical 300-second conditions
+- Run S0 for 30 minutes to settle steady-state throughput and the downgrade
+  timing
+- Fix `run-thermal-comparison.sh` to **include CPU clock** in the thermal verdict
+- Correct the "no throttling" wording in `RESULTS.md` §2.3 and
+  `environment-matrix.md` §9.0 (included in this commit)
