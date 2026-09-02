@@ -1,249 +1,286 @@
 # NPUDure Product Requirements Document
 
-- 문서명: `00-PRD.md`
-- 문서 버전: v0.2
-- 프로젝트명: NPUDure
-- 프로젝트 유형: 오픈소스 분산 엣지 NPU 추론 런타임
-- 개발 언어: Rust
-- 대상 플랫폼: Linux / RK3576 기반 엣지 장치
-- 목표 발표: 2026년 11월 FOSS for All Conference
-- 목표 공개 버전: NPUDure v0.1
-- 문서 상태: Draft
-- 작성일: 2026-08-05
-- 최종 수정: 2026-08-06 (본문)
-- 2026-08-27: 최종 상태를 가리키는 배너만 추가. **본문은 계획 기준선 그대로 둔다**
-- 관련 문서:
+*[한국어 원문](00-PRD.ko.md)*
+
+- Document: `00-PRD.md`
+- Document version: v0.2
+- Project: NPUDure
+- Project type: an open-source distributed edge NPU inference runtime
+- Language: Rust
+- Target platform: Linux / RK3576-based edge devices
+- Target talk: FOSS for All Conference, November 2026
+- Target public release: NPUDure v0.1
+- Status: Draft
+- Written: 2026-08-05
+- Last modified: 2026-08-06 (body)
+- 2026-08-27: banner pointing at the final state added only. **The body stays as the planning baseline**
+- Related documents:
   - `01-TECHSPEC.md`
   - `02-HARDWARE-SETUP.md`
   - `03-DEVELOPMENT-REQUIREMENTS.md`
   - `environment-matrix.md`
 
-> ## ⚠️ 이 문서는 **Phase 1 계획 기준선**이다
+> ## ⚠️ This document is **the Phase 1 planning baseline**
 >
-> 여기 적힌 연구 질문·일정·후보 기능은 **측정을 시작하기 전에 정한 것**이다.
-> 계획을 사후에 고치면 "무엇을 예상했고 무엇이 빗나갔는가" 가 사라지므로
-> 그대로 둔다.
+> The research questions, schedule and candidate features written here were
+> **fixed before measurement began.** Editing a plan after the fact erases "what
+> was expected and what missed", so it stays.
 >
-> **실제로 무엇이 닫혔고 무엇이 열려 있는지는 여기가 아니다.**
+> **What actually closed and what is still open is not here.**
 >
-> | 무엇 | 어디 |
+> | What | Where |
 > |---|---|
-> | 실험 최종 상태 | [`experiments/README.md`](experiments/README.md) §5~§7 |
-> | io_uring 판정 (**적용하지 않는다**) | [`01-TECHSPEC.md`](01-TECHSPEC.md) §15 |
-> | 확정 수치 | [`RESULTS.md`](RESULTS.md) · [`experiments/`](experiments/) |
+> | Final experiment state | [`experiments/README.md`](experiments/README.md) §5–§7 |
+> | The io_uring verdict (**not adopted**) | [`01-TECHSPEC.md`](01-TECHSPEC.md) §15 |
+> | Settled figures | [`RESULTS.md`](RESULTS.md) · [`experiments/`](experiments/) |
 >
-> 특히 이 문서가 비교 실험으로 들고 있는 **io_uring 은 구현하지 않기로
-> 했다.** S3.9b 가 회수 가능한 몫을 ≈8% 로 측정했고, 그 근거로 배제했다.
+> In particular, the **io_uring** this document carries as a comparison
+> experiment **was decided against.** S3.9b measured the recoverable share at
+> ≈8% and it was excluded on that basis.
 
 ---
 
-# 0. 문서 역할과 우선순위
+# 0. Document roles and priority
 
-문서가 서로 다른 값을 기술할 경우 다음 우선순위를 따른다.
+Where documents state different values, the following priority applies.
 
-| 영역 | 규범 문서 |
+| Domain | Normative document |
 |---|---|
-| 목표, 비목표, 기능 요구사항, 성공 기준 | `00-PRD.md` |
-| 저장소 구조, 프로토콜, 설정 스키마, 스케줄링 알고리즘, 오류 코드 | `01-TECHSPEC.md` |
-| 물리 구성, 네트워크, 전원, 냉각, 실험 조건 | `02-HARDWARE-SETUP.md` |
-| 개발환경, 도구, 배포 자동화, 라이선스 | `03-DEVELOPMENT-REQUIREMENTS.md` |
-| 버전 조합 및 해시 고정 | `environment-matrix.md` |
+| Goals, non-goals, functional requirements, success criteria | `00-PRD.md` |
+| Repository structure, protocol, config schema, scheduling algorithm, error codes | `01-TECHSPEC.md` |
+| Physical setup, network, power, cooling, experimental conditions | `02-HARDWARE-SETUP.md` |
+| Development environment, tooling, deployment automation, licensing | `03-DEVELOPMENT-REQUIREMENTS.md` |
+| Version combinations and hash pinning | `environment-matrix.md` |
 
-본 문서는 "왜"와 "무엇을"만 다룬다.
+This document covers only "why" and "what".
 
-알고리즘 계산식, 크레이트 이름, 설정 파일 키, 식별자 문자열은 본 문서에 기술하지 않고 `01-TECHSPEC.md`를 참조한다. 같은 내용을 두 문서에 복제하지 않는 것이 문서 정합성 유지의 유일한 방법이다.
-
----
-
-# 1. 프로젝트 개요
-
-NPUDure는 여러 대의 저비용 엣지 NPU 장치를 하나의 분산 추론 자원처럼 운영하기 위한 Rust 기반 오픈소스 런타임이다.
-
-1차 구현에서는 6 TOPS급 RK3576 NPU 장치 3대를 네트워크로 연결하고, 단일 장치 대비 2대 및 3대 구성에서 실제 추론 처리량이 어느 정도까지 확장되는지 측정한다.
-
-본 프로젝트는 단순히 각 장치의 명목 TOPS를 합산하는 것을 목표로 하지 않는다. 실제 애플리케이션 환경에서 발생하는 네트워크 지연, 메모리 복사, 요청 스케줄링, 전처리 및 후처리, 노드 장애 등으로 인한 손실을 정량적으로 측정하고 분석하는 것을 핵심 목표로 한다.
+Algorithm formulas, crate names, configuration keys and identifier strings are
+not written here; they reference `01-TECHSPEC.md`. Not duplicating the same
+content across two documents is the only way to maintain document consistency.
 
 ---
 
-# 2. 문제 정의
+# 1. Project overview
 
-엣지 AI 장치는 일반적으로 장치별로 독립 운영된다. 여러 장치가 존재하더라도 각각의 NPU 자원이 통합되지 않아 일부 장치는 과부하 상태이고 다른 장치는 유휴 상태인 상황이 발생할 수 있다.
+NPUDure is a Rust-based open-source runtime for operating several low-cost edge
+NPU devices as a single distributed inference resource.
 
-또한 제조사가 제공하는 TOPS 수치는 이론적 최대 연산량이므로 실제 모델의 종단 간 추론 성능을 직접 나타내지 않는다.
+The first implementation connects three 6 TOPS-class RK3576 NPU devices over a
+network and measures how far actual inference throughput scales at two and three
+devices against one.
 
-예를 들어 6 TOPS NPU 세 대를 연결하더라도 다음과 같은 문제로 인해 실제 성능은 18 TOPS에 미치지 못할 수 있다.
-
-- 네트워크 데이터 전송 지연
-- 입력 및 출력 버퍼 복사
-- 이미지 디코딩과 전처리 비용
-- NPU 입력 메모리 변환
-- 지원되지 않는 연산의 CPU 실행
-- 요청 분배 불균형
-- 노드별 온도 및 성능 편차
-- 동시 요청 부족
-- 장애 노드로 인한 요청 실패
-- 중앙 스케줄러 병목
-
-현재 저비용 NPU 여러 대를 실제로 연결했을 때 나타나는 확장 효율, 비용 효율, 장애 대응 능력을 재현 가능한 형태로 검증할 수 있는 공개 소프트웨어와 실험 자료가 부족하다.
+This project does not aim simply to add up each device's nominal TOPS. Its
+central goal is to quantitatively measure and analyse the losses arising in a
+real application environment from network latency, memory copies, request
+scheduling, preprocessing and postprocessing, and node failure.
 
 ---
 
-# 3. 프로젝트 목표
+# 2. Problem statement
 
-## 3.1 핵심 목표
+Edge AI devices are generally operated independently. Even with several devices,
+their NPU resources are not unified, so a situation arises where some devices
+are overloaded while others sit idle.
 
-NPUDure v0.1의 핵심 목표는 다음과 같다.
+Also, the TOPS figure a manufacturer provides is a theoretical maximum
+throughput of computation, and does not directly represent a real model's
+end-to-end inference performance.
 
-1. RK3576 기반 NPU 노드 3대를 하나의 추론 클러스터로 구성한다.
-2. Rust 기반 중앙 스케줄러가 각 노드에 추론 요청을 분배한다.
-3. 단일, 2노드, 3노드 구성의 실제 처리량과 지연시간을 비교한다.
-4. 노드 상태와 대기열을 고려한 동적 요청 분배를 구현한다.
-5. 장애 노드를 자동으로 제외하고 복구 후 다시 편입한다.
-6. 시스템의 성능과 상태를 실시간으로 확인할 수 있는 대시보드를 제공한다.
-7. 설치 방법, 소스코드, 실험 조건, 벤치마크 결과를 공개한다.
-8. 2026년 11월 FOSS for All Conference에서 동작 데모와 실험 결과를 발표한다.
+For example, connecting three 6 TOPS NPUs may not reach 18 TOPS in practice
+because of the following.
 
-## 3.2 연구 목표
+- Network data transfer latency
+- Input and output buffer copies
+- Image decoding and preprocessing cost
+- NPU input memory conversion
+- CPU execution of unsupported operators
+- Imbalanced request distribution
+- Per-node temperature and performance variance
+- Insufficient concurrent requests
+- Request failures from a failed node
+- A central scheduler bottleneck
 
-다음 질문에 실험적으로 답하는 것을 목표로 한다.
-
-- 6 TOPS NPU 세 대의 실제 처리량은 단일 장치 대비 몇 배 증가하는가?
-- 노드 수 증가에 따른 확장 효율은 어느 수준인가?
-- 단순 Round Robin과 부하 기반 스케줄링의 차이는 얼마인가?
-- 네트워크와 메모리 복사가 전체 지연시간에서 차지하는 비율은 얼마인가?
-- Tokio 기반 네트워크 처리와 io_uring 기반 처리 사이에 의미 있는 차이가 있는가?
-- 입력 크기와 동시 요청 수에 따라 병목 지점은 어떻게 달라지는가?
-- 노드 장애 발생 시 서비스 처리량과 지연시간은 어떻게 변화하는가?
-- 저가형 다중 NPU 구성은 단일 고성능 엣지 가속기 대비 어떤 조건에서 유리한가?
-
----
-
-# 4. 비목표
-
-NPUDure v0.1에서는 다음 항목을 목표로 하지 않는다.
-
-- 여러 NPU를 하나의 물리적 NPU처럼 보이게 만드는 하드웨어 수준 통합
-- 단일 추론 요청의 지연시간을 노드 수에 비례하여 단축
-- 하나의 대규모 모델을 여러 노드에 레이어 단위로 분할
-- 대규모 언어모델의 텐서 병렬 및 파이프라인 병렬 구현
-- Kubernetes 수준의 범용 클러스터 오케스트레이션
-- 모든 NPU 제조사와 런타임 지원
-- 완전한 무복사 데이터 경로 보장
-- 상용 SLA 및 보안 인증
-- 인터넷 환경의 광역 분산 추론
-- 모바일 및 Windows 클라이언트 지원
-- 최종 제품 수준의 사용자 관리와 과금 시스템
-
-v0.1은 독립적인 추론 요청을 여러 NPU 노드가 병렬로 처리하는 데이터 병렬 구조에 집중한다.
+There is a shortage of public software and experimental material that verifies,
+in a reproducible form, the scaling efficiency, cost efficiency and failure
+tolerance that appear when several low-cost NPUs are actually connected.
 
 ---
 
-# 5. 목표 사용자
+# 3. Project goals
 
-## 5.1 주요 사용자
+## 3.1 Core goals
 
-### 엣지 AI 개발자
+NPUDure v0.1's core goals are as follows.
 
-저비용 ARM 보드와 NPU를 이용하여 다중 카메라 또는 다중 요청 추론 시스템을 개발하려는 사용자.
+1. Configure three RK3576-based NPU nodes as one inference cluster.
+2. Have a Rust-based central scheduler distribute inference requests to each
+   node.
+3. Compare actual throughput and latency across single-, 2- and 3-node
+   configurations.
+4. Implement dynamic request distribution that accounts for node state and
+   queues.
+5. Automatically exclude a failed node and re-admit it after recovery.
+6. Provide a dashboard for checking system performance and state in real time.
+7. Publish the installation method, source code, experimental conditions and
+   benchmark results.
+8. Present a working demo and the experimental results at the FOSS for All
+   Conference, November 2026.
 
-### 임베디드 Linux 개발자
+## 3.2 Research goals
 
-Linux 네트워크, 장치 드라이버, NPU 런타임, Rust 기반 시스템 소프트웨어에 관심이 있는 사용자.
+The aim is to answer the following questions experimentally.
 
-### AI 시스템 연구자
-
-분산 엣지 추론의 성능, 지연시간, 에너지 효율, 확장성 등을 실험하려는 연구자.
-
-### 산업용 AI 솔루션 개발자
-
-공장, 설비, 출입 시스템, CCTV 등 다수의 영상 또는 센서 데이터를 현장에서 처리하려는 개발자.
-
-## 5.2 부사용자
-
-- Rust 개발자
-- RK3576 보드 사용자
-- 오픈소스 기여자
-- 대학원생 및 연구실
-- 산업용 게이트웨이 제조사
-- Edge AI 플랫폼 개발사
+- By how much does the actual throughput of three 6 TOPS NPUs increase against a
+  single device?
+- What level is the scaling efficiency as node count rises?
+- How much difference is there between plain round robin and load-based
+  scheduling?
+- What proportion of total latency do the network and memory copies account for?
+- Is there a meaningful difference between Tokio-based and io_uring-based
+  network handling?
+- How does the bottleneck shift with input size and concurrent request count?
+- How do service throughput and latency change when a node fails?
+- Under what conditions is a low-cost multi-NPU configuration favourable against
+  a single high-performance edge accelerator?
 
 ---
 
-# 6. 주요 사용 시나리오
+# 4. Non-goals
 
-## 6.1 다중 이미지 추론
+NPUDure v0.1 does not aim at the following.
 
-사용자가 여러 이미지를 NPUDure에 전송하면 스케줄러가 사용 가능한 NPU 노드에 요청을 분배한다.
+- Hardware-level integration making several NPUs appear as one physical NPU
+- Reducing a single inference request's latency in proportion to node count
+- Splitting one large model layer-wise across several nodes
+- Implementing tensor and pipeline parallelism for large language models
+- Kubernetes-level general-purpose cluster orchestration
+- Supporting every NPU manufacturer and runtime
+- Guaranteeing a fully copy-free data path
+- Commercial SLAs and security certification
+- Wide-area distributed inference over the internet
+- Mobile and Windows client support
+- Final-product-level user management and billing
+
+v0.1 concentrates on the data-parallel structure of several NPU nodes handling
+independent inference requests in parallel.
+
+---
+
+# 5. Target users
+
+## 5.1 Primary users
+
+### Edge AI developers
+
+Users building multi-camera or multi-request inference systems with low-cost ARM
+boards and NPUs.
+
+### Embedded Linux developers
+
+Users interested in Linux networking, device drivers, NPU runtimes and
+Rust-based systems software.
+
+### AI systems researchers
+
+Researchers experimenting with distributed edge inference performance, latency,
+energy efficiency and scalability.
+
+### Industrial AI solution developers
+
+Developers processing multiple video or sensor streams on site — factories,
+equipment, access control systems, CCTV.
+
+## 5.2 Secondary users
+
+- Rust developers
+- RK3576 board users
+- Open-source contributors
+- Graduate students and research labs
+- Industrial gateway manufacturers
+- Edge AI platform vendors
+
+---
+
+# 6. Main usage scenarios
+
+## 6.1 Multi-image inference
+
+A user sends several images to NPUDure and the scheduler distributes the
+requests to available NPU nodes.
 
 ```text
 Client
-  → Scheduler
-      → NPU Node 1
-      → NPU Node 2
-      → NPU Node 3
+  -> Scheduler
+      -> NPU Node 1
+      -> NPU Node 2
+      -> NPU Node 3
 ```
 
-각 노드는 독립적으로 추론을 수행하고 결과를 스케줄러에 반환한다.
+Each node performs inference independently and returns the result to the
+scheduler.
 
-## 6.2 다중 카메라 분석
+## 6.2 Multi-camera analysis
 
-여러 카메라에서 입력되는 프레임을 각 NPU 노드에 분산한다.
+Frames arriving from several cameras are spread across the NPU nodes.
 
-예상 적용 분야:
+Expected application areas:
 
-- 공장 안전 모니터링
-- 설비 이상 탐지
-- 출입 인원 분석
-- 객체 탐지
-- 불량 검사
-- 다중 CCTV 분석
+- Factory safety monitoring
+- Equipment anomaly detection
+- Access headcount analysis
+- Object detection
+- Defect inspection
+- Multi-CCTV analysis
 
-## 6.3 노드 장애 대응
+## 6.3 Handling a node failure
 
-클러스터 운영 중 특정 노드가 중단되면 스케줄러는 해당 노드를 요청 대상에서 자동 제외한다.
+If a node stops during cluster operation, the scheduler automatically excludes it
+from the request targets.
 
-노드가 다시 정상 상태가 되면 일정 횟수의 헬스체크 성공 후 클러스터에 재편입한다.
+Once the node is healthy again, it is re-admitted to the cluster after a set
+number of successful health checks.
 
-## 6.4 성능 비교
+## 6.4 Performance comparison
 
-사용자는 동일한 모델과 데이터 세트를 이용하여 다음 구성을 비교할 수 있다.
+A user can compare the following configurations with the same model and dataset.
 
-- 단일 노드
-- 2노드
-- 3노드
-- Round Robin 스케줄링
-- 부하 기반 스케줄링
-- Tokio 기반 네트워크 처리
-- io_uring 기반 네트워크 처리
-- 데이터 복사 최적화 전후
+- A single node
+- 2 nodes
+- 3 nodes
+- Round robin scheduling
+- Load-based scheduling
+- Tokio-based network handling
+- io_uring-based network handling
+- Before and after data copy optimization
 
 ---
 
-# 7. 핵심 기능 요구사항
+# 7. Core functional requirements
 
-## FR-01. NPU 노드 등록
+## FR-01. NPU node registration
 
-각 NPU 노드는 시작 시 중앙 스케줄러에 자신의 정보를 등록해야 한다.
+Each NPU node has to register its information with the central scheduler at
+startup.
 
-등록 정보:
+Registration information:
 
 - Node ID
-- IP 주소
-- 포트
-- 장치 유형
-- NPU 유형
-- NPU 코어 수
-- 모델 목록
-- 모델 버전
-- 런타임 버전
-- 메모리 용량
-- 소프트웨어 버전
+- IP address
+- Port
+- Device type
+- NPU type
+- NPU core count
+- Model list
+- Model version
+- Runtime version
+- Memory capacity
+- Software version
 
-## FR-02. 헬스체크
+## FR-02. Health checks
 
-스케줄러는 일정 주기로 각 노드의 상태를 확인해야 한다.
+The scheduler has to check each node's state periodically.
 
-상태 구분:
+State categories:
 
 - Registering
 - Healthy
@@ -254,147 +291,158 @@ Client
 - Draining
 - Disabled
 
-`Draining`과 `Disabled`는 운영자가 명시적으로 전환하는 상태이며 FR-15에서 정의한다.
+`Draining` and `Disabled` are states an operator switches to explicitly and are
+defined in FR-15.
 
-상태 전이 조건과 임계치는 `01-TECHSPEC.md` §9에서 정의한다.
+The transition conditions and thresholds are defined in `01-TECHSPEC.md` §9.
 
-헬스체크 정보:
+Health check information:
 
-- 응답 시간
-- 현재 큐 길이
-- 최근 추론 성공률
-- CPU 사용률
-- 메모리 사용률
-- NPU 사용률
-- 장치 온도
-- 최근 오류
+- Response time
+- Current queue length
+- Recent inference success rate
+- CPU utilisation
+- Memory utilisation
+- NPU utilisation
+- Device temperature
+- Recent errors
 
-## FR-03. 추론 요청 API
+## FR-03. The inference request API
 
-클라이언트는 네트워크 API를 통해 추론 요청을 제출할 수 있어야 한다.
+A client has to be able to submit inference requests over a network API.
 
-요청 정보:
+Request information:
 
 - Request ID
 - Model ID
-- 입력 데이터
-- 입력 형식
-- 우선순위
-- 요청 제한시간
-- 추적 정보
+- Input data
+- Input format
+- Priority
+- Request deadline
+- Tracing information
 
-응답 정보:
+Response information:
 
 - Request ID
-- 결과 데이터
-- 처리 노드
-- 대기시간
-- 전처리 시간
-- 추론 시간
-- 후처리 시간
-- 전체 처리시간
-- 오류 코드
+- Result data
+- The node that handled it
+- Wait time
+- Preprocessing time
+- Inference time
+- Postprocessing time
+- Total processing time
+- Error code
 
-## FR-04. Round Robin 스케줄링
+## FR-04. Round robin scheduling
 
-기본 스케줄러는 정상 상태의 노드에 요청을 순차적으로 분배해야 한다.
+The default scheduler has to distribute requests sequentially to healthy nodes.
 
-Round Robin은 다른 스케줄링 정책의 비교 기준으로 사용한다.
+Round robin serves as the comparison baseline for the other scheduling policies.
 
-## FR-05. 부하 기반 스케줄링
+## FR-05. Load-based scheduling
 
-스케줄러는 각 노드의 큐 길이와 최근 처리시간을 기준으로 요청을 분배할 수 있어야 한다.
+The scheduler has to be able to distribute requests based on each node's queue
+length and recent processing time.
 
-기본 계산 요소:
+Basic calculation inputs:
 
-- 현재 큐 길이
-- 처리 중인 요청 수
-- 이동 평균 추론시간
-- 이동 평균 네트워크 시간
-- 최근 오류율
-- 노드 온도
-- 노드 상태
+- Current queue length
+- Requests being processed
+- Moving average inference time
+- Moving average network time
+- Recent error rate
+- Node temperature
+- Node state
 
-정책 종류, 점수 계산식, 설정 및 CLI 식별자는 `01-TECHSPEC.md` §10에서 정의한다.
+The policy types, score formula, and configuration and CLI identifiers are
+defined in `01-TECHSPEC.md` §10.
 
-본 문서에서 "부하 기반 스케줄링"은 Round Robin이 아닌 정책 전체를 가리키는 산문상의 총칭이며, 설정값이나 CLI 인자로 사용하지 않는다.
+In this document, "load-based scheduling" is a prose umbrella term for the
+non-round-robin policies and is not used as a configuration value or CLI
+argument.
 
-## FR-06. 장애 노드 자동 제외
+## FR-06. Automatic exclusion of a failed node
 
-다음 조건 중 하나가 충족되면 노드를 요청 분배 대상에서 제외해야 한다.
+A node has to be excluded from request distribution when any of the following
+holds.
 
-- 연속 헬스체크 실패
-- 추론 요청 제한시간 초과
-- 오류율 임계치 초과
-- 온도 임계치 초과
-- 런타임 비정상 종료
+- Consecutive health check failures
+- Inference request deadline exceeded
+- Error rate above threshold
+- Temperature above threshold
+- Abnormal runtime termination
 
-## FR-07. 노드 자동 복귀
+## FR-07. Automatic node re-admission
 
-제외된 노드가 연속 헬스체크에 성공하면 Recovering 상태를 거쳐 다시 Healthy 상태로 전환해야 한다.
+An excluded node that passes consecutive health checks has to transition through
+Recovering back to Healthy.
 
-복구 직후에는 제한된 요청만 할당하여 안정성을 확인해야 한다.
+Immediately after recovery, only limited requests are assigned so that stability
+can be confirmed.
 
-## FR-08. 재시도
+## FR-08. Retries
 
-추론 요청이 실패한 경우 다른 정상 노드로 제한된 횟수만큼 재시도할 수 있어야 한다.
+A failed inference request has to be retryable a limited number of times on
+another healthy node.
 
-중복 실행으로 인한 문제를 방지하기 위해 Request ID 기반 중복 처리를 관리해야 한다.
+Request ID-based duplicate handling has to be managed to prevent problems from
+duplicate execution.
 
-## FR-09. 모델 관리
+## FR-09. Model management
 
-각 노드가 어떤 모델을 실행할 수 있는지 스케줄러가 확인할 수 있어야 한다.
+The scheduler has to be able to determine which models each node can run.
 
-v0.1에서는 모델 파일의 자동 배포보다 다음 기능을 우선한다.
+In v0.1 the following take priority over automatic model file deployment.
 
-- 모델 식별
-- 버전 확인
-- 모델 로딩 상태 확인
-- 모델별 요청 라우팅
-- 모델 불일치 감지
+- Model identification
+- Version checking
+- Model load state checking
+- Per-model request routing
+- Model mismatch detection
 
-## FR-10. 메트릭 수집
+## FR-10. Metrics collection
 
-시스템은 다음 메트릭을 수집해야 한다.
+The system has to collect the following metrics.
 
-- 전체 requests/sec
-- 노드별 requests/sec
-- 전체 FPS
-- 노드별 FPS
-- p50 지연시간
-- p95 지연시간
-- p99 지연시간
-- 오류율
-- 재시도율
-- 노드별 큐 길이
-- CPU 사용률
-- 메모리 사용률
-- NPU 사용률
-- 네트워크 송수신량
-- 온도
-- 노드 가용률
+- Total requests/sec
+- Per-node requests/sec
+- Total FPS
+- Per-node FPS
+- p50 latency
+- p95 latency
+- p99 latency
+- Error rate
+- Retry rate
+- Per-node queue length
+- CPU utilisation
+- Memory utilisation
+- NPU utilisation
+- Network send and receive volume
+- Temperature
+- Node availability
 
-## FR-11. 실시간 대시보드
+## FR-11. A live dashboard
 
-사용자는 웹 브라우저를 통해 시스템 상태를 확인할 수 있어야 한다.
+A user has to be able to check system state through a web browser.
 
-대시보드 주요 화면:
+Main dashboard views:
 
-- 클러스터 전체 상태
-- 노드별 상태
-- 전체 처리량
-- 노드별 처리량
-- 지연시간 분포
-- 현재 큐 길이
-- 장애 및 복구 이벤트
-- 시스템 구성
-- 벤치마크 실행 상태
+- Overall cluster state
+- Per-node state
+- Total throughput
+- Per-node throughput
+- Latency distribution
+- Current queue length
+- Failure and recovery events
+- System configuration
+- Benchmark execution state
 
-## FR-12. 벤치마크 실행 도구
+## FR-12. A benchmark execution tool
 
-동일한 조건으로 실험을 반복할 수 있는 CLI 도구를 제공해야 한다.
+A CLI tool has to be provided for repeating experiments under identical
+conditions.
 
-CLI 옵션 예시:
+Example CLI options:
 
 ```bash
 npuforge-bench \
@@ -405,17 +453,18 @@ npuforge-bench \
   --scheduler ect
 ```
 
-정확한 인자 목록과 정책 식별자는 `01-TECHSPEC.md` §10.0 및 `03-DEVELOPMENT-REQUIREMENTS.md` §3.1을 따른다.
+The exact argument list and policy identifiers follow `01-TECHSPEC.md` §10.0 and
+`03-DEVELOPMENT-REQUIREMENTS.md` §3.1.
 
-출력 형식:
+Output formats:
 
-- 콘솔 요약
+- Console summary
 - JSON
 - CSV
 
-## FR-13. 단계별 지연시간 측정
+## FR-13. Per-stage latency measurement
 
-각 요청은 다음 처리 시간을 분리하여 기록해야 한다.
+Each request has to record the following times separately.
 
 - Client transmission
 - Scheduler queue
@@ -429,642 +478,687 @@ npuforge-bench \
 - Result transmission
 - End-to-end latency
 
-## FR-14. 이벤트 로그
+## FR-14. Event logs
 
-다음 이벤트를 구조화된 로그로 기록해야 한다.
+The following events have to be recorded as structured logs.
 
-- 노드 등록
-- 노드 연결 종료
-- 헬스체크 실패
-- 장애 노드 제외
-- 노드 복구
-- 요청 재시도
-- 제한시간 초과
-- 모델 불일치
-- 스케줄러 정책 변경
+- Node registration
+- Node connection closed
+- Health check failure
+- Failed node excluded
+- Node recovered
+- Request retried
+- Deadline exceeded
+- Model mismatch
+- Scheduler policy changed
 
-## FR-15. 노드 Drain 및 Disable
+## FR-15. Node drain and disable
 
-운영자는 노드를 물리적으로 중단하지 않고 요청 분배 대상에서 제외할 수 있어야 한다.
+An operator has to be able to exclude a node from request distribution without
+physically stopping it.
 
-- **Drain**: 신규 요청 할당을 중지하고, 처리 중인 요청이 완료될 때까지 대기한다.
-- **Disable**: 즉시 후보에서 제외한다.
-- **Enable**: 다시 후보로 편입한다.
+- **Drain**: stop assigning new requests and wait for in-flight requests to
+  complete.
+- **Disable**: exclude from candidates immediately.
+- **Enable**: return it to the candidates.
 
-공식 벤치마크의 1노드, 2노드, 3노드 비교는 전원 차단이나 프로세스 종료가 아니라 이 기능으로 수행한다.
+The official benchmarks' 1-, 2- and 3-node comparisons are performed with these
+functions, not by cutting power or killing processes.
 
-노드 수를 바꾸더라도 전원, 온도, 네트워크, 장비 배치 조건이 동일하게 유지되어야 실험 조건이 성립하기 때문이다. 상세 근거는 `02-HARDWARE-SETUP.md` §12.3을 따른다.
+The experimental conditions only hold if power, temperature, network and
+equipment placement stay identical when node count changes. The detailed
+rationale follows `02-HARDWARE-SETUP.md` §12.3.
 
-장애 실험(§11.6)에서의 강제 종료 및 네트워크 차단은 이와 별개이며, 자동 감지 동작을 검증하기 위한 것이다.
+The forced termination and network disconnection in the failure experiments
+(§11.6) are separate, and exist to verify the automatic detection behaviour.
 
 ---
 
-# 8. 비기능 요구사항
+# 8. Non-functional requirements
 
-## NFR-01. 성능
+## NFR-01. Performance
 
-- 3노드 확장 효율 80% 이상, 즉 단일 노드 대비 총 처리량 2.4배 이상을 1차 목표로 한다.
-- 3노드 확장 효율 85% 이상을 최종 목표로 한다.
-- 정상 부하에서 스케줄러 자체 CPU 사용률이 전체 시스템 병목이 되지 않아야 한다.
-- 중앙 스케줄러에서 발생하는 라우팅 오버헤드는 전체 지연시간의 5% 이하를 목표로 한다.
+- A 3-node scaling efficiency of 80% or better — total throughput of 2.4× a
+  single node — is the first target.
+- A 3-node scaling efficiency of 85% or better is the final target.
+- Under normal load, the scheduler's own CPU utilisation must not become the
+  system's bottleneck.
+- Routing overhead arising in the central scheduler targets 5% or less of total
+  latency.
 
-확장 효율은 다음과 같이 계산한다.
+Scaling efficiency is calculated as:
 
 ```text
-확장 효율 =
-3노드 총 처리량 /
-(단일 노드 처리량 × 3)
+scaling efficiency =
+3-node total throughput /
+(single-node throughput x 3)
 ```
 
-본 절의 수치는 **목표치이며 성공 조건이 아니다.**
+The figures in this section are **targets, not success conditions.**
 
-목표 미달 자체는 실패가 아니다. 성공 여부의 판단 기준은 §12.1에 따른다.
+Missing a target is not in itself a failure. The criterion for judging success
+follows §12.1.
 
-## NFR-02. 신뢰성
+## NFR-02. Reliability
 
-- 단일 노드 장애가 전체 서비스 중단으로 이어지지 않아야 한다.
-- 장애 노드 감지 후 설정된 시간 내 요청 분배 대상에서 제외해야 한다.
-- 실패한 요청은 다른 노드에서 재시도할 수 있어야 한다.
-- 노드 재기동 후 수동 개입 없이 복구할 수 있어야 한다.
+- A single node's failure must not lead to a full service outage.
+- A failed node has to be excluded from request distribution within a configured
+  time of detection.
+- Failed requests have to be retryable on another node.
+- Recovery after a node restart has to happen without manual intervention.
 
-## NFR-03. 재현성
+## NFR-03. Reproducibility
 
-- 모든 벤치마크 조건을 설정 파일로 저장해야 한다.
-- 사용한 모델, 데이터 세트, 런타임, 커널, 보드 정보가 기록돼야 한다.
-- 동일 조건에서 반복 실험할 수 있어야 한다.
-- 결과 원본을 JSON 또는 CSV로 보존해야 한다.
+- All benchmark conditions have to be storable as configuration files.
+- The model, dataset, runtime, kernel and board information used has to be
+  recorded.
+- Experiments have to be repeatable under identical conditions.
+- Raw results have to be preserved as JSON or CSV.
 
-## NFR-04. 이식성
+## NFR-04. Portability
 
-코어 스케줄러는 특정 NPU 런타임에 직접 종속되지 않아야 한다.
+The core scheduler must not depend directly on a particular NPU runtime.
 
-백엔드 인터페이스를 통해 NPU 런타임을 분리한다.
+The NPU runtime is separated behind a backend interface.
 
 ```text
 InferenceBackend
-  ├─ RKNN Backend
-  ├─ CPU Mock Backend
-  └─ Future Backend
+  |- RKNN Backend
+  |- CPU Mock Backend
+  \- Future Backend
 ```
 
-## NFR-05. 보안
+## NFR-05. Security
 
-v0.1에서는 폐쇄된 로컬 네트워크 환경을 기준으로 한다.
+v0.1 assumes a closed local network environment.
 
-최소 요구사항:
+Minimum requirements:
 
-- 요청 크기 제한
-- 비정상 입력 검증
-- 노드 등록 토큰
-- 관리 API 접근 제한
-- 로그 내 민감정보 제외
+- Request size limits
+- Validation of malformed input
+- A node registration token
+- Restricted management API access
+- No sensitive information in the logs
 
-TLS와 사용자 인증은 선택 기능으로 두되, 외부 네트워크 공개 시 필수로 전환한다.
+TLS and user authentication are optional features, but become mandatory on
+exposure to an external network.
 
-## NFR-06. 오픈소스 품질
+## NFR-06. Open-source quality
 
-- 명확한 라이선스를 적용한다.
-- README에 설치 및 실행 방법을 제공한다.
-- 샘플 설정 파일을 제공한다.
-- 최소 한 개의 재현 가능한 데모 시나리오를 제공한다.
-- 주요 모듈에 단위 테스트를 제공한다.
-- GitHub Actions 또는 자체 CI를 구성한다.
+- Apply a clear license.
+- Provide installation and execution instructions in the README.
+- Provide sample configuration files.
+- Provide at least one reproducible demo scenario.
+- Provide unit tests for the main modules.
+- Set up GitHub Actions or an equivalent CI.
 
 ---
 
-# 9. 기술 구성
+# 9. Technical composition
 
-## 9.1 전체 구조
+## 9.1 Overall structure
 
 ```text
-┌──────────────────────┐
-│ Benchmark Client     │
-│ Demo Web Client      │
-└──────────┬───────────┘
-           │
-           ▼
-┌──────────────────────┐
-│ NPUDure Scheduler   │
-│                      │
-│ · API Gateway        │
-│ · Node Registry      │
-│ · Health Monitor     │
-│ · Load Scheduler     │
-│ · Metrics Collector  │
-└──────┬──────┬────────┘
-       │      │
-       ▼      ▼
-┌──────────┐ ┌──────────┐ ┌──────────┐
-│ Node 01  │ │ Node 02  │ │ Node 03  │
-│ RK3576   │ │ RK3576   │ │ RK3576   │
-│ RKNN NPU │ │ RKNN NPU │ │ RKNN NPU │
-└──────────┘ └──────────┘ └──────────┘
++----------------------+
+| Benchmark Client     |
+| Demo Web Client      |
++----------+-----------+
+           |
+           v
++----------------------+
+| NPUDure Scheduler    |
+|                      |
+| . API Gateway        |
+| . Node Registry      |
+| . Health Monitor     |
+| . Load Scheduler     |
+| . Metrics Collector  |
++------+------+--------+
+       |      |
+       v      v
++----------+ +----------+ +----------+
+| Node 01  | | Node 02  | | Node 03  |
+| RK3576   | | RK3576   | | RK3576   |
+| RKNN NPU | | RKNN NPU | | RKNN NPU |
++----------+ +----------+ +----------+
 ```
 
-## 9.2 주요 컴포넌트
+## 9.2 Main components
 
 ### npuforge-scheduler
 
-중앙 스케줄러.
+The central scheduler.
 
-주요 책임:
+Main responsibilities:
 
-- API 요청 수신
-- 노드 등록 및 상태 관리
-- 요청 스케줄링
-- 실패 요청 재시도
-- 메트릭 수집
-- 이벤트 기록
+- Receiving API requests
+- Node registration and state management
+- Request scheduling
+- Retrying failed requests
+- Metrics collection
+- Event recording
 
 ### npuforge-node
 
-각 RK3576 보드에서 실행되는 추론 에이전트.
+The inference agent running on each RK3576 board.
 
-주요 책임:
+Main responsibilities:
 
-- RKNN 모델 로딩
-- 추론 요청 수신
-- 전처리
-- NPU 추론
-- 후처리
-- 상태 및 메트릭 보고
+- Loading the RKNN model
+- Receiving inference requests
+- Preprocessing
+- NPU inference
+- Postprocessing
+- Reporting state and metrics
 
 ### npuforge-bench
 
-성능 측정 CLI.
+The performance measurement CLI.
 
-주요 책임:
+Main responsibilities:
 
-- 동시 요청 생성
-- 테스트 데이터 반복 전송
-- 부하 패턴 설정
-- 결과 저장
-- 기본 통계 계산
+- Generating concurrent requests
+- Sending test data repeatedly
+- Configuring the load pattern
+- Storing results
+- Computing basic statistics
 
 ### npuforge-dashboard
 
-클러스터 상태와 실험 결과를 표시하는 웹 UI.
+A web UI displaying cluster state and experimental results.
 
 ### npuforge-common
 
-공통 데이터 모델, 오류 코드, 설정 구조체를 포함한다.
+Contains the shared data models, error codes and configuration structures.
 
 ### npuforge-mock-backend
 
-실제 NPU 없이 스케줄링, 장애 감지, 복구, 대시보드, CI 통합 테스트를 검증하기 위한 소프트웨어 백엔드.
+A software backend for verifying scheduling, failure detection, recovery, the
+dashboard and CI integration tests without a real NPU.
 
-추론시간, 편차, 오류율, 큐 제한을 설정으로 조절한다.
+Inference time, variance, error rate and queue limits are adjustable through
+configuration.
 
-외부 사용자가 RK3576 장비 없이도 NPUDure의 핵심 구조를 실행할 수 있어야 하므로 부가 기능이 아닌 필수 구성요소로 취급한다.
+An external user has to be able to run NPUDure's core structure without RK3576
+hardware, so it is treated as an essential component rather than an extra.
 
-크레이트 전체 목록과 정확한 이름은 `01-TECHSPEC.md` §4에서 정의한다.
+The full crate list and their exact names are defined in `01-TECHSPEC.md` §4.
 
 ---
 
-# 10. 기술 선택
+# 10. Technology choices
 
 ## 10.1 Rust
 
-Rust를 사용하는 이유:
+Why Rust:
 
-- 장시간 동작하는 시스템 소프트웨어의 메모리 안전성
-- 비동기 네트워크 서버 구현
-- 낮은 런타임 오버헤드
-- 구조화된 동시성 구현
-- C 기반 RKNN API와의 FFI 연계 가능
-- Linux 오픈소스 프로젝트와의 높은 적합성
+- Memory safety for long-running systems software
+- Implementing asynchronous network servers
+- Low runtime overhead
+- Implementing structured concurrency
+- FFI integration with the C-based RKNN API
+- A high degree of fit with Linux open-source projects
 
 ## 10.2 Tokio
 
-v0.1 기본 네트워크 런타임으로 Tokio를 사용한다.
+Tokio is the default network runtime for v0.1.
 
-Tokio 구현을 성능 기준선으로 삼고, 실제 병목이 확인될 경우 io_uring 기반 구현과 비교한다.
+The Tokio implementation serves as the performance baseline, and is compared
+against an io_uring-based implementation if an actual bottleneck is confirmed.
 
 ## 10.3 io_uring
 
-io_uring은 필수 기능이 아니라 비교 실험 기능이다.
+io_uring is not a required feature but a comparison experiment.
 
-적용 조건:
+Conditions for applying it:
 
-- 네트워크 또는 시스템 호출 오버헤드가 측정 가능한 병목일 것
-- 동시 요청 수가 충분히 높을 것
-- 일반 Tokio 구현 대비 비교 가능한 실험을 구성할 수 있을 것
+- Network or system call overhead is a measurable bottleneck
+- The concurrent request count is high enough
+- A comparable experiment against the ordinary Tokio implementation can be
+  constructed
 
-## 10.4 Zero-Copy
+## 10.4 Zero-copy
 
-Zero-Copy는 마케팅 용어가 아니라 실제 복사 횟수 감소 여부로 평가한다.
+Zero-copy is not a marketing term; it is evaluated by whether the actual copy
+count falls.
 
-v0.1에서는 다음 경로를 분석한다.
+v0.1 analyses the following path.
 
 ```text
 Network Buffer
-→ User Buffer
-→ Decode Buffer
-→ Preprocess Buffer
-→ NPU Input Buffer
+-> User Buffer
+-> Decode Buffer
+-> Preprocess Buffer
+-> NPU Input Buffer
 ```
 
-각 구간의 복사 여부를 확인하고 제거 가능한 복사만 최적화한다.
+Each section is checked for copies, and only removable copies are optimized.
 
-완전한 Zero-Copy는 보장하지 않는다.
+Complete zero-copy is not guaranteed.
 
 ## 10.5 RKNN
 
-RK3576 NPU 실행은 초기 버전에서 RKNN Runtime을 이용한다.
+RK3576 NPU execution uses the RKNN Runtime in the initial version.
 
-RKNN 종속성을 최소화하기 위해 추론 백엔드 인터페이스를 별도 계층으로 분리한다.
+To minimise RKNN dependence, the inference backend interface is separated into
+its own layer.
 
 ---
 
-# 11. 실험 설계
+# 11. Experiment design
 
-## 11.1 기본 실험 구성
+## 11.1 Basic experimental setup
 
-- 동일한 RK3576 보드 3대
-- 동일한 OS와 커널
-- 동일한 RKNN Runtime
-- 동일한 모델
-- 동일한 입력 데이터
-- 2.5GbE 유선 네트워크
-- 동일한 전원 및 냉각 조건
+- Three identical RK3576 boards
+- The same OS and kernel
+- The same RKNN Runtime
+- The same model
+- The same input data
+- A 2.5GbE wired network
+- The same power and cooling conditions
 
-물리 구성의 상세 조건은 `02-HARDWARE-SETUP.md`를 따른다.
+The detailed physical conditions follow `02-HARDWARE-SETUP.md`.
 
-## 11.2 노드 수 비교
+## 11.2 Node count comparison
 
-- 1노드
-- 2노드
-- 3노드
+- 1 node
+- 2 nodes
+- 3 nodes
 
-측정 지표:
+Metrics measured:
 
 - requests/sec
 - FPS
 - p50
 - p95
 - p99
-- 오류율
-- CPU 사용률
-- 메모리 사용률
-- 네트워크 사용량
-- 전력 사용량
-- 온도
+- Error rate
+- CPU utilisation
+- Memory utilisation
+- Network usage
+- Power consumption
+- Temperature
 
-## 11.3 동시 요청 수
+## 11.3 Concurrent request count
 
-기본 동시성 조건은 4배 간격의 네 단계로 한다.
+The default concurrency conditions are four steps at 4× intervals.
 
 - 1
 - 4
 - 16
 - 64
 
-동시성 축은 노드 수, 정책, 반복 횟수와 곱해지므로 단계를 하나 늘릴 때마다 총 측정시간이 수 시간 단위로 증가한다.
+The concurrency axis multiplies with node count, policy and repetition count, so
+each additional step raises total measurement time by hours.
 
-축을 추가하기 전에 반드시 총 소요시간을 먼저 계산한다. 시나리오별 적용 동시성은 `01-TECHSPEC.md` §20.2에서 정의한다.
+Always calculate the total time before adding an axis. The concurrencies applied
+per scenario are defined in `01-TECHSPEC.md` §20.2.
 
-## 11.4 스케줄러 비교
+## 11.4 Scheduler comparison
 
 - Round Robin
 - Least Queue
 - Estimated Completion Time
 
-세 정책의 점수 계산식과 설정 및 CLI 식별자는 `01-TECHSPEC.md` §10에서 정의한다.
+The three policies' score formulas and their configuration and CLI identifiers
+are defined in `01-TECHSPEC.md` §10.
 
-## 11.5 네트워크 구현 비교
+## 11.5 Network implementation comparison
 
-- Tokio TCP 또는 gRPC
-- Tokio + 버퍼 풀
+- Tokio TCP or gRPC
+- Tokio + a buffer pool
 - io_uring
-- io_uring + 적용 가능한 복사 최적화
+- io_uring + applicable copy optimizations
 
-## 11.6 장애 실험
+## 11.6 Failure experiments
 
-- 노드 프로세스 강제 종료
-- 네트워크 케이블 분리
-- 높은 온도로 인한 성능 저하
-- 모델 로딩 실패
-- 요청 처리 지연
-- 노드 복구 및 재편입
+- Forcibly killing a node process
+- Disconnecting the network cable
+- Performance degradation from high temperature
+- Model loading failure
+- Request processing delay
+- Node recovery and re-admission
 
-## 11.7 비용 비교
+## 11.7 Cost comparison
 
-다음 항목을 포함한다.
+Includes the following.
 
-- 하드웨어 구매비용
-- 전력 소비
-- 처리량당 비용
-- FPS당 비용
-- 운영 복잡도
-- 장비 수
-- 장애 지점 수
-
----
-
-# 12. 성공 기준
-
-## 12.1 필수 성공 기준
-
-성공 기준은 "특정 수치가 나왔는가"가 아니라 **"측정하고 설명할 수 있는가"** 로 정의한다.
-
-측정을 목적으로 하는 프로젝트에서 결과값을 성공 조건으로 걸면, 목표 수치가 나오지 않을 때 실험 조건을 유리하게 선택할 유인이 생긴다. 이는 본 프로젝트의 핵심 가치인 재현성과 정면으로 충돌한다.
-
-따라서 성능 목표치는 §8 NFR-01에 두고, 달성 여부는 성공 조건이 아니라 결과로 보고한다.
-
-다음 조건을 충족하면 NPUDure v0.1을 성공으로 판단한다.
-
-- RK3576 NPU 노드 3대 연결
-- 단일, 2노드, 3노드 추론 성공
-- 1/2/3노드 확장 배율과 확장 효율 측정, 목표 미달 시 병목 원인의 정량적 제시
-- 노드 장애 시 서비스 지속
-- 장애 노드 자동 제외 및 복구
-- p50, p95, p99 측정
-- 실시간 상태 대시보드 동작
-- GitHub 소스 공개
-- 설치 및 실행 문서 공개
-- 재현 가능한 벤치마크 공개
-- FOSS for All Conference 발표 자료와 데모 준비
-
-## 12.2 권장 성공 기준
-
-- 3노드 확장 효율 85% 이상
-- 부하 기반 스케줄러가 Round Robin 대비 의미 있는 개선
-- io_uring 효과를 정량적으로 설명
-- 데이터 복사 횟수와 비용 분석
-- 노드 장애 중 요청 실패율 최소화
-- 자동화된 설치 스크립트
-- Docker 또는 systemd 기반 실행 지원
-- CPU Mock Backend 제공
-- 외부 기여자가 재현 가능한 수준의 문서화
-
-## 12.2.1 열 특성 측정
-
-보유 장비인 NanoPi R76S는 팬리스 보드다. 능동 냉각을 추가하지 않고 **thermal throttling을 측정 대상에 포함**한다.
-
-측정 결과:
-
-- Peak FPS 대비 Sustained FPS의 격차
-- throttling 시작 시점
-- 정상 상태 온도와 성능 저하율
-
-벤더가 공개하는 TOPS는 순간 성능이며, 팬리스 엣지 디바이스의 지속 성능은 공개 자료가 거의 없다. 이 격차를 측정하는 것은 "TOPS 수치가 실제 처리량을 대표하지 못한다"는 본 프로젝트의 문제 정의(§2)와 직접 연결된다.
-
-단, **열 특성과 확장 효율은 분리해서 보고한다.** 두 가지가 섞이면 처리량 저하의 원인이 스케줄링인지 온도인지 구분할 수 없다.
-
-상세 설계는 `01-TECHSPEC.md` §20.2 S0, 물리 조건은 `02-HARDWARE-SETUP.md` §9를 따른다.
-
-## 12.3 실패해도 의미 있는 결과
-
-다음 결과도 유효한 기술 성과로 간주한다.
-
-- io_uring이 유의미한 성능 개선을 만들지 못함
-- Zero-Copy 적용 범위가 제한적임
-- 네트워크보다 NPU 또는 전처리가 주요 병목으로 확인됨
-- 3노드 확장 효율이 예상보다 낮음
-- 단일 고성능 장치가 비용 면에서 더 유리함
-
-이 경우에도 병목 원인과 적용 조건을 정량적으로 제시하면 발표 및 연구 결과로 가치가 있다.
+- Hardware purchase cost
+- Power consumption
+- Cost per throughput
+- Cost per FPS
+- Operational complexity
+- Equipment count
+- Number of failure points
 
 ---
 
-# 13. 발표 데모 시나리오
+# 12. Success criteria
 
-## 데모 1. 단일 노드와 3노드 비교
+## 12.1 Required success criteria
 
-동일한 영상 또는 이미지 데이터 세트를 사용하여 단일 노드와 3노드의 처리량을 실시간 비교한다.
+Success is defined not as "did a particular number come out" but as **"can it be
+measured and explained."**
 
-화면 표시:
+In a project whose purpose is measurement, setting a result value as a success
+condition creates an incentive to choose experimental conditions favourably when
+the target does not come out. That collides head-on with reproducibility, this
+project's central value.
 
-- 단일 노드 FPS
-- 3노드 전체 FPS
-- 확장 배율
-- 확장 효율
-- p95 지연시간
+So the performance targets sit in §8 NFR-01, and whether they were achieved is
+reported as a result rather than as a success condition.
 
-## 데모 2. 실시간 부하 분산
+NPUDure v0.1 is judged successful when the following hold.
 
-각 노드로 요청이 분배되는 모습을 대시보드에서 보여준다.
+- Three RK3576 NPU nodes connected
+- Single-, 2- and 3-node inference working
+- 1/2/3-node scaling factor and scaling efficiency measured, with a quantitative
+  account of the bottleneck if the target is missed
+- Service continuing when a node fails
+- Automatic exclusion and recovery of a failed node
+- p50, p95 and p99 measured
+- The live status dashboard working
+- Source published on GitHub
+- Installation and execution documentation published
+- Reproducible benchmarks published
+- Presentation material and demo ready for the FOSS for All Conference
 
-표시 항목:
+## 12.2 Recommended success criteria
 
-- 노드별 큐
-- 노드별 처리량
-- 노드별 온도
-- 노드별 상태
-- 요청 라우팅 현황
+- 3-node scaling efficiency of 85% or better
+- A meaningful improvement from load-based scheduling over round robin
+- A quantitative account of io_uring's effect
+- Analysis of the data copy count and its cost
+- Minimised request failure rate during a node failure
+- An automated installation script
+- Docker- or systemd-based execution support
+- A CPU Mock backend provided
+- Documentation sufficient for an external contributor to reproduce the work
 
-## 데모 3. 노드 장애
+## 12.2.1 Thermal characterisation
 
-3노드 동작 중 한 노드의 프로세스를 종료하거나 네트워크를 차단한다.
+The NanoPi R76S on hand is a fanless board. No active cooling is added and
+**thermal throttling is included in what gets measured.**
 
-예상 동작:
+Measured results:
 
-1. 헬스체크 실패
-2. 장애 노드 자동 제외
-3. 나머지 2노드로 요청 재분배
-4. 서비스 지속
-5. 노드 재시작
-6. 정상 확인 후 자동 재편입
+- The gap between peak FPS and sustained FPS
+- The onset of throttling
+- Steady-state temperature and the degradation rate
 
-## 데모 4. 스케줄러 비교
+The TOPS a vendor publishes is instantaneous performance, and there is barely any
+public material on a fanless edge device's sustained performance. Measuring that
+gap connects directly to this project's problem statement (§2), that "the TOPS
+figure does not represent actual throughput".
 
-Round Robin과 ECT 정책의 처리량 및 지연시간을 비교한다.
+But **thermal characteristics and scaling efficiency are reported separately.**
+Mixed together, there is no way to tell whether a throughput drop came from
+scheduling or from temperature.
 
----
+The detailed design follows `01-TECHSPEC.md` §20.2 S0, and the physical
+conditions `02-HARDWARE-SETUP.md` §9.
 
-# 14. 일정
+## 12.3 Results that are meaningful even in failure
 
-## 2026년 8월
+The following are also counted as valid technical outcomes.
 
-- PRD 작성
-- 기술 사양서 작성
-- 프로젝트 저장소 생성
-- 개발 환경 정리
-- 단일 RK3576 RKNN 추론 검증
-- Rust FFI 최소 검증
+- io_uring producing no meaningful performance improvement
+- Zero-copy applying to only a limited scope
+- The NPU or preprocessing, rather than the network, being confirmed as the
+  primary bottleneck
+- Three-node scaling efficiency being lower than expected
+- A single high-performance device being more favourable on cost
 
-## 2026년 9월
-
-- NPU 노드 에이전트 구현
-- 중앙 스케줄러 구현
-- 단일, 2노드, 3노드 연결
-- Round Robin 구현
-- 기본 벤치마크 도구 구현
-- 예비 결과 확보
-
-## 2026년 10월
-
-- Least Queue 및 ECT 스케줄러 구현
-- 헬스체크 구현
-- 장애 노드 제외 및 복구
-- 요청 재시도
-- 메트릭 수집
-- 대시보드 구현
-- Tokio 기준 성능 확정
-- io_uring 적용 여부 판단
-
-## 2026년 11월 1일~15일
-
-- io_uring 비교 실험
-- 데이터 복사 분석
-- 최종 벤치마크
-- 비용 및 전력 분석
-- 코드 정리
-- GitHub 문서 작성
-- 데모 안정화
-
-## 2026년 11월 16일~22일
-
-- 기능 동결
-- 발표자료 작성
-- 데모 영상 촬영
-- 발표 리허설
-- 장애 상황 대비 예비 영상 준비
-
-## 2026년 11월 28일
-
-- FOSS for All Conference 발표
-- NPUDure v0.1 공개
+Even then, presenting the bottleneck's cause and the conditions of application
+quantitatively has value as a talk and as a research result.
 
 ---
 
-# 15. 주요 위험과 대응
+# 13. Demo scenarios for the talk
 
-## 위험 1. RKNN Rust FFI 불안정
+## Demo 1. Single node versus three nodes
 
-대응:
+Compare single-node and three-node throughput live, using the same video or
+image dataset.
 
-- 최소 C Wrapper를 작성한다.
-- unsafe 영역을 별도 모듈로 격리한다.
-- 입력 및 출력 버퍼 수명 관리를 명확히 한다.
-- 단위 테스트와 반복 추론 테스트를 수행한다.
+Displayed:
 
-## 위험 2. 3노드 성능 향상이 낮음
+- Single-node FPS
+- Total 3-node FPS
+- Scaling factor
+- Scaling efficiency
+- p95 latency
 
-대응:
+## Demo 2. Live load distribution
 
-- NPU 연산과 전처리 시간을 분리 측정한다.
-- 입력 데이터 크기를 비교한다.
-- 동시 요청 수를 조정한다.
-- 네트워크와 스케줄러 오버헤드를 측정한다.
-- 실패 결과도 병목 분석 자료로 활용한다.
+Show requests being distributed across the nodes on the dashboard.
 
-## 위험 3. io_uring 효과가 미미함
+Displayed:
 
-대응:
+- Per-node queue
+- Per-node throughput
+- Per-node temperature
+- Per-node state
+- Request routing status
 
-- Tokio를 기본 구현으로 유지한다.
-- io_uring은 실험 브랜치로 분리한다.
-- 효과가 없으면 적용 조건과 원인을 결과로 정리한다.
+## Demo 3. Node failure
 
-## 위험 4. Zero-Copy 구현 난도
+During three-node operation, kill one node's process or cut its network.
 
-대응:
+Expected behaviour:
 
-- 완전한 Zero-Copy를 성공 기준에서 제외한다.
-- 버퍼 풀과 메모리 재사용을 우선한다.
-- 복사 횟수 감소 자체를 측정한다.
+1. Health check failure
+2. The failed node automatically excluded
+3. Requests redistributed to the remaining two nodes
+4. Service continues
+5. The node restarts
+6. Automatic re-admission after confirming health
 
-## 위험 5. 발표 일정 부족
+## Demo 4. Scheduler comparison
 
-대응:
-
-- 데모 필수 범위를 제한한다.
-- 기능 완성보다 벤치마크 재현성을 우선한다.
-- 11월 15일 이후 기능 추가를 금지한다.
-- 라이브 데모 장애에 대비해 녹화 영상을 준비한다.
-
-## 위험 6. 프로젝트 범위 확대
-
-대응:
-
-v0.1에서는 다음 요청을 거절한다.
-
-- LLM 모델 병렬
-- Kubernetes 연동
-- 다중 제조사 NPU 지원
-- 클라우드 관리 서비스
-- 사용자 계정 시스템
-- 자동 모델 변환
-- 범용 AI 플랫폼 기능
+Compare throughput and latency between the round robin and ECT policies.
 
 ---
 
-# 16. 오픈소스 공개 계획
+# 14. Schedule
 
-## 저장소 구조
+## August 2026
 
-`01-TECHSPEC.md` §4에서 정의한다.
+- Write the PRD
+- Write the technical specification
+- Create the project repository
+- Organise the development environment
+- Verify single RK3576 RKNN inference
+- Minimal Rust FFI validation
 
-## 공개 산출물
+## September 2026
 
-- 전체 소스코드
-- 빌드 방법
-- 설치 방법
-- 샘플 설정
-- 테스트 데이터 안내
-- 벤치마크 실행 방법
-- 원본 벤치마크 결과
-- 아키텍처 문서
-- 알려진 제한사항
-- 발표자료
-- 데모 영상
+- Implement the NPU node agent
+- Implement the central scheduler
+- Connect single, 2 and 3 nodes
+- Implement round robin
+- Implement the basic benchmark tool
+- Secure preliminary results
 
-## 라이선스 후보
+## October 2026
 
-우선 검토 대상:
+- Implement the Least Queue and ECT schedulers
+- Implement health checks
+- Failed node exclusion and recovery
+- Request retries
+- Metrics collection
+- Implement the dashboard
+- Settle the Tokio baseline performance
+- Decide whether to apply io_uring
+
+## 1–15 November 2026
+
+- The io_uring comparison experiment
+- Data copy analysis
+- Final benchmarks
+- Cost and power analysis
+- Code cleanup
+- Write the GitHub documentation
+- Stabilise the demo
+
+## 16–22 November 2026
+
+- Feature freeze
+- Write the presentation material
+- Record the demo video
+- Rehearse the talk
+- Prepare a backup video in case of failure
+
+## 28 November 2026
+
+- The FOSS for All Conference talk
+- NPUDure v0.1 published
+
+---
+
+# 15. Main risks and responses
+
+## Risk 1. RKNN Rust FFI instability
+
+Response:
+
+- Write a minimal C wrapper.
+- Isolate the unsafe region in a separate module.
+- Manage input and output buffer lifetimes explicitly.
+- Run unit tests and repeated inference tests.
+
+## Risk 2. Low performance gain at three nodes
+
+Response:
+
+- Measure NPU computation and preprocessing time separately.
+- Compare input data sizes.
+- Adjust the concurrent request count.
+- Measure network and scheduler overhead.
+- Use a negative result as bottleneck analysis material.
+
+## Risk 3. io_uring having little effect
+
+Response:
+
+- Keep Tokio as the default implementation.
+- Separate io_uring into an experimental branch.
+- If there is no effect, write up the conditions of application and the cause as
+  a result.
+
+## Risk 4. Zero-copy implementation difficulty
+
+Response:
+
+- Exclude complete zero-copy from the success criteria.
+- Prioritise the buffer pool and memory reuse.
+- Measure the reduction in copy count itself.
+
+## Risk 5. Insufficient time before the talk
+
+Response:
+
+- Limit the required demo scope.
+- Prioritise benchmark reproducibility over feature completeness.
+- Forbid feature additions after 15 November.
+- Prepare a recorded video against a live demo failure.
+
+## Risk 6. Scope creep
+
+Response:
+
+v0.1 declines the following requests.
+
+- LLM model parallelism
+- Kubernetes integration
+- Multi-manufacturer NPU support
+- A cloud management service
+- A user account system
+- Automatic model conversion
+- General-purpose AI platform features
+
+---
+
+# 16. Open-source publication plan
+
+## Repository structure
+
+Defined in `01-TECHSPEC.md` §4.
+
+## Published artefacts
+
+- The full source code
+- Build instructions
+- Installation instructions
+- Sample configuration
+- Guidance on the test data
+- Benchmark execution instructions
+- Raw benchmark results
+- Architecture documentation
+- Known limitations
+- Presentation material
+- The demo video
+
+## License candidates
+
+Under consideration:
 
 - Apache License 2.0
 - MIT License
 
-특허 조항과 기업 활용 가능성을 고려하면 Apache License 2.0을 우선 검토한다.
+Considering the patent clause and the potential for corporate use, Apache
+License 2.0 is the preferred candidate.
 
 ---
 
-# 17. 향후 확장
+# 17. Future extensions
 
-v0.1 이후 검토 가능한 기능:
+Features that can be considered after v0.1:
 
-- Hailo 백엔드
-- Jetson TensorRT 백엔드
-- OpenVINO 백엔드
-- 모델 자동 배포
-- 다중 모델 스케줄링
-- SLA 기반 스케줄링
-- 에너지 최적화 스케줄링
-- 카메라 스트림 직접 입력
-- 분산 추적
-- WebAssembly 클라이언트
-- Kubernetes Device Plugin
-- 광역 엣지 노드 연동
-- LLM 요청 단위 분산
-- 박사논문용 적응형 스케줄링 알고리즘
-
----
-
-# 18. 최종 제품 정의
-
-NPUDure v0.1은 6 TOPS NPU 세 대를 물리적으로 합쳐 하나의 18 TOPS NPU를 만드는 제품이 아니다.
-
-NPUDure는 독립적인 추론 요청을 여러 엣지 NPU에 효율적으로 분배하고, 실제 성능과 병목을 측정하며, 노드 장애 상황에서도 서비스를 지속할 수 있도록 하는 오픈소스 분산 추론 런타임이다.
-
-프로젝트의 핵심 가치는 높은 TOPS 수치 자체가 아니라 다음에 있다.
-
-- 실제 확장 효율의 검증
-- 병목의 정량적 분석
-- 비용 대비 처리량 비교
-- 장애 허용 구조
-- 재현 가능한 오픈소스 실험
-- Linux, Rust, Edge AI 기술의 통합
+- A Hailo backend
+- A Jetson TensorRT backend
+- An OpenVINO backend
+- Automatic model deployment
+- Multi-model scheduling
+- SLA-based scheduling
+- Energy-optimizing scheduling
+- Direct camera stream input
+- Distributed tracing
+- A WebAssembly client
+- A Kubernetes device plugin
+- Wide-area edge node integration
+- Per-request LLM distribution
+- An adaptive scheduling algorithm for the doctoral thesis
 
 ---
 
-# 19. 발표 핵심 메시지
+# 18. Final product definition
 
-> 6 TOPS NPU 세 대를 연결한다고 자동으로 18 TOPS가 되는 것은 아니다.  
-> NPUDure는 그 차이가 어디에서 발생하는지 측정하고, 실제로 확장 가능한 조건을 찾아가는 오픈소스 프로젝트다.
+NPUDure v0.1 is not a product that physically combines three 6 TOPS NPUs into a
+single 18 TOPS NPU.
 
-발표 제목:
+NPUDure is an open-source distributed inference runtime that efficiently
+distributes independent inference requests across several edge NPUs, measures
+actual performance and bottlenecks, and keeps the service running through node
+failures.
 
-> **6 TOPS NPU 세 대는 정말 18 TOPS가 되는가?**  
-> Rust 기반 분산 엣지 추론 런타임 NPUDure 개발기
+The project's core value lies not in a high TOPS figure but in the following.
+
+- Verifying actual scaling efficiency
+- Quantitative analysis of the bottleneck
+- Comparing throughput against cost
+- A fault-tolerant structure
+- A reproducible open-source experiment
+- Integrating Linux, Rust and edge AI technologies
+
+---
+
+# 19. The talk's core message
+
+> Connecting three 6 TOPS NPUs does not automatically make 18 TOPS.
+> NPUDure is an open-source project that measures where that difference arises
+> and works out the conditions under which it actually scales.
+
+The talk title:
+
+> **Do three 6 TOPS NPUs really make 18 TOPS?**
