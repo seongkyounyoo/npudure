@@ -106,25 +106,26 @@ for path in ORDER:
 
 header = f"""<a id="index"></a>
 
-# NPUDure 문서 묶음
+# NPUDure documentation bundle
 
-> **이 파일은 생성물이다. 직접 편집하지 않는다.**
-> `docs/` 의 원본 {len(ORDER)}개를 읽기·인쇄·검토용으로 이어 붙인 것이다.
-> 고칠 것이 있으면 원본을 고치고 다시 만든다.
+> **This file is generated. Do not edit it directly.**
+> It concatenates the {len(ORDER)} source documents under `docs/` for reading,
+> printing and review.
+> If something needs fixing, fix the source and regenerate.
 >
 > ```bash
 > python scripts/build-docs-bundle.py $(git log -1 --format=%cs -- docs/)
 > ```
 >
-> - 생성 기준: **{DATE}** (`docs/` 최종 커밋일)
-> - 파일 간 링크는 문서 내 앵커로 바뀌어 있다
-> - `docs/` 밖을 가리키는 링크(`../results/...`)는 그대로다
-> - **세션 인수인계 메모(`handoff-*.md`)와 공개 준비 문서(`public/`)는 빠져 있다.**
->   연구 산출물이 아니다
+> - Generated as of: **{DATE}** (the last commit date for `docs/`)
+> - Links between files have been rewritten to in-document anchors
+> - Links pointing outside `docs/` (`../results/...`) are left as they are
+> - **Session handoff notes (`handoff-*.md`) and launch-preparation documents
+>   (`public/`) are excluded.** They are not research output
 >
-> 아키텍처 결정 기록은 별도 묶음이다 — [`adrs/ALL.md`](../adrs/ALL.md)
+> The architecture decision records are a separate bundle — [`adrs/ALL.md`](../adrs/ALL.md)
 
-## 차례
+## Contents
 
 {chr(10).join(toc)}
 """

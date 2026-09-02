@@ -38,17 +38,18 @@ for path in order:
     parts.append(f'<a id="{anchor[path.name]}"></a>\n\n{body}')
 
 banner = f"""
-> **이 파일은 생성물이다. 직접 편집하지 않는다.**
-> `adrs/` 의 원본 {len(order)}개를 읽기·인쇄·공유용으로 이어 붙인 것이다.
-> 고칠 것이 있으면 원본을 고치고 다시 만든다.
+> **This file is generated. Do not edit it directly.**
+> It concatenates the {len(order)} source documents under `adrs/` for reading,
+> printing and sharing.
+> If something needs fixing, fix the source and regenerate.
 >
 > ```bash
 > python scripts/build-adr-bundle.py $(git log -1 --format=%cs -- adrs/)
 > ```
 >
-> - 생성 기준: **{DATE}** (`adrs/` 최종 커밋일)
-> - 원본: `adrs/README.md`, `adrs/OVERVIEW.md`, ADR {len(adr_files)}건, `adrs/TEMPLATE.md`
-> - 파일 간 링크는 문서 내 앵커로 바뀌어 있다
+> - Generated as of: **{DATE}** (the last commit date for `adrs/`)
+> - Sources: `adrs/README.md`, `adrs/OVERVIEW.md`, {len(adr_files)} ADRs, `adrs/TEMPLATE.md`
+> - Links between files have been rewritten to in-document anchors
 """
 
 # 첫 문서(README)의 제목 바로 뒤에 배너를 넣는다.
