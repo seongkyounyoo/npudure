@@ -1,6 +1,6 @@
 # NPUDure
 
-*[한국어 README](README.ko.md)*
+*[한국어 README](README.ko.md) · [Project page](https://6954.kr/npudure)*
 
 > **The name.** *Dure* (두레) was a Korean village labour cooperative — farming
 > households pooling their hands so that work none of them could finish alone
@@ -47,7 +47,9 @@ stopped it.
 | **4+ nodes** | **not measured** |
 
 Each of these with its conditions and a link to the raw data:
-[`docs/FAQ.md`](docs/FAQ.md).
+[`docs/FAQ.md`](docs/FAQ.md) — also on the web at
+[6954.kr/npudure/faq](https://6954.kr/npudure/faq), with every claim mapped to
+its measurement at [6954.kr/npudure/evidence](https://6954.kr/npudure/evidence).
 
 ---
 

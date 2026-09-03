@@ -1,6 +1,6 @@
 # NPUDure
 
-*[English README](README.md)*
+*[English README](README.md) · [프로젝트 페이지](https://6954.kr/ko/npudure)*
 
 > **이름에 대하여.** *두레*는 마을 단위의 공동 노동 조직이다. 한 집이 혼자
 > 끝낼 수 없는 일을 여러 집이 품을 모아 함께 끝냈다. 저렴한 NPU를 여기에
@@ -41,6 +41,8 @@
 | **4대 이상** | **미측정** |
 
 각 수치의 측정 조건과 원본 데이터 링크는 [`docs/FAQ.md`](docs/FAQ.md)에 있다 (영문).
+웹에서는 [6954.kr/npudure/faq](https://6954.kr/npudure/faq)에서 읽을 수 있고,
+주장과 근거의 대응은 [6954.kr/npudure/evidence](https://6954.kr/npudure/evidence)에 정리돼 있다.
 
 **상태: 측정 계보 종료 (2026-08-21).** S2 부터 S3.9b · S0-D 까지 닫혔다.
 **측정 421건, 전 구간 오류율 0.** 남은 것은 Prometheus 메트릭(M2)과
