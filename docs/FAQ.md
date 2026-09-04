@@ -317,7 +317,10 @@ The honest limits of the claim:
 
 - **We never instrumented power.** 24 W is a recommended adapter capacity, not
   a measured draw. Actual consumption is lower and we do not know by how much.
-  Measuring it needs a 12 V DC line meter, which we did not have.
+  A USB-C power meter was ordered for exactly this, but it arrived after the
+  measurement campaign had closed — and by then §8.2 had established it was the
+  wrong instrument anyway, because the board's Type-C port is a 5 V output, not
+  a power input path. What this measurement needs is a 12 V DC line meter.
 - **No performance-per-watt comparison against a GPU was run.** That would need
   a GPU on the same workload, same model, same batching discipline. It does not
   exist here.
