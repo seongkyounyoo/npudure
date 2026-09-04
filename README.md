@@ -346,7 +346,7 @@ visible.
 | | |
 |---|---|
 | **[`docs/experiments/README.md`](docs/experiments/README.md)** | **Experiment ledger — start here.** Questions, exclusions, raw-data map, methodology |
-| **[`docs/FAQ.md`](docs/FAQ.md)** | **FAQ** — the ten questions this project gets asked, each with its number, conditions and source |
+| **[`docs/FAQ.md`](docs/FAQ.md)** | **FAQ** — the eleven questions this project gets asked, each with its number, conditions and source |
 | [`adrs/`](adrs/README.md) | 28 architecture decision records |
 | [`docs/experiments/`](docs/experiments/) | 12 experiment reports (S2 · S3 · S3.5–3.9b · S0-A–D) |
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Terminology, experiment ID scheme, pre-registered rules |

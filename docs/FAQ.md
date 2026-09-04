@@ -290,6 +290,49 @@ If you run this on four or more nodes, we would like to see the data.
 
 ---
 
+## 11. Why not just buy a GPU?
+
+**Different power class. Each board takes a 12 V DC adapter, and what we
+recommend is 12 V 2 A — 24 W of supply capacity per board, roughly a phone
+fast-charger. A mid-range desktop GPU draws 170–350 W on its own.**
+
+If a 350 W card and a wall socket are available, use the card. It will beat
+this cluster on YOLOv8n throughput and it is not close. That is not the
+comparison this project is making.
+
+What an Edge NPU Cluster is for is the places where a desktop GPU does not go:
+a power envelope in the tens of watts per board, boards that mount where a
+tower does not fit, and no CUDA in the dependency chain. Throughput is bought
+by adding boards rather than by adding watts to one device.
+
+We know that number matters because getting it wrong broke things. On
+2026-08-10 the three boards had different stability limits under load — `king`
+hard-reset at five worker threads while `queen` completed eight. Same model,
+same software; the likely cause was a difference in adapter capability. Driving
+8 CPU cores and 2 NPU cores at once raises instantaneous current enough that an
+undersized adapter drops voltage and the PMIC resets. **Nothing is left in the
+kernel log when this happens.**
+
+The honest limits of the claim:
+
+- **We never instrumented power.** 24 W is a recommended adapter capacity, not
+  a measured draw. Actual consumption is lower and we do not know by how much.
+  Measuring it needs a 12 V DC line meter, which we did not have.
+- **No performance-per-watt comparison against a GPU was run.** That would need
+  a GPU on the same workload, same model, same batching discipline. It does not
+  exist here.
+
+So the case for this over a GPU is a power-envelope and deployment argument,
+not a benchmark result. Where a GPU fits, it wins.
+
+| | |
+|---|---|
+| Recommended supply | 12 V 2 A (24 W) or more per board |
+| Measured | **nothing** — power was never instrumented |
+| Source | [`docs/02-HARDWARE-SETUP.md`](02-HARDWARE-SETUP.md) §8.2 · [`docs/board-worklog.md`](board-worklog.md) §2.17 |
+
+---
+
 ## Reading the numbers in this file
 
 Four caveats apply to everything above, and they are the same ones in the
