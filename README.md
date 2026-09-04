@@ -207,9 +207,10 @@ We would rather you find these here than in the comments.
 
 ## What this is, and isn't
 
-**Is:** data-parallel distribution of independent requests, load-aware
-scheduling, automatic exclusion and re-admission of failed nodes, per-stage
-latency breakdown, reproducible benchmarks with raw data published.
+**Is:** distributed inference at the request level — data-parallel distribution
+of independent requests, load-aware scheduling, automatic exclusion and
+re-admission of failed nodes, per-stage latency breakdown, reproducible
+benchmarks with raw data published.
 
 **Isn't:** making several NPUs look like one device, reducing the latency of a
 *single* request, layer-wise model partitioning or LLM tensor parallelism, or
