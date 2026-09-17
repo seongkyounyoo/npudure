@@ -353,6 +353,21 @@ visible.
 | [`docs/GLOSSARY.md`](docs/GLOSSARY.md) | Terminology, experiment ID scheme, pre-registered rules |
 | [`docs/01-TECHSPEC.md`](docs/01-TECHSPEC.md) | Architecture, protocol, config schema, benchmark design |
 
+### On the web
+
+The same material, rendered and cross-linked, at [6954.kr](https://6954.kr):
+
+| | |
+|---|---|
+| [6954.kr/npudure](https://6954.kr/npudure) | Overview — the question, the numbers, the limits |
+| [6954.kr/npudure/faq](https://6954.kr/npudure/faq) | The eleven questions, each with its conditions |
+| [6954.kr/npudure/evidence](https://6954.kr/npudure/evidence) | Every claim traced to the run that produced it |
+| [6954.kr/npudure/experiments](https://6954.kr/npudure/experiments) | The experiment ledger — 421 runs, questions and exclusions |
+| [6954.kr/npudure/references](https://6954.kr/npudure/references) | Third-party coverage, and how to cite this work |
+| [6954.kr/notes/do-three-npus-make-18-tops](https://6954.kr/notes/do-three-npus-make-18-tops) | Write-up: do three 6-TOPS NPUs really make 18 TOPS? |
+| [6954.kr/ko/npudure](https://6954.kr/ko/npudure) · [/ko/notes](https://6954.kr/ko/notes) | 한국어판 |
+| [6954.kr/about](https://6954.kr/about) | Who measured this, and why |
+
 English is the primary language for documentation. Where a Korean original
 exists it is kept next to its English counterpart as `X.ko.md` — the English
 file is authoritative. Every document in the repository now has an English

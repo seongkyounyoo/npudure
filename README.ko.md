@@ -246,6 +246,18 @@ RKNN 지원 없이 빌드한 바이너리에 RKNN 설정을 주면 시작 시점
 | [`docs/hosts/`](docs/hosts/) | 스케줄러 호스트 하드웨어 인벤토리 (기계 수집) |
 | [`docs/ALL.md`](docs/ALL.md) | **위 문서 전부를 한 파일로.** 읽기·인쇄·검토용 생성물 |
 
+### 웹에서 읽기
+
+같은 내용을 [6954.kr](https://6954.kr)에서 서로 연결된 형태로 읽을 수 있다.
+
+| | |
+|---|---|
+| [6954.kr/ko/npudure](https://6954.kr/ko/npudure) | 개요 — 무엇을 물었고, 무엇이 나왔고, 무엇이 남았나 |
+| [6954.kr/ko/notes/do-three-npus-make-18-tops](https://6954.kr/ko/notes/do-three-npus-make-18-tops) | 6 TOPS NPU 세 대는 정말 18 TOPS가 되는가 |
+| [6954.kr/ko/notes](https://6954.kr/ko/notes) | 글 목록 |
+| [6954.kr/ko/about](https://6954.kr/ko/about) | 누가, 왜 쟀는가 |
+| [6954.kr/npudure/evidence](https://6954.kr/npudure/evidence) · [/experiments](https://6954.kr/npudure/experiments) · [/references](https://6954.kr/npudure/references) | 근거·실험 대장·인용 (영문) |
+
 문서가 서로 다른 값을 기술하면 `docs/00-PRD.md` §0의 우선순위를 따른다.
 
 **문서는 영문이 정본이다.** 한글 원문이 있는 문서는 영문 옆에 `X.ko.md` 로
